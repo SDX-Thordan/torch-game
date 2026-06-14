@@ -1,3 +1,5 @@
 [toolchain]
-channel = "stable"
+# Pin an exact version so fmt/clippy are reproducible (CI == local); "stable"
+# drifts and rustfmt's output is not stable across versions.
+channel = "1.94.1"
 components = ["rustfmt", "clippy"]
