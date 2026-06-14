@@ -57,6 +57,19 @@ func _ready() -> void:
 			sim.faction_name(fac), sim.faction_standing(fac), sim.faction_tier(fac)
 		])
 
+	# §10: progression — research / blueprints / CEO skills.
+	sim.ceo_gain_xp(3500)
+	sim.ceo_choose_branch(2) # Warlord
+	sim.research_add_points(400)
+	sim.research_tech(0) # Fusion Drives I
+	sim.blueprint_discover(0) # generic Belter Frigate
+	lines.append("progression:")
+	lines.append("  CEO: level %d (%s)" % [sim.ceo_level(), sim.ceo_branch_name()])
+	lines.append("  research: %d techs, +%d%% drive" % [
+		sim.research_unlocked_count(), sim.research_drive_bonus()
+	])
+	lines.append("  blueprints known: %d" % sim.blueprint_known_count())
+
 	# §8: the warship catalog — railgun count is the escalation axis.
 	var yard := TorchShipyard.new()
 	lines.append("warships:")

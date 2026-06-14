@@ -11,6 +11,7 @@ use super::event::Event;
 use super::faction::Relations;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::orbit::{default_system, Body};
+use super::progression::Progression;
 use super::rng::Pcg32;
 use super::traffic::Hauler;
 
@@ -78,6 +79,7 @@ pub struct Sim {
     pirate: Interceptor,
     feed: AlertFeed,
     relations: Relations,
+    progression: Progression,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -106,6 +108,7 @@ impl Sim {
             },
             feed: AlertFeed::new(seed, market_names, commodity_names),
             relations: Relations::new(),
+            progression: Progression::new(),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -145,6 +148,30 @@ impl Sim {
     /// The player's standing with each faction (§10).
     pub fn relations(&self) -> &Relations {
         &self.relations
+    }
+
+    /// Standings, mutable — for diplomacy/contracts that move reputation (§10).
+    pub fn relations_mut(&mut self) -> &mut Relations {
+        &mut self.relations
+    }
+
+    /// The player's advancement across research / blueprints / CEO skills (§10).
+    pub fn progression(&self) -> &Progression {
+        &self.progression
+    }
+
+    /// Advancement, mutable — for research/CEO progress driven by play.
+    pub fn progression_mut(&mut self) -> &mut Progression {
+        &mut self.progression
+    }
+
+    /// Discover blueprint `i`, honoring its reputation gate against the player's
+    /// current standings (§10/§25). Returns whether it was learned.
+    pub fn discover_blueprint(&mut self, i: usize) -> bool {
+        self.progression
+            .blueprints
+            .discover(i, &self.relations)
+            .is_ok()
     }
 
     /// Set the player-tunable alert surfacing threshold (§19).
@@ -418,6 +445,23 @@ mod tests {
             skill_bp: 0,
         };
         assert_ne!(sim.interdict_with(id, frigate), Interdiction::NoSolution);
+    }
+
+    #[test]
+    fn progression_advances_through_the_sim() {
+        let mut sim = Sim::new(0);
+        sim.progression_mut().ceo.gain_xp(3_000);
+        assert_eq!(sim.progression().ceo.level(), 4);
+        sim.progression_mut().research.add_points(1_000);
+        assert!(sim.progression_mut().research.research(0).is_ok());
+        assert!(sim.progression().research.is_unlocked(0));
+        // Generic blueprint discoverable; the Martian design stays rep-gated
+        // until Mars standing is high enough (§10).
+        assert!(sim.discover_blueprint(0));
+        assert!(!sim.discover_blueprint(2));
+        sim.relations_mut()
+            .adjust(crate::sim::faction::Faction::Mars, 500);
+        assert!(sim.discover_blueprint(2));
     }
 
     #[test]
