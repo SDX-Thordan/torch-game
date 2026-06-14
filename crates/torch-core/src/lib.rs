@@ -226,6 +226,47 @@ impl TorchSim {
             sim::Interdiction::Interdicted => 2,
         }
     }
+
+    /// Set the alert-feed surfacing threshold (§19): 0 = info, 1 = notice,
+    /// 2 = warning, 3 = critical.
+    #[func]
+    fn set_alert_threshold(&mut self, level: i64) {
+        let p = match level {
+            0 => sim::Priority::Info,
+            2 => sim::Priority::Warning,
+            3 => sim::Priority::Critical,
+            _ => sim::Priority::Notice,
+        };
+        self.sim.set_alert_threshold(p);
+    }
+
+    /// Number of alerts currently surfaced by the feed (§19).
+    #[func]
+    fn alert_count(&self) -> i64 {
+        self.sim.feed().surfaced().len() as i64
+    }
+
+    /// Ranked surfaced-alert message at `index` (loudest, newest first).
+    #[func]
+    fn alert_message(&self, index: i64) -> GString {
+        self.sim
+            .feed()
+            .surfaced()
+            .get(index as usize)
+            .map(|a| GString::from(a.message.as_str()))
+            .unwrap_or_default()
+    }
+
+    /// Whether the surfaced alert at `index` is an act-now (verb) alert (§0.4).
+    #[func]
+    fn alert_is_act_now(&self, index: i64) -> bool {
+        self.sim
+            .feed()
+            .surfaced()
+            .get(index as usize)
+            .map(|a| a.is_act_now())
+            .unwrap_or(false)
+    }
 }
 
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the

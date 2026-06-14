@@ -33,6 +33,14 @@ func _ready() -> void:
 			row += " %12d" % sim.price(m, c)
 		lines.append(row)
 
+	# §19: the alert feed — the voiced, ranked exception stream.
+	var shown := mini(sim.alert_count(), 4)
+	if shown > 0:
+		lines.append("alert feed:")
+		for a in shown:
+			var tag := "[!]" if sim.alert_is_act_now(a) else "   "
+			lines.append("  %s %s" % [tag, sim.alert_message(a)])
+
 	# §7b: send a frigate to interdict a hauler from Earth's position.
 	if sim.hauler_count() > 0:
 		var target_id := sim.hauler_id(0)

@@ -104,7 +104,10 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [x] **7. Combat resolver** (`sim::combat`) — headless range-band doctrine sim
   consuming §8 fits: railguns rule at range, torpedo salvos *saturate* the PDC
   screen up close (the equalizer), crew quality scales it. Diorama (§22) later.
-- [ ] **8. Crew & alert-feed system**.
+- [x] **8. Alert-feed system** (`sim::alerts`) — consumes the world event stream
+  (§29) into ranked, voiced alerts with a hard FYI/act-now split; act-now alerts
+  carry a verb (§0.4), threshold is player-tunable (§19). Crew-attachment depth
+  (history/portraits, §11) right-sized later.
 - [ ] **9. Progression** — research / blueprints / reputation / CEO skills.
 - [ ] **10. Managers & automation** (exceptions-as-verbs).
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
@@ -226,6 +229,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   Numbers are tuning knobs (hp = armor + mass/10, screen = pdc_intercept/5, band
   railgun/intercept curves). Emits a BattleLog `CombatEvent` stream for the §22
   diorama. rng adds ±12% volley jitter; outcomes deterministic per seed.
+
+- **2026-06-14 — Alert feed (§19) — the voiced exception stream.** `sim::alerts`
+  consumes the world `Event` stream (§29) into ranked `Alert`s with a hard
+  **FYI vs act-now** split; act-now alerts (scarcity) carry a `Verb`
+  (`ExploitShortage`) per §0.4, raids are FYI notices. A player-tunable
+  `min_priority` threshold decides what `surfaced()` returns (ranked priority then
+  recency). Messages are **voiced** by deterministically-named managers with a
+  tone (Terse/Wry), the start of §11 attachment. `Sim` owns a feed and ingests
+  each tick's events in `step()`; bound via `TorchSim` (alert_count/message/
+  is_act_now + set_alert_threshold). Routine traffic (departed/arrived/tick) is
+  filtered as non-feed-worthy to avoid notification spam. Bounded ring buffer
+  (64). Lesson: an unread `domain` field tripped `clippy::dead_code` under
+  `-D warnings` — managers are distinguished by their feed slot, so the field went.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
