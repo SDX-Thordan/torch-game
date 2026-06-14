@@ -1,0 +1,117 @@
+{
+  "_comment": "Rates are base units per DAY. Each market models its own NPC production and consumption (§7a); the stabilizer laws settle stock near target with zero player input. 'production' maps recipeId -> base output rate; 'consumption' maps commodityId -> base end-use demand. Each market is sized to be self-sufficient (base production ~1.1x of full demand incl. downstream recipe inputs) so it settles near base price. Inter-market hauling (§7b) is future work.",
+  "markets": [
+    {
+      "id": "ceres_hub",
+      "name": "Ceres Industrial Hub",
+      "bodyId": "ceres",
+      "faction": "belt",
+      "production": {
+        "mine_ice": 290,
+        "mine_metal": 120,
+        "mine_fissile": 74,
+        "refine_remass": 100,
+        "smelt_metal": 53,
+        "breed_fuel": 22,
+        "press_plate": 14
+      },
+      "consumption": {
+        "water_ice": 60,
+        "reaction_mass": 90,
+        "refined_metal": 20,
+        "reactor_fuel": 20,
+        "hull_plate": 12
+      }
+    },
+    {
+      "id": "pallas_yards",
+      "name": "Pallas Shipyards",
+      "bodyId": "pallas",
+      "faction": "belt",
+      "production": {
+        "mine_ice": 265,
+        "mine_metal": 250,
+        "mine_fissile": 90,
+        "refine_remass": 60,
+        "smelt_metal": 112,
+        "breed_fuel": 27,
+        "press_plate": 38,
+        "assemble_module": 8
+      },
+      "consumption": {
+        "water_ice": 120,
+        "reaction_mass": 55,
+        "refined_metal": 25,
+        "reactor_fuel": 16,
+        "hull_plate": 10,
+        "ship_module": 6
+      }
+    },
+    {
+      "id": "vesta_extract",
+      "name": "Vesta Extraction",
+      "bodyId": "vesta",
+      "faction": "belt",
+      "production": {
+        "mine_ice": 140,
+        "mine_metal": 150,
+        "mine_fissile": 100,
+        "refine_remass": 40,
+        "breed_fuel": 28
+      },
+      "consumption": {
+        "water_ice": 45,
+        "reaction_mass": 35,
+        "reactor_fuel": 25
+      }
+    },
+    {
+      "id": "mars_forge",
+      "name": "Mars Republic Forge",
+      "bodyId": "mars",
+      "faction": "mars",
+      "production": {
+        "mine_ice": 410,
+        "mine_metal": 500,
+        "mine_fissile": 190,
+        "refine_remass": 132,
+        "smelt_metal": 228,
+        "breed_fuel": 58,
+        "press_plate": 88,
+        "assemble_module": 18
+      },
+      "consumption": {
+        "water_ice": 110,
+        "reaction_mass": 120,
+        "refined_metal": 30,
+        "reactor_fuel": 35,
+        "hull_plate": 25,
+        "ship_module": 16
+      }
+    },
+    {
+      "id": "earth_market",
+      "name": "Earth Deep Market",
+      "bodyId": "earth",
+      "faction": "earth",
+      "production": {
+        "mine_ice": 655,
+        "mine_metal": 630,
+        "mine_fissile": 254,
+        "refine_remass": 198,
+        "smelt_metal": 288,
+        "breed_fuel": 77,
+        "press_plate": 110,
+        "assemble_module": 25
+      },
+      "consumption": {
+        "water_ice": 200,
+        "reaction_mass": 180,
+        "refined_metal": 40,
+        "reactor_fuel": 45,
+        "hull_plate": 25,
+        "ship_module": 22
+      }
+    }
+  ]
+}

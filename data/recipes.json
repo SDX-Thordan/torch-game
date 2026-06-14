@@ -1,0 +1,12 @@
+{
+  "recipes": [
+    { "id": "mine_ice",       "output": "water_ice",     "inputs": {} },
+    { "id": "mine_metal",     "output": "metal_ore",     "inputs": {} },
+    { "id": "mine_fissile",   "output": "fissile_ore",   "inputs": {} },
+    { "id": "refine_remass",  "output": "reaction_mass", "inputs": { "water_ice": 2 } },
+    { "id": "smelt_metal",    "output": "refined_metal", "inputs": { "metal_ore": 2 } },
+    { "id": "breed_fuel",     "output": "reactor_fuel",  "inputs": { "fissile_ore": 3 } },
+    { "id": "press_plate",    "output": "hull_plate",    "inputs": { "refined_metal": 2 } },
+    { "id": "assemble_module","output": "ship_module",   "inputs": { "hull_plate": 3, "reactor_fuel": 1 } }
+  ]
+}
