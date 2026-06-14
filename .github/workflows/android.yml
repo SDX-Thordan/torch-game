@@ -65,38 +65,36 @@ jobs:
           unzip -q templates.tpz -d tpl
           cp -r tpl/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_TPL_DIR}/"
 
-      - name: Generate debug keystore
+      - name: Generate debug keystore (referenced by the export preset)
         run: |
-          keytool -genkeypair -v -keystore "$HOME/debug.keystore" \
+          keytool -genkeypair -v -keystore godot/debug.keystore \
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Configure Godot editor settings (SDK + JDK + debug keystore)
+      - name: Import project (generates .godot + resource imports)
+        run: godot --headless --path godot --import || true
+
+      - name: Configure Godot editor settings (SDK + JDK)
+        # Written AFTER import so the import run can't clobber these values; the
+        # debug keystore comes from the export preset, not here.
         run: |
           mkdir -p "$HOME/.config/godot"
-          # Godot 4.3 gradle export validates the Android SDK path, the JDK path,
-          # and the debug keystore. Write to both possible settings filenames.
-          read -r -d '' SETTINGS <<EOF || true
+          for f in editor_settings-4.tres editor_settings-4.3.tres; do
+            cat > "$HOME/.config/godot/$f" <<EOF
           [gd_resource type="EditorSettings" format=3]
           [resource]
           export/android/android_sdk_path = "${ANDROID_SDK_ROOT}"
           export/android/java_sdk_path = "${JAVA_HOME}"
-          export/android/debug_keystore = "${HOME}/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
           EOF
-          printf '%s\n' "$SETTINGS" | tee "$HOME/.config/godot/editor_settings-4.tres" > "$HOME/.config/godot/editor_settings-4.3.tres"
-
-      - name: Import project
-        run: godot --headless --path godot --import || true
+          done
 
       - name: Export debug APK
         run: |
           mkdir -p build
-          echo "--- editor settings ---"; cat "$HOME/.config/godot/editor_settings-4.3.tres"
-          echo "--- sdk ---"; ls "$ANDROID_SDK_ROOT"; ls "$ANDROID_SDK_ROOT/build-tools" || true
+          echo "--- sdk ---"; ls "$ANDROID_SDK_ROOT/build-tools" || true
           echo "--- staged android lib ---"; ls -l godot/bin/android/arm64/ || true
+          echo "--- keystore ---"; ls -l godot/debug.keystore || true
           godot --headless --path godot --export-debug "Android" "${GITHUB_WORKSPACE}/build/torch.apk" --verbose
 
       - name: Verify APK exists (the real build gate)

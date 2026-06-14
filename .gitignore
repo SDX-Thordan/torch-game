@@ -15,3 +15,6 @@ godot/bin/
 # OS / editor
 .DS_Store
 *.log
+
+# Generated debug keystore (CI)
+godot/debug.keystore
