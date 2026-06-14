@@ -10,4 +10,16 @@
 pub enum Event {
     /// The simulation advanced to `tick`.
     Tick { tick: u64 },
+    /// An arbitrage hauler set out from `origin` to `dest` (§7b).
+    HaulerDeparted {
+        id: u64,
+        commodity: usize,
+        origin: usize,
+        dest: usize,
+        qty: i64,
+    },
+    /// A hauler delivered its cargo, damping the spread.
+    HaulerArrived { id: u64 },
+    /// A hauler was cut in flight; its delivery is denied (§7b interdiction).
+    HaulerInterdicted { id: u64 },
 }

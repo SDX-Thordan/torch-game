@@ -88,8 +88,12 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [~] **4. Economy & industry** (data-driven) **+ headless stability test**.
   - [x] Stockpile pricing (§7a): piecewise damped target, NPC stabilizers, the
     §7c no-death-spiral gate (64 seeds × 5000 ticks). Single self-sufficient market.
-  - [ ] Multi-market + RON/JSON hot-reloadable commodity data (§31).
-- [ ] **5. Interdiction prototype** (§7b) — the featured fun engine, early.
+  - [x] Multi-market (Ceres producer ↔ Earth consumer) with decoupled setpoints
+    → standing two-way price spread.
+  - [ ] RON/JSON hot-reloadable commodity data (§31).
+- [x] **5. Interdiction prototype** (§7b) — price-arbitrage haulers fly the orrery
+  between markets and *damp* spreads; cutting one (`Sim::interdict`) denies the
+  delivery → local shortage. Stability re-checked with traffic (32 seeds).
 - [ ] **6. Ship design & fitting** — classes, slots, weapons, crew model.
 - [ ] **7. Combat resolver** — headless range-band doctrine sim, diorama after.
 - [ ] **8. Crew & alert-feed system**.
@@ -159,6 +163,20 @@ Status: [x] done, [~] in progress, [ ] todo.
   accumulates invariants as plain booleans in the hot loop (the prototype's perf
   learning). A proportional stock-restoring stabilizer vs. bounded demand jitter
   keeps a self-sufficient market mean-reverting near reference prices.
+
+- **2026-06-14 — §7b traffic + the stabilizer↔trade tension (key tuning).** Two
+  complementary markets (Ceres producer / Earth consumer) get standing spreads by
+  **decoupling the stabilizer setpoint from the price anchor** (`target_stock`):
+  setpoint in glut ⇒ cheap, in scarcity ⇒ dear. Greedy max-spread arbitrage
+  haulers fly the orrery between them; deliveries damp the spread. **Hard-won:** a
+  *stiff* proportional stabilizer (20%/tick) instantly neutralizes hauler flows,
+  so trade — and therefore interdiction — barely moved prices (~3%), defeating
+  §7b. Fix per §7c's own toolkit: make the spring **gentle** (4%/tick) so trade
+  meaningfully shifts the average, and rely on **hard stock walls** (inside
+  `[0, max_stock]`) to guarantee no death-spiral regardless. Now trade visibly
+  damps spreads and `interdict()` measurably starves the destination. Interdiction
+  test stays clean because market jitter (the only RNG) advances in lockstep
+  across a control vs. cut run, isolating the single denied delivery.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
