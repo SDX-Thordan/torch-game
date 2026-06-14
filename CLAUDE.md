@@ -33,7 +33,7 @@ scale (§0).
 | --- | --- | --- |
 | Sim core | **Rust**, deterministic, engine-agnostic (`crates/torch-core`, builds a `cdylib` GDExtension + `rlib` for tests) | §26, §27 |
 | Determinism | Integer / fixed-point math; **PCG32** RNG with integer basis-point probabilities; no floats in probability paths | §27 |
-| Engine / shell | **Godot 4.2** (`godot/`), loads the Rust core via **gdext** (`torch.gdextension`) | §26 |
+| Engine / shell | **Godot 4.6** (`godot/`), loads the Rust core via **gdext** (`torch.gdextension`) | §26 |
 | Sim ↔ view | Snapshot + typed event stream (BattleLog-style) — *to build* | §29 |
 | Persistence | serde + bincode (binary), JSON dev export — *to build* | §30 |
 | Tuning data | Hot-reloadable JSON/RON; logic in Rust, numbers in data — *to build* | §31 |
@@ -54,7 +54,7 @@ native-testable.
 crates/torch-core/        Rust deterministic core
   src/lib.rs              gdext binding (thin)
   src/sim/                pure engine-agnostic sim (rng, + economy/orbit/... to come)
-godot/                    Godot 4.2 project (shell/renderer)
+godot/                    Godot 4.6 project (shell/renderer)
   project.godot, main.*   hello-world scene calling the Rust core
   torch.gdextension       binds the cdylib per platform
   bin/                    (gitignored) cross-compiled Android libs, staged in CI
@@ -70,16 +70,17 @@ cargo test --all        # native sim acceptance tests
 cargo fmt --all         # / --check in CI
 cargo clippy --all-targets -- -D warnings
 cargo build --release   # produces target/release/libtorch_core.so (the GDExtension)
-# Godot: open godot/ in Godot 4.2 (the .gdextension points at the target/ lib)
+# Godot: open godot/ in Godot 4.6 (the .gdextension points at the target/ lib)
 ```
 
 ## 6. Roadmap (GDD §35 build order → PRs)
 
 Status: [x] done, [~] in progress, [ ] todo.
 
-- [~] **1. De-risk Rust-on-Android** — gdext hello-world + Android export APK.
+- [x] **1. De-risk Rust-on-Android** — gdext hello-world + Android export APK.
   - [x] Rust core crate + gdext binding + Godot hello-world scene + native CI.
-  - [ ] Android APK pipeline (cargo-ndk cross-compile + Godot headless export).
+  - [x] Android APK pipeline (cargo-ndk cross-compile + Godot 4.6 gradle export →
+    signed debug APK, green in CI via `android.yml`).
 - [ ] **2. Lock the §0 spine on paper** — destination pull, tier transitions,
   three-horizon goal stack (design note in repo).
 - [ ] **3. Deterministic core sim** — fixed tick, snapshot+event contract,
@@ -108,10 +109,31 @@ Status: [x] done, [~] in progress, [ ] todo.
   ports directly to the Rust core (damped pricing, NPC stabilizers, price-driven
   haulers that *damp* spreads, the "no death-spiral on any seed" acceptance
   test). `main` was reset to a clean slate for the new foundation.
-- **2026-06-14 — gdext version.** `godot = "0.2.4"` resolves and compiles
-  cleanly (Godot **4.2** API). Native `cargo test` works with
-  `crate-type = ["cdylib", "rlib"]` — the rlib lets pure `sim` modules be tested
-  without a Godot runtime. First gdext build is ~1–2 min (cache it in CI).
+- **2026-06-14 — gdext version + Godot 4.6.** `godot = "0.2.4"` is the latest
+  published gdext; its API features top out at **`api-4-3`** (no api-4-4/5/6). It
+  is **forward-compatible**, so the 4.3-API extension runs on a newer engine — we
+  ship on **Godot 4.6.3** with `compatibility_minimum = 4.3` and it loads fine
+  (CI: `Initialize godot-rust API v4.3 / runtime v4.6.3`). The reverse fails:
+  building against a newer API than the runtime panics. Native `cargo test` works
+  with `crate-type = ["cdylib", "rlib"]` — the rlib lets pure `sim` modules be
+  tested without a Godot runtime. First gdext build is ~1–2 min (cache it in CI).
+- **2026-06-14 — Android APK pipeline (hard-won, see `android.yml`).** Runs in the
+  `barichello/godot-ci:4.6.3` container (Godot + templates + Android SDK), with
+  Rust + `cargo-ndk` added to cross-compile the GDExtension to `arm64-v8a`. Gotchas,
+  each of which failed the *headless* export with an **empty** "configuration
+  errors:" message (the real reason is suppressed in headless):
+  - **ETC2/ASTC is mandatory.** `rendering/textures/vram_compression/import_etc2_astc=true`
+    in `project.godot` — `has_valid_project_configuration` flips invalid *with no
+    message* without it. This was the final blocker; everything else is upstream of it.
+  - **Editor-settings filename is `editor_settings-<MAJOR>.<MINOR>.tres`** (e.g.
+    `editor_settings-4.6.tres`). Wrong name ⇒ the Android SDK path is silently dropped.
+  - **GDExtension Android needs the gradle build** (`use_gradle_build=true` +
+    `--install-android-build-template`) so the native `.so` is packaged.
+  - **Build-tools must match `target_sdk`** (set `target_sdk=34`, install `build-tools;34.0.0`).
+  - Container `HOME=/github/home` (not `/root`), so export templates must be staged there.
+  - The editor needs the **host** `libtorch_core.so` (`cargo build`) to load the
+    extension during export, plus the cross-compiled arm64 lib staged at
+    `godot/bin/android/arm64/`.
 - **2026-06-14 — Clippy + gdext macros.** `#[godot_api]` expands to `Result`s
   carrying Godot's large `CallError`, tripping `clippy::result_large_err` on
   generated code. Fixed with a crate-level `#![allow(clippy::result_large_err)]`

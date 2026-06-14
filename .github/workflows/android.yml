@@ -3,7 +3,6 @@ name: Android APK
 on:
   workflow_dispatch: {}
   push:
-    branches: [feat/android-apk] # TEMP: remove before merge; iterate in CI here
     tags: ["v*"]
 
 permissions:
@@ -106,7 +105,7 @@ jobs:
         run: |
           mkdir -p build
           godot --headless --path godot --install-android-build-template \
-            --export-debug "Android" "$GITHUB_WORKSPACE/build/torch.apk" --verbose
+            --export-debug "Android" "$GITHUB_WORKSPACE/build/torch.apk"
 
       - name: Verify APK exists (the real build gate)
         run: |
