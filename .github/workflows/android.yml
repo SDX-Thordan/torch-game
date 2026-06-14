@@ -10,9 +10,10 @@ permissions:
   contents: write
 
 env:
-  # gdext 0.2.4 targets the Godot 4.3 API, so the engine + templates must be 4.3.
-  GODOT_REL: 4.3-stable
-  GODOT_TPL_DIR: 4.3.stable
+  # Engine is Godot 4.6.3. gdext 0.2.4 targets the 4.3 GDExtension API and runs
+  # forward-compatibly on any newer 4.x engine (compatibility_minimum = 4.3).
+  GODOT_REL: 4.6.3-stable
+  GODOT_TPL_DIR: 4.6.3.stable
   NDK_VERSION: 23.2.8568313
 
 jobs:
@@ -71,6 +72,15 @@ jobs:
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Install Android build template (gradle source)
+        # GDExtension on Android requires the gradle/custom build so the native
+        # .so is packaged into the APK; the standard prebuilt template can't.
+        run: |
+          mkdir -p godot/android/build
+          unzip -q "$HOME/.local/share/godot/export_templates/${GODOT_TPL_DIR}/android_source.zip" -d godot/android/build
+          echo "${GODOT_TPL_DIR}" > godot/android/.build_version
+          touch godot/android/build/.gdignore
 
       - name: Import project (generates .godot + resource imports)
         run: godot --headless --path godot --import || true
