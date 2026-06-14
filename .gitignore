@@ -4,8 +4,10 @@
 # Godot
 godot/.godot/
 godot/.import/
-godot/export_presets.cfg
 *.translation
+
+# Android build template (fetched from export templates in CI)
+godot/android/
 
 # Cross-compiled GDExtension libs staged for export (regenerated in CI)
 godot/bin/
