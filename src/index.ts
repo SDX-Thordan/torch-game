@@ -11,7 +11,7 @@ import { Clock } from "./core/clock.js";
 import { secondsToDays } from "./core/units.js";
 import { SolSystem } from "./orbit/system.js";
 import { Economy } from "./economy/economy.js";
-import { loadBodies } from "./economy/data.js";
+import { loadBodies, loadEconomyData } from "./economy/data.js";
 
 function fmt(n: number, w = 8): string {
   return n.toFixed(1).padStart(w);
@@ -23,7 +23,7 @@ function main(): void {
 
   const clock = new Clock({ tickSeconds: 3600 }); // 1 hour / tick
   const system = new SolSystem(loadBodies());
-  const economy = new Economy({ seed });
+  const economy = new Economy({ seed, data: loadEconomyData() });
 
   const ticks = Math.round((days * 86_400) / clock.tickSeconds);
   for (let i = 0; i < ticks; i++) {

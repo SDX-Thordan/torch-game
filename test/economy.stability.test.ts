@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Economy } from "../src/economy/economy.js";
+import { loadEconomyData } from "../src/economy/data.js";
+
+const DATA = loadEconomyData();
 
 /**
  * THE ACCEPTANCE TEST (§7c).
@@ -29,7 +32,7 @@ interface Range {
 }
 
 function runSeed(seed: number) {
-  const econ = new Economy({ seed });
+  const econ = new Economy({ seed, data: DATA });
 
   // Per (market|commodity) min/max price in an early and a late window.
   const early = new Map<string, Range>();
@@ -101,8 +104,8 @@ describe("Economy — headless stability (§7c acceptance criterion)", () => {
   });
 
   it("is fully deterministic: same seed => identical trajectory", () => {
-    const a = new Economy({ seed: 5 });
-    const b = new Economy({ seed: 5 });
+    const a = new Economy({ seed: 5, data: DATA });
+    const b = new Economy({ seed: 5, data: DATA });
     for (let i = 0; i < 5_000; i++) {
       a.step(TICK_SECONDS);
       b.step(TICK_SECONDS);
@@ -120,7 +123,7 @@ describe("Economy — headless stability (§7c acceptance criterion)", () => {
   it("starts empty and ran before the player existed (cold-start reaches equilibrium)", () => {
     // Even initialised at zero stock everywhere, the stabilizers must pull the
     // markets up to a bounded steady state rather than collapsing.
-    const econ = new Economy({ seed: 3 });
+    const econ = new Economy({ seed: 3, data: DATA });
     for (const m of econ.markets.values()) {
       for (const s of m.states.values()) s.stock = 0;
     }
@@ -139,7 +142,7 @@ describe("Economy — headless stability (§7c acceptance criterion)", () => {
 
 describe("Economy — local shocks recover (§7b/§7c locality)", () => {
   it("absorbs an 80% interdiction shock and returns toward equilibrium", () => {
-    const econ = new Economy({ seed: 11 });
+    const econ = new Economy({ seed: 11, data: DATA });
     // Settle first.
     econ.run(8_000, TICK_SECONDS);
 
