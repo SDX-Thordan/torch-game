@@ -37,16 +37,27 @@ jobs:
           rustup target add aarch64-linux-android
           cargo install cargo-ndk --locked
 
-      - name: Locate or install Android NDK
+      - name: Ensure Android SDK packages (NDK + build-tools matching target SDK)
         run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/root/Android/Sdk}}"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK/platform-tools" ]; then
+            SDK="$(dirname "$(dirname "$(find / -type d -name platform-tools -path '*android*' 2>/dev/null | head -1)")")"
+          fi
+          SDKMANAGER="$(find "$SDK" -name sdkmanager -path '*cmdline-tools*' 2>/dev/null | head -1)"
+          echo "SDK=$SDK sdkmanager=$SDKMANAGER"
+          # Godot 4.6 rejects export if no build-tools match the target SDK; the
+          # image ships only 33.0.2. Install platforms + build-tools 34 and 35.
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-34" "platforms;android-35" \
+            "build-tools;34.0.0" "build-tools;35.0.0" >/dev/null 2>&1 || true
           NDK="$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1 || true)"
           if [ -z "$NDK" ]; then
-            yes | "$SDK"/cmdline-tools/*/bin/sdkmanager "ndk;23.2.8568313" >/dev/null 2>&1 || true
+            "$SDKMANAGER" "ndk;23.2.8568313" >/dev/null 2>&1 || true
             NDK="$SDK/ndk/23.2.8568313"
           fi
           echo "Using NDK: $NDK"
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "--- build-tools now available ---"; ls "$SDK/build-tools" || true
 
       - name: Cross-compile Rust core for arm64 + host
         run: |
