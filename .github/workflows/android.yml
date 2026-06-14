@@ -64,15 +64,31 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Configure Godot editor settings (Android SDK + JDK)
+      - name: Prepare Godot Android env (templates + editor settings)
         run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/root/Android/Sdk}}"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK/platform-tools" ]; then
+            SDK="$(dirname "$(dirname "$(find / -type d -name platform-tools -path '*android*' 2>/dev/null | head -1)")")"
+          fi
+          JDK="${JAVA_HOME:-}"
+          if [ -z "$JDK" ] || [ ! -x "$JDK/bin/java" ]; then
+            JDK="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          fi
+          echo "Resolved SDK=$SDK JDK=$JDK"
+          # The image ships export templates under root's data dir; Godot looks
+          # under $HOME (=/github/home) here, so make them visible there.
+          SRC="$(dirname "$(find / -name android_source.zip -path '*export_templates*' 2>/dev/null | head -1)")"
+          echo "templates source: $SRC"
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.6.3.stable"
+          cp -rn "$SRC/." "$HOME/.local/share/godot/export_templates/4.6.3.stable/" 2>/dev/null || true
+          ls "$HOME/.local/share/godot/export_templates/4.6.3.stable/" | head
+          # Editor settings — correct 4.6 filename, real SDK + JDK paths.
           mkdir -p "$HOME/.config/godot"
           cat > "$HOME/.config/godot/editor_settings-4.6.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
           [resource]
           export/android/android_sdk_path = "$SDK"
-          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/java_sdk_path = "$JDK"
           EOF
 
       - name: Export debug APK (installs the gradle build template)
