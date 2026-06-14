@@ -8,6 +8,7 @@
 use super::alerts::{AlertFeed, Priority};
 use super::economy::{default_markets, Market};
 use super::event::Event;
+use super::faction::Relations;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::orbit::{default_system, Body};
 use super::rng::Pcg32;
@@ -76,6 +77,7 @@ pub struct Sim {
     next_hauler_id: u64,
     pirate: Interceptor,
     feed: AlertFeed,
+    relations: Relations,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -103,6 +105,7 @@ impl Sim {
                 skill_bp: 400,
             },
             feed: AlertFeed::new(seed, market_names, commodity_names),
+            relations: Relations::new(),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -139,6 +142,11 @@ impl Sim {
         &self.feed
     }
 
+    /// The player's standing with each faction (§10).
+    pub fn relations(&self) -> &Relations {
+        &self.relations
+    }
+
     /// Set the player-tunable alert surfacing threshold (§19).
     pub fn set_alert_threshold(&mut self, min_priority: Priority) {
         self.feed.set_threshold(min_priority);
@@ -169,7 +177,8 @@ impl Sim {
     /// positioning-and-odds verb, use [`Sim::interdict_with`].
     pub fn interdict(&mut self, id: u64) -> bool {
         if let Some(i) = self.haulers.iter().position(|h| h.id == id) {
-            self.cut_hauler(i);
+            let h = self.cut_hauler(i);
+            self.ripple_reputation(&h);
             true
         } else {
             false
@@ -185,20 +194,29 @@ impl Sim {
         };
         let outcome = resolve(&self.haulers[i], &interceptor, self.tick, &mut self.rng);
         if outcome == Interdiction::Interdicted {
-            self.cut_hauler(i);
+            let h = self.cut_hauler(i);
+            self.ripple_reputation(&h);
         }
         outcome
     }
 
+    /// A *player* cut sours relations with the hauler's owner faction (§7b/§10);
+    /// pirate raids do not (the player isn't blamed).
+    fn ripple_reputation(&mut self, h: &Hauler) {
+        let faction = self.markets[h.origin].faction();
+        self.relations.on_player_interdict(faction);
+    }
+
     /// Remove the hauler at `index`, denying its delivery and tagging the
-    /// resulting shortage at the destination (§7b).
-    fn cut_hauler(&mut self, index: usize) {
+    /// resulting shortage at the destination (§7b). Returns the cut hauler.
+    fn cut_hauler(&mut self, index: usize) -> Hauler {
         let h = self.haulers.remove(index);
         self.events.push(Event::HaulerInterdicted { id: h.id });
         self.events.push(Event::Scarcity {
             market: h.dest,
             commodity: h.commodity,
         });
+        h
     }
 
     /// NPC pirates periodically strike at the fattest cargo in flight (§13).
@@ -215,7 +233,7 @@ impl Sim {
         if let Some(i) = target {
             let outcome = resolve(&self.haulers[i], &self.pirate, self.tick, &mut self.rng);
             if outcome == Interdiction::Interdicted {
-                self.cut_hauler(i);
+                self.cut_hauler(i); // pirates, not the player → no reputation hit
             }
         }
     }
@@ -400,6 +418,33 @@ mod tests {
             skill_bp: 0,
         };
         assert_ne!(sim.interdict_with(id, frigate), Interdiction::NoSolution);
+    }
+
+    #[test]
+    fn player_interdiction_sours_relations() {
+        // Cutting a faction's hauler lowers the player's standing with them (§7b/§10).
+        let mut sim = Sim::new(0);
+        let id = fly_a_hauler(&mut sim);
+        let origin = sim.haulers().iter().find(|h| h.id == id).unwrap().origin;
+        let faction = sim.markets()[origin].faction();
+        assert!(sim.interdict(id));
+        assert!(
+            sim.relations().standing(faction) < 0,
+            "the owner should resent it"
+        );
+    }
+
+    #[test]
+    fn pirate_raids_do_not_blame_the_player() {
+        // Pirates thin the lanes for thousands of ticks; the player's standings
+        // stay neutral (the raids aren't attributed to them).
+        let mut sim = Sim::new(0);
+        for _ in 0..2_000 {
+            sim.step();
+        }
+        for m in sim.markets() {
+            assert_eq!(sim.relations().standing(m.faction()), 0);
+        }
     }
 
     #[test]

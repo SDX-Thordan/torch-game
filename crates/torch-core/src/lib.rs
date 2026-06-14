@@ -267,6 +267,46 @@ impl TorchSim {
             .map(|a| a.is_act_now())
             .unwrap_or(false)
     }
+
+    /// Number of factions the player has standings with (§10).
+    #[func]
+    fn faction_count(&self) -> i64 {
+        sim::Faction::ALL.len() as i64
+    }
+
+    #[func]
+    fn faction_name(&self, index: i64) -> GString {
+        sim::Faction::ALL
+            .get(index as usize)
+            .map(|f| GString::from(f.name()))
+            .unwrap_or_default()
+    }
+
+    /// Player standing with faction `index` (§10).
+    #[func]
+    fn faction_standing(&self, index: i64) -> i64 {
+        sim::Faction::ALL
+            .get(index as usize)
+            .map(|f| self.sim.relations().standing(*f))
+            .unwrap_or(0)
+    }
+
+    /// Reputation tier label with faction `index` (§10).
+    #[func]
+    fn faction_tier(&self, index: i64) -> GString {
+        let tier = sim::Faction::ALL
+            .get(index as usize)
+            .map(|f| self.sim.relations().tier(*f));
+        let label = match tier {
+            Some(sim::RepTier::Hostile) => "hostile",
+            Some(sim::RepTier::Cold) => "cold",
+            Some(sim::RepTier::Neutral) => "neutral",
+            Some(sim::RepTier::Cordial) => "cordial",
+            Some(sim::RepTier::Allied) => "allied",
+            None => "",
+        };
+        GString::from(label)
+    }
 }
 
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the
