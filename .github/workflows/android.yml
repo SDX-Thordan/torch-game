@@ -49,6 +49,9 @@ jobs:
           cp target/aarch64-linux-android/release/libtorch_core.so godot/bin/android/arm64/libtorch_core.so
           ls -l godot/bin/android/arm64/
 
+      - name: Build Rust core for host (editor loads it during export)
+        run: cargo build -p torch-core # -> target/debug/libtorch_core.so for linux.x86_64
+
       - name: Download Godot headless editor + export templates
         run: |
           BASE="https://github.com/godotengine/godot/releases/download/${GODOT_REL}"
