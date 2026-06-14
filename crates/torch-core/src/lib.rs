@@ -69,7 +69,10 @@ struct TorchSim {
 #[godot_api]
 impl IRefCounted for TorchSim {
     fn init(base: Base<RefCounted>) -> Self {
-        Self { sim: sim::Sim::new(0), _base: base }
+        Self {
+            sim: sim::Sim::new(0),
+            _base: base,
+        }
     }
 }
 

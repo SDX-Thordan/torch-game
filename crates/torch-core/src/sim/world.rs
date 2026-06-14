@@ -77,7 +77,10 @@ impl Sim {
                 BodyState { name: b.name, x, y }
             })
             .collect();
-        Snapshot { tick: self.tick, bodies }
+        Snapshot {
+            tick: self.tick,
+            bodies,
+        }
     }
 }
 

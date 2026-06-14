@@ -49,10 +49,30 @@ impl Body {
 /// Radii are real (AU); periods are scaled so 1 tick ≈ 1 hour.
 pub fn default_system() -> Vec<Body> {
     vec![
-        Body { name: "Sol", orbit_radius: 0, period_ticks: 0, phase_mdeg: 0 },
-        Body { name: "Earth", orbit_radius: AU, period_ticks: 8_766, phase_mdeg: 0 },
-        Body { name: "Mars", orbit_radius: 1_524_000, period_ticks: 16_487, phase_mdeg: 90_000 },
-        Body { name: "Ceres", orbit_radius: 2_768_000, period_ticks: 40_335, phase_mdeg: 200_000 },
+        Body {
+            name: "Sol",
+            orbit_radius: 0,
+            period_ticks: 0,
+            phase_mdeg: 0,
+        },
+        Body {
+            name: "Earth",
+            orbit_radius: AU,
+            period_ticks: 8_766,
+            phase_mdeg: 0,
+        },
+        Body {
+            name: "Mars",
+            orbit_radius: 1_524_000,
+            period_ticks: 16_487,
+            phase_mdeg: 90_000,
+        },
+        Body {
+            name: "Ceres",
+            orbit_radius: 2_768_000,
+            period_ticks: 40_335,
+            phase_mdeg: 200_000,
+        },
     ]
 }
 
@@ -75,7 +95,11 @@ mod tests {
                 let (x, y) = body.position(tick);
                 let d2 = x * x + y * y;
                 let err = (d2 - r2).abs();
-                assert!(err * 100 < r2 * 2, "{} off-circle at tick {tick}", body.name); // < 2%
+                assert!(
+                    err * 100 < r2 * 2,
+                    "{} off-circle at tick {tick}",
+                    body.name
+                ); // < 2%
             }
         }
     }
