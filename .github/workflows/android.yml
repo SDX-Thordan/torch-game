@@ -9,62 +9,53 @@ on:
 permissions:
   contents: write
 
-env:
-  # Engine is Godot 4.6.3. gdext 0.2.4 targets the 4.3 GDExtension API and runs
-  # forward-compatibly on any newer 4.x engine (compatibility_minimum = 4.3).
-  GODOT_REL: 4.6.3-stable
-  GODOT_TPL_DIR: 4.6.3.stable
-  NDK_VERSION: 23.2.8568313
-
 jobs:
   apk:
     name: Build debug APK (Godot + Rust on Android)
     runs-on: ubuntu-latest
+    # Community-maintained image: Godot 4.6.3 + export templates + Android SDK/JDK
+    # with a known-good headless Android export setup.
+    container:
+      image: barichello/godot-ci:4.6.3
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages (platform, build-tools, NDK)
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
-
-      - name: Install Rust + Android target
+      - name: Image diagnostics
         run: |
+          echo "godot: $(godot --version 2>/dev/null || godot --headless --version)"
+          echo "HOME=$HOME ANDROID_HOME=$ANDROID_HOME ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT JAVA_HOME=$JAVA_HOME"
+          echo "--- export templates ---"; ls ~/.local/share/godot/export_templates/ 2>/dev/null || true
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/root/Android/Sdk}}"
+          echo "--- sdk ($SDK) ---"; ls "$SDK" 2>/dev/null || true
+          echo "--- existing editor settings ---"; ls ~/.config/godot/ 2>/dev/null || true
+
+      - name: Install Rust + cargo-ndk
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends build-essential curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          . "$HOME/.cargo/env"
           rustup target add aarch64-linux-android
           cargo install cargo-ndk --locked
 
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Cross-compile Rust core for arm64
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+      - name: Locate or install Android NDK
         run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/root/Android/Sdk}}"
+          NDK="$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$NDK" ]; then
+            yes | "$SDK"/cmdline-tools/*/bin/sdkmanager "ndk;23.2.8568313" >/dev/null 2>&1 || true
+            NDK="$SDK/ndk/23.2.8568313"
+          fi
+          echo "Using NDK: $NDK"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+      - name: Cross-compile Rust core for arm64 + host
+        run: |
+          . "$HOME/.cargo/env"
           cargo ndk -t arm64-v8a build --release -p torch-core
           mkdir -p godot/bin/android/arm64
           cp target/aarch64-linux-android/release/libtorch_core.so godot/bin/android/arm64/libtorch_core.so
-          ls -l godot/bin/android/arm64/
-
-      - name: Build Rust core for host (editor loads it during export)
-        run: cargo build -p torch-core # -> target/debug/libtorch_core.so for linux.x86_64
-
-      - name: Download Godot headless editor + export templates
-        run: |
-          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_REL}"
-          curl -sSL -o godot.zip "${BASE}/Godot_v${GODOT_REL}_linux.x86_64.zip"
-          curl -sSL -o templates.tpz "${BASE}/Godot_v${GODOT_REL}_export_templates.tpz"
-          unzip -q godot.zip
-          chmod +x Godot_v${GODOT_REL}_linux.x86_64
-          sudo mv Godot_v${GODOT_REL}_linux.x86_64 /usr/local/bin/godot
-          # Install export templates.
-          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_TPL_DIR}"
-          unzip -q templates.tpz -d tpl
-          cp -r tpl/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_TPL_DIR}/"
+          cargo build -p torch-core   # host lib the editor loads during export
+          ls -l godot/bin/android/arm64/ target/debug/libtorch_core.so
 
       - name: Generate debug keystore (referenced by the export preset)
         run: |
@@ -73,40 +64,22 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Install Android build template (gradle source)
-        # GDExtension on Android requires the gradle/custom build so the native
-        # .so is packaged into the APK; the standard prebuilt template can't.
+      - name: Configure Godot editor settings (Android SDK + JDK)
         run: |
-          mkdir -p godot/android/build
-          unzip -q "$HOME/.local/share/godot/export_templates/${GODOT_TPL_DIR}/android_source.zip" -d godot/android/build
-          echo "${GODOT_TPL_DIR}" > godot/android/.build_version
-          touch godot/android/build/.gdignore
-
-      - name: Import project (generates .godot + resource imports)
-        run: godot --headless --path godot --import || true
-
-      - name: Configure Godot editor settings (Android SDK path)
-        # Godot reads editor settings from editor_settings-<MAJOR>.<MINOR>.tres
-        # (e.g. 4.6). Writing the wrong name silently drops the SDK path, which
-        # surfaces as a blank export "configuration error". The JDK path and a
-        # debug keystore are auto-detected by Godot 4.6; we only must supply the
-        # Android SDK location.
-        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/root/Android/Sdk}}"
           mkdir -p "$HOME/.config/godot"
           cat > "$HOME/.config/godot/editor_settings-4.6.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
           [resource]
-          export/android/android_sdk_path = "${ANDROID_SDK_ROOT}"
-          export/android/java_sdk_path = "${JAVA_HOME}"
+          export/android/android_sdk_path = "$SDK"
+          export/android/java_sdk_path = "$JAVA_HOME"
           EOF
 
-      - name: Export debug APK
+      - name: Export debug APK (installs the gradle build template)
         run: |
           mkdir -p build
-          echo "--- sdk ---"; ls "$ANDROID_SDK_ROOT/build-tools" || true
-          echo "--- staged android lib ---"; ls -l godot/bin/android/arm64/ || true
-          echo "--- keystore ---"; ls -l godot/debug.keystore || true
-          godot --headless --path godot --export-debug "Android" "${GITHUB_WORKSPACE}/build/torch.apk" --verbose
+          godot --headless --path godot --install-android-build-template \
+            --export-debug "Android" "$GITHUB_WORKSPACE/build/torch.apk" --verbose
 
       - name: Verify APK exists (the real build gate)
         run: |
@@ -115,7 +88,7 @@ jobs:
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
-        continue-on-error: true # account artifact storage quota must not fail the build
+        continue-on-error: true # artifact storage quota must not fail the build
         with:
           name: torch-debug-apk
           path: build/torch.apk
