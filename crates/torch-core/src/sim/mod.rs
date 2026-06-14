@@ -4,7 +4,14 @@
 //! and is verified by native `cargo test` (§32). The Godot layer (`lib.rs`) is a
 //! thin binding over this.
 
+pub mod event;
+pub mod fixed;
+pub mod orbit;
 pub mod rng;
+pub mod world;
+
+pub use event::Event;
+pub use world::{BodyState, Sim, Snapshot};
 
 use rng::Pcg32;
 

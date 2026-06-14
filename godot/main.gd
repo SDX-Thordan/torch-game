@@ -1,25 +1,31 @@
 extends Node
 
-## Toolchain de-risk hello-world (§35.1): prove the Godot shell can call into
-## the Rust deterministic core through the GDExtension binding, and that the
-## same seed yields the same result across the boundary (§27 determinism).
+## Hello-world (§35.1) + a live demo of the deterministic sim↔view contract
+## (§29): drive the Rust core's fixed-tick sim and render the orrery snapshot.
+## All game logic is in Rust; this shell only steps the sim and reads positions.
 
 func _ready() -> void:
 	var core := TorchCore.new()
 
-	var greeting: String = core.greeting()
-	var fp_a: int = core.fingerprint(42)
-	var fp_b: int = core.fingerprint(42)
+	var sim := TorchSim.new()
+	sim.reset(42)
+	for _i in 240: # advance ~10 days at 1 tick ≈ 1 hour
+		sim.step()
 
-	print("[TORCH] ", greeting)
-	print("[TORCH] core version: ", core.version())
-	print("[TORCH] fingerprint(42): ", fp_a, " (deterministic: ", fp_a == fp_b, ")")
+	var lines: Array[String] = []
+	lines.append(core.greeting())
+	lines.append("sim tick=%d  bodies=%d" % [sim.tick(), sim.body_count()])
+	for b in sim.body_count():
+		var ax := sim.body_x(b) / 1_000_000.0
+		var ay := sim.body_y(b) / 1_000_000.0
+		lines.append("  %-6s (%+6.3f, %+6.3f) AU" % [sim.body_name(b), ax, ay])
+
+	var text := "\n".join(lines)
+	print("[TORCH]\n", text)
 
 	var label := Label.new()
 	label.anchors_preset = Control.PRESET_FULL_RECT
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.text = "%s\ncore v%s\nfingerprint(42)=%d\ndeterministic=%s" % [
-		greeting, core.version(), fp_a, str(fp_a == fp_b)
-	]
+	label.text = text
 	add_child(label)
