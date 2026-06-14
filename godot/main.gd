@@ -52,6 +52,11 @@ func _ready() -> void:
 			yard.delta_v(s), yard.mobility(s)
 		])
 
+	# §9: torpedo saturation vs the screen — the band decides.
+	lines.append("combat (8 frigates vs battleship):")
+	lines.append("  close:  %s" % yard.duel(8, 0))
+	lines.append("  long:   %s" % yard.duel(8, 2))
+
 	var text := "\n".join(lines)
 	print("[TORCH]\n", text)
 

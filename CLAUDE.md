@@ -101,7 +101,9 @@ Status: [x] done, [~] in progress, [ ] todo.
   catalogs (4 warships + Q-ship + civilians), integer fitting validation (slots,
   power, tankage, crew), derived stats (delta-v proxy, alpha, mobility, the
   railgun escalation axis), and the captain + crew-quality model (§8c).
-- [ ] **7. Combat resolver** — headless range-band doctrine sim, diorama after.
+- [x] **7. Combat resolver** (`sim::combat`) — headless range-band doctrine sim
+  consuming §8 fits: railguns rule at range, torpedo salvos *saturate* the PDC
+  screen up close (the equalizer), crew quality scales it. Diorama (§22) later.
 - [ ] **8. Crew & alert-feed system**.
 - [ ] **9. Progression** — research / blueprints / reputation / CEO skills.
 - [ ] **10. Managers & automation** (exceptions-as-verbs).
@@ -210,6 +212,20 @@ Status: [x] done, [~] in progress, [ ] todo.
   that scales effective alpha and grows via `gain_experience` (§8c bottleneck).
   Fleet-wide trained-crew *pool* caps and progression deferred to steps 8–10;
   procedural meshes to step 11. Combat (step 7) will consume these stats.
+
+- **2026-06-14 — Combat resolver (§9) — the band decides.** `sim::combat::resolve`
+  runs two fleets to the death at one negotiated range **band** (faster fleet sets
+  it). Each tick: railgun volleys (best at Long, poor Close), close-band PDC brawl,
+  and torpedo **salvos** resolved as saturation — `leakers = salvo − screen×band`,
+  applied as focus-fire. **Key tuning:** continuous fire is lethal fast, so the
+  opening salvo must land on tick 1 (init reload 0) — otherwise the capital shreds
+  the wing before torpedoes ever fly, and saturation never matters. With that, the
+  §8a/§8f tension is emergent and verified: 1–4 frigates always lose; **8 saturate
+  and win at Close** but **lose at Long** (full screen + railgun reach); 12 win
+  Close/Medium; crew quality scales offense+screen so a veteran wins a mirror.
+  Numbers are tuning knobs (hp = armor + mass/10, screen = pdc_intercept/5, band
+  railgun/intercept curves). Emits a BattleLog `CombatEvent` stream for the §22
+  diorama. rng adds ±12% volley jitter; outcomes deterministic per seed.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

@@ -382,6 +382,11 @@ impl Loadout {
         &self.crew
     }
 
+    /// The fitted weapons (read by the combat resolver, §35 step 7).
+    pub fn weapons(&self) -> &[WeaponDef] {
+        &self.weapons
+    }
+
     /// Compute the derived stats of this loadout.
     pub fn stats(&self) -> ShipStats {
         let weapon_mass: i64 = self.weapons.iter().map(|w| w.mass).sum();
