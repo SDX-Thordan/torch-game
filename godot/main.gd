@@ -33,6 +33,15 @@ func _ready() -> void:
 			row += " %12d" % sim.price(m, c)
 		lines.append(row)
 
+	# §7b: send a frigate to interdict a hauler from Earth's position.
+	if sim.hauler_count() > 0:
+		var target_id := sim.hauler_id(0)
+		var ex := sim.body_x(1) # Earth
+		var ey := sim.body_y(1)
+		var outcome := sim.attempt_interdict(target_id, ex, ey, 120_000, 1500)
+		var names := ["no solution", "escaped", "interdicted"]
+		lines.append("interdiction: hauler %d -> %s" % [target_id, names[outcome]])
+
 	var text := "\n".join(lines)
 	print("[TORCH]\n", text)
 

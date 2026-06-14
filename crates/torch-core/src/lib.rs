@@ -194,9 +194,36 @@ impl TorchSim {
         self.sim.haulers().len() as i64
     }
 
+    /// Id of the in-flight hauler at `index` (−1 if out of range).
+    #[func]
+    fn hauler_id(&self, index: i64) -> i64 {
+        self.sim
+            .haulers()
+            .get(index as usize)
+            .map(|h| h.id as i64)
+            .unwrap_or(-1)
+    }
+
     /// Cut the in-flight hauler with `id`; returns whether one was interdicted.
     #[func]
     fn interdict(&mut self, id: i64) -> bool {
         self.sim.interdict(id as u64)
+    }
+
+    /// Attempt to interdict hauler `id` with an interceptor at `(x, y)` of the
+    /// given `speed` and crew `skill_bp` (§7b). Returns the outcome:
+    /// 0 = no solution, 1 = escaped, 2 = interdicted.
+    #[func]
+    fn attempt_interdict(&mut self, id: i64, x: i64, y: i64, speed: i64, skill_bp: i64) -> i64 {
+        let interceptor = sim::Interceptor {
+            pos: (x, y),
+            speed,
+            skill_bp,
+        };
+        match self.sim.interdict_with(id as u64, interceptor) {
+            sim::Interdiction::NoSolution => 0,
+            sim::Interdiction::Escaped => 1,
+            sim::Interdiction::Interdicted => 2,
+        }
     }
 }

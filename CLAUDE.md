@@ -94,6 +94,9 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [x] **5. Interdiction prototype** (§7b) — price-arbitrage haulers fly the orrery
   between markets and *damp* spreads; cutting one (`Sim::interdict`) denies the
   delivery → local shortage. Stability re-checked with traffic (32 seeds).
+  - [x] Richer interdiction: a real **intercept-geometry + odds** verb
+    (`interdict_with`), ambient **NPC pirates** preying on the fattest cargo, and
+    **scarcity events** tagging each denied delivery. Stability holds with pirates.
 - [ ] **6. Ship design & fitting** — classes, slots, weapons, crew model.
 - [ ] **7. Combat resolver** — headless range-band doctrine sim, diorama after.
 - [ ] **8. Crew & alert-feed system**.
@@ -177,6 +180,20 @@ Status: [x] done, [~] in progress, [ ] todo.
   damps spreads and `interdict()` measurably starves the destination. Interdiction
   test stays clean because market jitter (the only RNG) advances in lockstep
   across a control vs. cut run, isolating the single denied delivery.
+
+- **2026-06-14 — Richer interdiction (geometry + odds + pirates).** Interdiction
+  is now a positioning verb, not a guaranteed delete: `interdiction::resolve`
+  finds the **minimum interceptor speed** to reach a hauler on its remaining path
+  (sampled pursuit solution, integer `isqrt`), returns `NoSolution` if the
+  interceptor lacks the legs, else rolls a hit chance scaled by **speed margin +
+  crew skill** (`chance_bp`). The same resolver drives the player's frigate and
+  ambient **NPC pirates** (`Sim::pirate_raid`, every 72 ticks vs. the fattest
+  cargo). Each cut tags an `Event::Scarcity{market, commodity}` at the destination
+  (§7b's "scarcity event"). The no-death-spiral gate now runs *with pirates*
+  thinning traffic and still holds — the hard stock walls carry it. Faction-
+  relations ripple deferred to the reputation track (step 9). Pirate lethality is
+  a tuning knob (lair pos + speed + skill); ~85% on the fattest hauler felt brutal,
+  dialed to leave escapes/no-solutions for variety.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
