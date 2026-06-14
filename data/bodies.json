@@ -1,0 +1,11 @@
+{
+  "bodies": [
+    { "id": "earth",  "name": "Earth",          "semiMajorAxisAu": 1.00, "phase0": 0.0,  "owner": "earth" },
+    { "id": "luna",   "name": "Luna",           "semiMajorAxisAu": 1.00, "phase0": 0.05, "owner": "earth" },
+    { "id": "mars",   "name": "Mars",           "semiMajorAxisAu": 1.52, "phase0": 2.1,  "owner": "mars" },
+    { "id": "vesta",  "name": "Vesta",          "semiMajorAxisAu": 2.36, "phase0": 4.0,  "owner": "belt" },
+    { "id": "ceres",  "name": "Ceres",          "semiMajorAxisAu": 2.77, "phase0": 1.2,  "owner": "belt" },
+    { "id": "pallas", "name": "Pallas",         "semiMajorAxisAu": 2.77, "phase0": 5.3,  "owner": "belt" },
+    { "id": "europa", "name": "Europa Station", "semiMajorAxisAu": 5.20, "phase0": 3.4,  "owner": "belt" }
+  ]
+}

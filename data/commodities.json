@@ -1,0 +1,12 @@
+{
+  "commodities": [
+    { "id": "water_ice",     "name": "Water Ice",       "tier": "raw",       "basePrice": 10,   "priceFloor": 3,    "priceCeiling": 40 },
+    { "id": "metal_ore",     "name": "Metal Ore",       "tier": "raw",       "basePrice": 14,   "priceFloor": 4,    "priceCeiling": 56 },
+    { "id": "fissile_ore",   "name": "Fissile Ore",     "tier": "raw",       "basePrice": 60,   "priceFloor": 20,   "priceCeiling": 240 },
+    { "id": "reaction_mass", "name": "Reaction Mass",   "tier": "refined",   "basePrice": 30,   "priceFloor": 10,   "priceCeiling": 120 },
+    { "id": "refined_metal", "name": "Refined Metal",   "tier": "refined",   "basePrice": 45,   "priceFloor": 15,   "priceCeiling": 180 },
+    { "id": "reactor_fuel",  "name": "Reactor Fuel",    "tier": "refined",   "basePrice": 180,  "priceFloor": 60,   "priceCeiling": 720 },
+    { "id": "hull_plate",    "name": "Hull Plate",      "tier": "component", "basePrice": 110,  "priceFloor": 40,   "priceCeiling": 440 },
+    { "id": "ship_module",   "name": "Ship Module",     "tier": "assembled", "basePrice": 600,  "priceFloor": 220,  "priceCeiling": 2400 }
+  ]
+}
