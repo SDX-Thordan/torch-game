@@ -10,9 +10,9 @@ permissions:
   contents: write
 
 env:
-  GODOT_VERSION: 4.2.2
-  GODOT_REL: 4.2.2-stable
-  GODOT_TPL_DIR: 4.2.2.stable
+  # gdext 0.2.4 targets the Godot 4.3 API, so the engine + templates must be 4.3.
+  GODOT_REL: 4.3-stable
+  GODOT_TPL_DIR: 4.3.stable
   NDK_VERSION: 23.2.8568313
 
 jobs:
