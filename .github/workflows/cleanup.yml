@@ -1,0 +1,67 @@
+name: Cleanup old release assets and CI artifacts
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 0'  # Sundays at 03:00 UTC
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove APK assets from old releases
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            if (releases.length <= 1) {
+              core.info('One or zero releases — nothing to clean.');
+            } else {
+              releases.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+              const latest = releases[0];
+              core.info(`Keeping latest release: ${latest.tag_name}`);
+
+              let deleted = 0;
+              for (const release of releases.slice(1)) {
+                for (const asset of release.assets) {
+                  core.info(`Deleting ${asset.name} from ${release.tag_name}`);
+                  await github.rest.repos.deleteReleaseAsset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    asset_id: asset.id,
+                  });
+                  deleted++;
+                }
+              }
+              core.info(`Deleted ${deleted} release asset(s).`);
+            }
+
+      - name: Remove all CI run artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            core.info(`Found ${artifacts.length} CI artifact(s).`);
+            let deleted = 0;
+            for (const artifact of artifacts) {
+              core.info(`Deleting: ${artifact.name} (${artifact.size_in_bytes} bytes)`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+              deleted++;
+            }
+            core.info(`Deleted ${deleted} CI artifact(s).`);
