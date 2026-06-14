@@ -50,6 +50,13 @@ func _ready() -> void:
 		var names := ["no solution", "escaped", "interdicted"]
 		lines.append("interdiction: hauler %d -> %s" % [target_id, names[outcome]])
 
+	# §10: faction standings — interdicting shipping ripples reputation.
+	lines.append("reputation:")
+	for fac in sim.faction_count():
+		lines.append("  %-13s %+5d (%s)" % [
+			sim.faction_name(fac), sim.faction_standing(fac), sim.faction_tier(fac)
+		])
+
 	# §8: the warship catalog — railgun count is the escalation axis.
 	var yard := TorchShipyard.new()
 	lines.append("warships:")

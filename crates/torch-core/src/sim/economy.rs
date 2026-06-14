@@ -11,6 +11,7 @@
 //! - **NPC stabilizers**: production/consumption restore stock toward target, so a
 //!   self-sufficient market reaches equilibrium with zero player input.
 
+use super::faction::Faction;
 use super::rng::Pcg32;
 
 /// Basis-point denominator (100% = 10000).
@@ -80,23 +81,25 @@ pub struct Stock {
 pub struct Market {
     name: &'static str,
     body: usize,
+    faction: Faction,
     defs: Vec<CommodityDef>,
     setpoints: Vec<i64>,
     stocks: Vec<Stock>,
 }
 
 impl Market {
-    /// A neutral market: stabilizer setpoint == price anchor ⇒ prices at base.
+    /// A neutral independent market: setpoint == price anchor ⇒ prices at base.
     pub fn new(defs: Vec<CommodityDef>) -> Self {
         let setpoints = defs.iter().map(|d| d.target_stock).collect();
-        Self::with_setpoints("Market", 0, defs, setpoints)
+        Self::with_setpoints("Market", 0, Faction::Independents, defs, setpoints)
     }
 
-    /// A market located at `body` whose per-commodity stabilizer setpoints set
-    /// its equilibrium prices. Starts sitting at that equilibrium.
+    /// A market located at `body`, owned by `faction`, whose per-commodity
+    /// stabilizer setpoints set its equilibrium prices. Starts at equilibrium.
     pub fn with_setpoints(
         name: &'static str,
         body: usize,
+        faction: Faction,
         defs: Vec<CommodityDef>,
         setpoints: Vec<i64>,
     ) -> Self {
@@ -111,6 +114,7 @@ impl Market {
         Self {
             name,
             body,
+            faction,
             defs,
             setpoints,
             stocks,
@@ -123,6 +127,11 @@ impl Market {
 
     pub fn body(&self) -> usize {
         self.body
+    }
+
+    /// The faction that owns this market (§4).
+    pub fn faction(&self) -> Faction {
+        self.faction
     }
 
     pub fn defs(&self) -> &[CommodityDef] {
@@ -261,8 +270,8 @@ pub fn default_markets() -> Vec<Market> {
     let ceres = setpoints(true, &defs); // cheap raw, dear refined
     let earth = setpoints(false, &defs); // dear raw, cheap refined
     vec![
-        Market::with_setpoints("Ceres Yards", 3, defs.clone(), ceres),
-        Market::with_setpoints("Earth Hub", 1, defs, earth),
+        Market::with_setpoints("Ceres Yards", 3, Faction::Belt, defs.clone(), ceres),
+        Market::with_setpoints("Earth Hub", 1, Faction::Earth, defs, earth),
     ]
 }
 

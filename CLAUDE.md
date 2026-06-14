@@ -108,7 +108,11 @@ Status: [x] done, [~] in progress, [ ] todo.
   (§29) into ranked, voiced alerts with a hard FYI/act-now split; act-now alerts
   carry a verb (§0.4), threshold is player-tunable (§19). Crew-attachment depth
   (history/portraits, §11) right-sized later.
-- [ ] **9. Progression** — research / blueprints / reputation / CEO skills.
+- [~] **9. Progression** — research / blueprints / reputation / CEO skills.
+  - [x] Factions + reputation (`sim::faction`): standings/tiers per faction, the
+    §7b ripple wired (a *player* cut angers the owner, pleases their rival;
+    pirate raids don't blame the player). Markets are faction-owned.
+  - [ ] Research tree, blueprint discovery, CEO skill track.
 - [ ] **10. Managers & automation** (exceptions-as-verbs).
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
 - [ ] **12. Tier-1→2 ascent + gate foreshadowing**.
@@ -242,6 +246,16 @@ Status: [x] done, [~] in progress, [ ] todo.
   filtered as non-feed-worthy to avoid notification spam. Bounded ring buffer
   (64). Lesson: an unread `domain` field tripped `clippy::dead_code` under
   `-D warnings` — managers are distinguished by their feed slot, so the field went.
+
+- **2026-06-14 — Factions + reputation (§4/§10) + the deferred §7b ripple.**
+  `sim::faction` models the four powers (Earth/Mars/Belt/Independents), per-faction
+  standings (clamped ±1000) and tiers (Hostile→Allied). Markets are now
+  faction-owned (Ceres=Belt, Earth=Earth). Cutting a hauler now closes the §7b
+  loop: a **player** interdiction sours relations with the cargo's owner faction
+  and pleases their rival (Earth↔Mars peers; Belt resents Earth) — but **pirate**
+  raids don't (the player isn't blamed), so `cut_hauler` returns the hauler and
+  only the player paths call `ripple_reputation`. Verified live: interdicting an
+  Earth hauler → Earth −50, Mars +20. Research/blueprints/CEO tracks next (9b).
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
