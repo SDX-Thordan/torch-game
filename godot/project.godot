@@ -1,0 +1,24 @@
+; TORCH — Godot 4.2 project (renderer/shell over the Rust core, §26).
+; Engine configuration file. Edited by hand for the toolchain de-risk; the editor
+; will rewrite/extend it as scenes are added.
+
+config_version=5
+
+[application]
+
+config/name="TORCH"
+config/description="Hard sci-fi industrial sandbox. Godot shell over a Rust deterministic core."
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.2", "Forward Plus")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/handheld/orientation=1
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="mobile"

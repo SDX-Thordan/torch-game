@@ -1,0 +1,14 @@
+; Binds the Rust `torch-core` cdylib into Godot (§26).
+; Desktop dev points at the workspace target/; Android export uses the
+; cross-compiled library staged under res://bin/android/ by the APK workflow.
+
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = 4.2
+reloadable = true
+
+[libraries]
+linux.debug.x86_64 =     "res://../target/debug/libtorch_core.so"
+linux.release.x86_64 =   "res://../target/release/libtorch_core.so"
+android.debug.arm64 =    "res://bin/android/arm64/libtorch_core.so"
+android.release.arm64 =  "res://bin/android/arm64/libtorch_core.so"

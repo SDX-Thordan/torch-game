@@ -1,0 +1,15 @@
+# Rust
+/target/
+
+# Godot
+godot/.godot/
+godot/.import/
+godot/export_presets.cfg
+*.translation
+
+# Cross-compiled GDExtension libs staged for export (regenerated in CI)
+godot/bin/
+
+# OS / editor
+.DS_Store
+*.log
