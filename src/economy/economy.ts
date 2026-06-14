@@ -1,7 +1,6 @@
 import { Rng } from "../core/rng.js";
 import { SECONDS_PER_DAY } from "../core/units.js";
 import { Market } from "./market.js";
-import { loadEconomyData } from "./data.js";
 import {
   CommodityDef,
   DEFAULT_TUNING,
@@ -13,8 +12,13 @@ import {
 export interface EconomyOptions {
   seed?: number;
   tuning?: Partial<EconomyTuning>;
-  /** Override the data set (tests inject custom worlds). Defaults to /data. */
-  data?: EconomyData;
+  /**
+   * The world content to simulate. Required and injected — the core never reads
+   * from disk, so it runs unchanged in Node and the browser (portability rule,
+   * CLAUDE.md §3). Node callers pass `loadEconomyData()`; the web client passes
+   * data assembled from bundled JSON.
+   */
+  data: EconomyData;
 }
 
 /**
@@ -28,8 +32,8 @@ export class Economy {
   readonly tuning: EconomyTuning;
   private readonly rng: Rng;
 
-  constructor(opts: EconomyOptions = {}) {
-    const data = opts.data ?? loadEconomyData();
+  constructor(opts: EconomyOptions) {
+    const data = opts.data;
     this.tuning = { ...DEFAULT_TUNING, ...opts.tuning };
     this.rng = new Rng(opts.seed ?? 1);
 

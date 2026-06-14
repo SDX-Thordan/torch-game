@@ -1,0 +1,126 @@
+:root {
+  --bg: #05080f;
+  --panel: #0b1422;
+  --line: #1b2c44;
+  --fg: #cfe3ff;
+  --dim: #6f88a8;
+  --accent: #ffb347;
+  --good: #5fd3a0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, "SF Mono", "Roboto Mono", monospace;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* Respect device safe areas (notches) when wrapped as an APK. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+#title {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+#clock {
+  color: var(--dim);
+}
+
+#speed-controls {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+#speed-controls button {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font: inherit;
+}
+
+#speed-controls button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#orrery {
+  flex: 1 1 auto;
+  width: 100%;
+  display: block;
+}
+
+#panel {
+  flex: 0 0 auto;
+  max-height: 42%;
+  overflow-y: auto;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 10px 14px 18px;
+}
+
+#panel h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  margin: 12px 0 6px;
+}
+
+.market-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.market-name {
+  flex: 0 0 100%;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.tag {
+  color: var(--dim);
+}
+
+.tag b {
+  color: var(--good);
+  font-weight: 600;
+}
+
+#transfer {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg);
+}

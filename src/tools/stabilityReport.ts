@@ -8,11 +8,13 @@
  *   npm run stability
  */
 import { Economy } from "../economy/economy.js";
+import { loadEconomyData } from "../economy/data.js";
 
 const TICK_SECONDS = 3600;
 const TOTAL_TICKS = 20_000;
 const WINDOW = 4_000;
 const SEEDS = [0, 1, 2, 3, 7, 13, 42, 99];
+const DATA = loadEconomyData();
 
 function bar(frac: number, width = 20): string {
   const n = Math.round(Math.min(1, frac) * width);
@@ -23,7 +25,7 @@ let worst = 0;
 let worstKey = "";
 
 for (const seed of SEEDS) {
-  const econ = new Economy({ seed });
+  const econ = new Economy({ seed, data: DATA });
   const min = new Map<string, number>();
   const max = new Map<string, number>();
 

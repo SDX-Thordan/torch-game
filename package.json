@@ -8,17 +8,26 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.app.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "sim": "tsx src/index.ts",
-    "stability": "tsx src/tools/stabilityReport.ts"
+    "stability": "tsx src/tools/stabilityReport.ts",
+    "cap:sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vite": "^5.4.11",
     "vitest": "^2.1.8"
   }
 }
