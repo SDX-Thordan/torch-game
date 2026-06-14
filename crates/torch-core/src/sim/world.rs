@@ -7,6 +7,7 @@
 
 use super::economy::{default_markets, Market};
 use super::event::Event;
+use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::orbit::{default_system, Body};
 use super::rng::Pcg32;
 use super::traffic::Hauler;
@@ -21,6 +22,8 @@ const MIN_SPREAD: i64 = 5;
 const CRUISE_SPEED: i64 = 20_000;
 /// Floor on travel time so close markets still take real time (§21).
 const MIN_TRAVEL: u64 = 24;
+/// Ticks between NPC pirate raid attempts (§13 ambient predation).
+const PIRATE_INTERVAL: u64 = 72;
 
 /// A renderable view of one body at a single tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +73,7 @@ pub struct Sim {
     markets: Vec<Market>,
     haulers: Vec<Hauler>,
     next_hauler_id: u64,
+    pirate: Interceptor,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -83,6 +87,13 @@ impl Sim {
             markets: default_markets(),
             haulers: Vec::new(),
             next_hauler_id: 0,
+            // A raider lurking on the inner lanes (§13): quick but lightly crewed,
+            // so it lands some strikes and muffs others.
+            pirate: Interceptor {
+                pos: (-600_000, -300_000),
+                speed: 24_000,
+                skill_bp: 400,
+            },
             rng: Pcg32::new(seed),
             events: Vec::new(),
         }
@@ -123,20 +134,64 @@ impl Sim {
         }
         self.deliver_arrivals();
         self.spawn_traffic();
+        self.pirate_raid();
         self.events.push(Event::Tick { tick: self.tick });
         &self.events
     }
 
-    /// Interdict the in-flight hauler with `id` (§7b): it is removed and its
-    /// delivery denied, leaving the destination short. Returns whether a hauler
-    /// was actually cut.
+    /// Administratively cut the in-flight hauler with `id` (a guaranteed delete,
+    /// for the binding/tests). Returns whether a hauler was actually cut. For the
+    /// positioning-and-odds verb, use [`Sim::interdict_with`].
     pub fn interdict(&mut self, id: u64) -> bool {
         if let Some(i) = self.haulers.iter().position(|h| h.id == id) {
-            self.haulers.remove(i);
-            self.events.push(Event::HaulerInterdicted { id });
+            self.cut_hauler(i);
             true
         } else {
             false
+        }
+    }
+
+    /// Attempt to interdict hauler `id` with `interceptor` (§7b): the cut only
+    /// lands if the interceptor has the legs to reach the hauler *and* wins the
+    /// roll. Returns the resolved outcome.
+    pub fn interdict_with(&mut self, id: u64, interceptor: Interceptor) -> Interdiction {
+        let Some(i) = self.haulers.iter().position(|h| h.id == id) else {
+            return Interdiction::NoSolution;
+        };
+        let outcome = resolve(&self.haulers[i], &interceptor, self.tick, &mut self.rng);
+        if outcome == Interdiction::Interdicted {
+            self.cut_hauler(i);
+        }
+        outcome
+    }
+
+    /// Remove the hauler at `index`, denying its delivery and tagging the
+    /// resulting shortage at the destination (§7b).
+    fn cut_hauler(&mut self, index: usize) {
+        let h = self.haulers.remove(index);
+        self.events.push(Event::HaulerInterdicted { id: h.id });
+        self.events.push(Event::Scarcity {
+            market: h.dest,
+            commodity: h.commodity,
+        });
+    }
+
+    /// NPC pirates periodically strike at the fattest cargo in flight (§13).
+    fn pirate_raid(&mut self) {
+        if !self.tick.is_multiple_of(PIRATE_INTERVAL) || self.haulers.is_empty() {
+            return;
+        }
+        let target = self
+            .haulers
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, h)| h.qty)
+            .map(|(i, _)| i);
+        if let Some(i) = target {
+            let outcome = resolve(&self.haulers[i], &self.pirate, self.tick, &mut self.rng);
+            if outcome == Interdiction::Interdicted {
+                self.cut_hauler(i);
+            }
         }
     }
 
@@ -277,6 +332,68 @@ mod tests {
         let events = sim.step();
         assert!(events.contains(&Event::Tick { tick: 1 }));
         assert_eq!(sim.tick(), 1);
+    }
+
+    /// Step until a hauler is in flight; return its id.
+    fn fly_a_hauler(sim: &mut Sim) -> u64 {
+        loop {
+            sim.step();
+            if let Some(h) = sim.haulers().first() {
+                return h.id;
+            }
+        }
+    }
+
+    #[test]
+    fn rich_interdiction_requires_a_firing_solution() {
+        let mut sim = Sim::new(2);
+        let id = fly_a_hauler(&mut sim);
+        let before = sim.haulers().len();
+        // A crawler far off the lane can't reach it: a miss that leaves it flying.
+        let crawler = Interceptor {
+            pos: (8_000_000, 8_000_000),
+            speed: 1,
+            skill_bp: 0,
+        };
+        assert_eq!(sim.interdict_with(id, crawler), Interdiction::NoSolution);
+        assert_eq!(
+            sim.haulers().len(),
+            before,
+            "a miss must not remove the hauler"
+        );
+        // A fast frigate sitting on the hauler always has a solution (it lands or
+        // the hauler escapes — never NoSolution).
+        let pos = sim
+            .haulers()
+            .iter()
+            .find(|h| h.id == id)
+            .unwrap()
+            .position(sim.tick());
+        let frigate = Interceptor {
+            pos,
+            speed: 200_000,
+            skill_bp: 0,
+        };
+        assert_ne!(sim.interdict_with(id, frigate), Interdiction::NoSolution);
+    }
+
+    #[test]
+    fn pirates_raid_the_lanes() {
+        // Over a long run the ambient raider lands strikes, each tagging a
+        // destination scarcity (§7b/§13).
+        let mut sim = Sim::new(0);
+        let (mut cuts, mut scarcities) = (0, 0);
+        for _ in 0..4_000 {
+            for e in sim.step() {
+                match e {
+                    Event::HaulerInterdicted { .. } => cuts += 1,
+                    Event::Scarcity { .. } => scarcities += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert!(cuts > 0, "pirates never struck the lanes");
+        assert_eq!(cuts, scarcities, "every cut should leave a scarcity");
     }
 
     #[test]

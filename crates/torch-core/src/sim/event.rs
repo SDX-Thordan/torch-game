@@ -22,4 +22,6 @@ pub enum Event {
     HaulerArrived { id: u64 },
     /// A hauler was cut in flight; its delivery is denied (§7b interdiction).
     HaulerInterdicted { id: u64 },
+    /// A denied delivery left a market short of a commodity (§7b consequence).
+    Scarcity { market: usize, commodity: usize },
 }
