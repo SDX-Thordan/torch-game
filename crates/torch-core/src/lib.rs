@@ -308,4 +308,23 @@ impl TorchShipyard {
             .map(|c| c.1.thrust_to_mass)
             .unwrap_or(0)
     }
+
+    /// Resolve a demo duel: `n` torpedo frigates vs one battleship at `band`
+    /// (0 = close, 1 = medium, 2 = long). Returns a one-line result (§9).
+    #[func]
+    fn duel(&self, n: i64, band: i64) -> GString {
+        use sim::combat::demo_duel;
+        let band = match band {
+            0 => sim::Band::Close,
+            2 => sim::Band::Long,
+            _ => sim::Band::Medium,
+        };
+        let out = demo_duel(n.max(0) as usize, band, 0);
+        let who = match out.winner {
+            Some(0) => "frigates win",
+            Some(1) => "battleship wins",
+            _ => "stalemate",
+        };
+        GString::from(format!("{who} in {} ticks", out.ticks))
+    }
 }
