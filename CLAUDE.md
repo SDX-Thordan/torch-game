@@ -83,9 +83,12 @@ Status: [x] done, [~] in progress, [ ] todo.
     signed debug APK, green in CI via `android.yml`).
 - [ ] **2. Lock the §0 spine on paper** — destination pull, tier transitions,
   three-horizon goal stack (design note in repo).
-- [ ] **3. Deterministic core sim** — fixed tick, snapshot+event contract,
-  stub orbital model.
-- [ ] **4. Economy & industry** (data-driven) **+ headless stability test**.
+- [x] **3. Deterministic core sim** — fixed-tick `Sim`, snapshot + typed event
+  contract (§29), stub deterministic orbital model + integer fixed-point trig.
+- [~] **4. Economy & industry** (data-driven) **+ headless stability test**.
+  - [x] Stockpile pricing (§7a): piecewise damped target, NPC stabilizers, the
+    §7c no-death-spiral gate (64 seeds × 5000 ticks). Single self-sufficient market.
+  - [ ] Multi-market + RON/JSON hot-reloadable commodity data (§31).
 - [ ] **5. Interdiction prototype** (§7b) — the featured fun engine, early.
 - [ ] **6. Ship design & fitting** — classes, slots, weapons, crew model.
 - [ ] **7. Combat resolver** — headless range-band doctrine sim, diorama after.
@@ -141,6 +144,21 @@ Status: [x] done, [~] in progress, [ ] todo.
 - **2026-06-14 — Determinism primitive.** Implemented PCG32 (`sim::rng`) with a
   bias-free `below()` (rejection sampling) and integer basis-point `chance_bp()`
   per §27 — the RNG every future system draws from.
+- **2026-06-14 — Pin the Rust toolchain.** `channel = "stable"` let CI use a
+  different rustfmt than local, so `cargo fmt --check` failed on formatting *we*
+  couldn't reproduce. Pinned `rust-toolchain.toml` to an exact version (`1.94.1`)
+  so fmt/clippy are reproducible CI == local. rustfmt output is not stable across
+  versions — always pin.
+- **2026-06-14 — Sim↔view contract live.** `sim::Sim` advances a fixed tick and
+  returns a typed `Event` stream; `snapshot()` is the render view (§29). Stub
+  orbits use integer Bhaskara sin/cos (`sim::fixed`) — no floats in the sim, so
+  positions are bit-identical everywhere. Bound to Godot via a thin `TorchSim`.
+- **2026-06-14 — Economy ported (stockpile pricing + §7c gate).** Re-implemented
+  the prototype's damped piecewise pricing + NPC stabilizers in integer Rust. The
+  acceptance gate (`no_death_spiral_on_any_seed`) runs 64 seeds × 5000 ticks and
+  accumulates invariants as plain booleans in the hot loop (the prototype's perf
+  learning). A proportional stock-restoring stabilizer vs. bounded demand jitter
+  keeps a self-sufficient market mean-reverting near reference prices.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
