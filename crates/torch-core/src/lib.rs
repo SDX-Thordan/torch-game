@@ -133,4 +133,42 @@ impl TorchSim {
             .map(|b| b.y)
             .unwrap_or(0)
     }
+
+    /// Number of commodities in the home market (§7a).
+    #[func]
+    fn commodity_count(&self) -> i64 {
+        self.sim.market().defs().len() as i64
+    }
+
+    #[func]
+    fn commodity_name(&self, index: i64) -> GString {
+        GString::from(
+            self.sim
+                .market()
+                .defs()
+                .get(index as usize)
+                .map(|d| d.name)
+                .unwrap_or(""),
+        )
+    }
+
+    #[func]
+    fn commodity_price(&self, index: i64) -> i64 {
+        self.sim
+            .market()
+            .stocks()
+            .get(index as usize)
+            .map(|s| s.price)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn commodity_stock(&self, index: i64) -> i64 {
+        self.sim
+            .market()
+            .stocks()
+            .get(index as usize)
+            .map(|s| s.stock)
+            .unwrap_or(0)
+    }
 }

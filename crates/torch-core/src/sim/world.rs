@@ -5,6 +5,7 @@
 //! [`Event`] stream returned by [`Sim::step`] (what changed). This is the seam
 //! the Godot shell binds to and that keeps the core headless and testable.
 
+use super::economy::{default_commodities, Market};
 use super::event::Event;
 use super::orbit::{default_system, Body};
 use super::rng::Pcg32;
@@ -17,17 +18,27 @@ pub struct BodyState {
     pub y: i64,
 }
 
+/// A renderable view of one commodity in the home market at a single tick.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommodityState {
+    pub name: &'static str,
+    pub stock: i64,
+    pub price: i64,
+}
+
 /// An immutable snapshot of the world for rendering (§29).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
     pub tick: u64,
     pub bodies: Vec<BodyState>,
+    pub market: Vec<CommodityState>,
 }
 
 /// The authoritative deterministic simulation.
 pub struct Sim {
     tick: u64,
     bodies: Vec<Body>,
+    market: Market,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -38,6 +49,7 @@ impl Sim {
         Self {
             tick: 0,
             bodies: default_system(),
+            market: Market::new(default_commodities()),
             rng: Pcg32::new(seed),
             events: Vec::new(),
         }
@@ -53,6 +65,11 @@ impl Sim {
         &self.bodies
     }
 
+    /// The home market (§7a).
+    pub fn market(&self) -> &Market {
+        &self.market
+    }
+
     /// The shared deterministic RNG every system draws from (§27).
     pub fn rng_mut(&mut self) -> &mut Pcg32 {
         &mut self.rng
@@ -62,6 +79,7 @@ impl Sim {
     /// The returned slice is valid until the next call to `step`.
     pub fn step(&mut self) -> &[Event] {
         self.tick += 1;
+        self.market.step(&mut self.rng);
         self.events.clear();
         self.events.push(Event::Tick { tick: self.tick });
         &self.events
@@ -77,9 +95,21 @@ impl Sim {
                 BodyState { name: b.name, x, y }
             })
             .collect();
+        let market = self
+            .market
+            .defs()
+            .iter()
+            .zip(self.market.stocks())
+            .map(|(d, s)| CommodityState {
+                name: d.name,
+                stock: s.stock,
+                price: s.price,
+            })
+            .collect();
         Snapshot {
             tick: self.tick,
             bodies,
+            market,
         }
     }
 }
