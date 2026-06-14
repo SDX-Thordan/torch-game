@@ -97,6 +97,30 @@ export class Market {
     return this.states.get(id)?.stock;
   }
 
+  /** Fill ratio (stock / target) — 1.0 == at equilibrium target. */
+  fill(id: string): number {
+    const s = this.states.get(id);
+    return s && s.target > 0 ? s.stock / s.target : 0;
+  }
+
+  /** Desired equilibrium stock for a commodity. */
+  target(id: string): number {
+    return this.states.get(id)?.target ?? 0;
+  }
+
+  /**
+   * Add (or remove, if negative) stock, clamped to [0, capacity]. Returns the
+   * amount actually applied — used by the traffic layer to load/unload haulers
+   * without ever violating storage bounds.
+   */
+  adjustStock(id: string, delta: number): number {
+    const s = this.states.get(id);
+    if (!s) return 0;
+    const before = s.stock;
+    s.stock = clamp(s.stock + delta, 0, s.capacity);
+    return s.stock - before;
+  }
+
   /**
    * Player or pirate interdiction: instantly remove a fraction of stock,
    * creating a local, temporary shortage (§7b). The stabilizers absorb it.

@@ -7,10 +7,8 @@
  *
  *   npm run sim
  */
-import { Clock } from "./core/clock.js";
 import { secondsToDays } from "./core/units.js";
-import { SolSystem } from "./orbit/system.js";
-import { Economy } from "./economy/economy.js";
+import { World } from "./sim/world.js";
 import { loadBodies, loadEconomyData } from "./economy/data.js";
 
 function fmt(n: number, w = 8): string {
@@ -21,15 +19,10 @@ function main(): void {
   const seed = Number(process.env.SEED ?? 1);
   const days = Number(process.env.DAYS ?? 200);
 
-  const clock = new Clock({ tickSeconds: 3600 }); // 1 hour / tick
-  const system = new SolSystem(loadBodies());
-  const economy = new Economy({ seed, data: loadEconomyData() });
+  const world = new World({ seed, data: loadEconomyData(), bodies: loadBodies() });
+  const { clock, system, economy, traffic } = world;
 
-  const ticks = Math.round((days * 86_400) / clock.tickSeconds);
-  for (let i = 0; i < ticks; i++) {
-    const dt = clock.tick();
-    economy.step(dt);
-  }
+  world.run(Math.round((days * 86_400) / clock.tickSeconds));
 
   console.log(`TORCH headless sim — seed ${seed}, ${secondsToDays(clock.now).toFixed(0)} days, ${clock.tickCount} ticks\n`);
 
@@ -47,6 +40,11 @@ function main(): void {
   console.log("\nTRANSFER Earth -> Ceres:");
   console.log(`  Hohmann   dv ${fmt(hoh.deltaV, 9)} m/s   time ${fmt(secondsToDays(hoh.timeSeconds), 7)} d`);
   console.log(`  Hard burn dv ${fmt(burn.deltaV, 9)} m/s   time ${fmt(secondsToDays(burn.timeSeconds), 7)} d`);
+
+  // --- Traffic (§7b) --------------------------------------------------------
+  console.log(
+    `\nTRAFFIC: ${traffic.active.length} convoys in flight · ${traffic.delivered} delivered · ${traffic.intercepted} raided`,
+  );
 
   // --- Market snapshot ------------------------------------------------------
   console.log("\nMARKET PRICES (settled with zero player input):");

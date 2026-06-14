@@ -11,8 +11,17 @@ const FACTION_COLOUR: Record<string, string> = {
   belt: "#e9c46a",
 };
 
+/** A hauler leg to draw: between two body ids, at fractional progress. */
+export interface HaulerSegment {
+  fromBody: string;
+  toBody: string;
+  progress: number;
+}
+
 export class OrreryView {
   private readonly ctx: CanvasRenderingContext2D;
+  /** Screen position of each body after the most recent draw(). */
+  readonly screen = new Map<string, { x: number; y: number }>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -85,6 +94,22 @@ export class OrreryView {
       ctx.fillStyle = "#9fb6d4";
       ctx.font = "11px ui-monospace, monospace";
       ctx.fillText(b.name, x + 7, y + 3);
+
+      this.screen.set(b.id, { x, y });
+    }
+  }
+
+  /** Draw in-flight haulers as ticks moving along their routes (§7b). */
+  drawHaulers(segments: HaulerSegment[]): void {
+    const { ctx } = this;
+    ctx.fillStyle = "#ffb347";
+    for (const seg of segments) {
+      const a = this.screen.get(seg.fromBody);
+      const b = this.screen.get(seg.toBody);
+      if (!a || !b) continue;
+      const x = a.x + (b.x - a.x) * seg.progress;
+      const y = a.y + (b.y - a.y) * seg.progress;
+      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
     }
   }
 }

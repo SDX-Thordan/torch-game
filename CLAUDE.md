@@ -87,8 +87,9 @@ Build order follows GDD §18. Status: [x] done, [~] in progress, [ ] todo.
 - [x] **Process & CI** — CLAUDE.md, PR CI workflow (#1).
 - [x] **APK skeleton** — Vite/Canvas web client driven by the sim core +
   Capacitor Android project + release workflow producing a debug APK.
-- [ ] **Physical traffic layer (§7b)** — NPC haulers on real routes,
-  interceptable; interdiction feeds back into stockpiles.
+- [x] **Physical traffic layer (§7b)** — NPC haulers on real routes,
+  interceptable; interdiction feeds back into stockpiles. `World` composes
+  clock+orrery+economy+traffic.
 - [ ] **Ship design system (§8)** — hull classes, slots, mass/delta-v/heat
   tradeoffs, derived stats.
 - [ ] **Combat resolver (§9)** — doctrine + range-band, headless first.
@@ -139,3 +140,22 @@ Build order follows GDD §18. Status: [x] done, [~] in progress, [ ] todo.
 - **2026-06-14 — APK build env.** Capacitor 6 → compileSdk 34, Gradle 8.2.1,
   JDK 17. Release workflow installs `platforms;android-34` + `build-tools;34.0.0`
   and runs `./gradlew assembleDebug`, on tag `v*` or manual dispatch.
+- **2026-06-14 — APK pipeline verified.** First dispatch on `main`: Gradle
+  `assembleDebug` succeeded (`BUILD SUCCESSFUL in 2m4s`, `app-debug.apk`
+  produced). The job's only failure was the artifact-upload step hitting the
+  **account Actions artifact storage quota** — an env limit, not a build bug.
+  Action: harden the workflow so a quota hit doesn't fail the build (verify the
+  APK exists as the real gate; make upload non-fatal + short retention; tag
+  releases attach via Releases storage, which is separate from the artifact
+  quota).
+- **2026-06-14 — Traffic must be arbitrage-driven, not deficit-driven (§7b).**
+  Because PR #1 made every market self-sufficient (for §7c stability), markets
+  almost never run an outright deficit, so deficit-threshold hauler spawning was
+  sparse and seed-fragile. Switched spawning to price arbitrage (cheapest market
+  with surplus → dearest with room). Equilibrium prices *do* differ between
+  markets (e.g. Vesta ore ~4 vs ~12 elsewhere), so trade flows steadily and
+  *damps* the spread — stabilizing, not destabilizing. Verified: combined
+  economy+traffic passes the stability sweep across seeds; Vesta ore rose 4→6
+  once exports began. Tension to revisit: self-sufficiency limits emergent
+  trade; future market specialization (comparative advantage) would deepen §7b
+  while needing a fresh stability check.

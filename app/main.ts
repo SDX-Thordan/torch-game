@@ -1,36 +1,35 @@
 /**
- * TORCH web client bootstrap (APK skeleton).
+ * TORCH web client bootstrap.
  *
- * Proves the architecture end to end: the deterministic TypeScript sim core runs
- * unchanged in the browser, driving a live orrery and a market panel. This is the
- * "map + alerts = a complete game" seed (GDD §17); UI depth grows in later PRs.
+ * Drives the deterministic `World` (clock + orrery + living economy + traffic)
+ * unchanged in the browser, rendering a live orrery, in-flight convoys, and a
+ * market panel. The "map + alerts = a complete game" seed (GDD §17); UI depth
+ * grows in later PRs.
  */
-import { Clock } from "../src/core/clock.js";
 import { secondsToDays } from "../src/core/units.js";
-import { SolSystem } from "../src/orbit/system.js";
-import { Economy } from "../src/economy/economy.js";
+import { World } from "../src/sim/world.js";
 import { economyData, bodyDefs } from "./data.js";
-import { OrreryView } from "./orreryView.js";
+import { OrreryView, HaulerSegment } from "./orreryView.js";
 
-const TICK_SECONDS = 3600; // 1 in-game hour per sim tick.
-
-const clock = new Clock({ tickSeconds: TICK_SECONDS });
-const system = new SolSystem(bodyDefs);
-const economy = new Economy({ seed: 1, data: economyData });
+const world = new World({ seed: 1, data: economyData, bodies: bodyDefs });
 
 const canvas = document.getElementById("orrery") as HTMLCanvasElement;
-const orrery = new OrreryView(canvas, system);
+const orrery = new OrreryView(canvas, world.system);
 
 const clockEl = document.getElementById("clock")!;
 const marketsEl = document.getElementById("markets")!;
 const transferEl = document.getElementById("transfer")!;
+
+// Resolve market ids -> body ids once for hauler rendering.
+const marketBody = new Map<string, string>();
+for (const m of world.economy.markets.values()) marketBody.set(m.id, m.bodyId);
 
 // --- Speed control (real-time-with-pause, GDD §6) ---------------------------
 let ticksPerSecond = 1; // 0 = paused; multiplier set by the speed buttons.
 for (const btn of document.querySelectorAll<HTMLButtonElement>("#speed-controls button")) {
   btn.addEventListener("click", () => {
     ticksPerSecond = Number(btn.dataset.speed);
-    clock.paused = ticksPerSecond === 0;
+    world.clock.paused = ticksPerSecond === 0;
     document
       .querySelectorAll("#speed-controls button")
       .forEach((b) => b.classList.toggle("active", b === btn));
@@ -40,7 +39,7 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>("#speed-controls 
 // --- Panel rendering (throttled; the sim runs far faster than the eye) -------
 function renderPanel(): void {
   let html = "";
-  for (const m of economy.markets.values()) {
+  for (const m of world.economy.markets.values()) {
     const tags = [...m.states]
       .map(([id, s]) => `<span class="tag">${id} <b>${s.price.toFixed(0)}</b></span>`)
       .join("");
@@ -48,11 +47,23 @@ function renderPanel(): void {
   }
   marketsEl.innerHTML = html;
 
-  const hoh = system.hohmann("earth", "ceres");
-  const burn = system.hardBurn("earth", "ceres", clock.now, 0.3);
+  const hoh = world.system.hohmann("earth", "ceres");
+  const burn = world.system.hardBurn("earth", "ceres", world.clock.now, 0.3);
   transferEl.innerHTML =
+    `Convoys in flight: <b>${world.traffic.active.length}</b> · delivered ${world.traffic.delivered} · raided ${world.traffic.intercepted}<br>` +
     `Hohmann&nbsp;&nbsp; Δv ${(hoh.deltaV / 1000).toFixed(1)} km/s · ${secondsToDays(hoh.timeSeconds).toFixed(0)} d<br>` +
     `Hard burn Δv ${(burn.deltaV / 1000).toFixed(0)} km/s · ${secondsToDays(burn.timeSeconds).toFixed(1)} d`;
+}
+
+function haulerSegments(): HaulerSegment[] {
+  const t = world.clock.now;
+  const segs: HaulerSegment[] = [];
+  for (const h of world.traffic.active) {
+    const fromBody = marketBody.get(h.originId);
+    const toBody = marketBody.get(h.destId);
+    if (fromBody && toBody) segs.push({ fromBody, toBody, progress: world.traffic.progress(h, t) });
+  }
+  return segs;
 }
 
 // --- Main loop --------------------------------------------------------------
@@ -68,13 +79,11 @@ function frame(now: number): void {
   acc += dtSec * ticksPerSecond;
   let steps = Math.floor(acc);
   acc -= steps;
-  while (steps-- > 0) {
-    const dt = clock.tick();
-    if (dt > 0) economy.step(dt);
-  }
+  while (steps-- > 0) world.step();
 
-  clockEl.textContent = `T+${clock.days.toFixed(1)}d`;
-  orrery.draw(clock.now);
+  clockEl.textContent = `T+${world.clock.days.toFixed(1)}d`;
+  orrery.draw(world.clock.now);
+  orrery.drawHaulers(haulerSegments());
 
   panelTimer += dtSec;
   if (panelTimer >= 0.25) {
