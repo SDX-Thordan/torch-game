@@ -42,6 +42,16 @@ func _ready() -> void:
 		var names := ["no solution", "escaped", "interdicted"]
 		lines.append("interdiction: hauler %d -> %s" % [target_id, names[outcome]])
 
+	# §8: the warship catalog — railgun count is the escalation axis.
+	var yard := TorchShipyard.new()
+	lines.append("warships:")
+	lines.append("  %-11s %4s %6s %7s %6s" % ["class", "rail", "alpha", "deltaV", "mob"])
+	for s in yard.class_count():
+		lines.append("  %-11s %4d %6d %7d %6d" % [
+			yard.class_name(s), yard.railguns(s), yard.alpha(s),
+			yard.delta_v(s), yard.mobility(s)
+		])
+
 	var text := "\n".join(lines)
 	print("[TORCH]\n", text)
 

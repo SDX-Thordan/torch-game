@@ -97,7 +97,10 @@ Status: [x] done, [~] in progress, [ ] todo.
   - [x] Richer interdiction: a real **intercept-geometry + odds** verb
     (`interdict_with`), ambient **NPC pirates** preying on the fattest cargo, and
     **scarcity events** tagging each denied delivery. Stability holds with pirates.
-- [ ] **6. Ship design & fitting** — classes, slots, weapons, crew model.
+- [x] **6. Ship design & fitting** (`sim::ships`) — data-driven hull/weapon
+  catalogs (4 warships + Q-ship + civilians), integer fitting validation (slots,
+  power, tankage, crew), derived stats (delta-v proxy, alpha, mobility, the
+  railgun escalation axis), and the captain + crew-quality model (§8c).
 - [ ] **7. Combat resolver** — headless range-band doctrine sim, diorama after.
 - [ ] **8. Crew & alert-feed system**.
 - [ ] **9. Progression** — research / blueprints / reputation / CEO skills.
@@ -194,6 +197,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   relations ripple deferred to the reputation track (step 9). Pirate lethality is
   a tuning knob (lair pos + speed + skill); ~85% on the fattest hauler felt brutal,
   dialed to leave escapes/no-solutions for variety.
+
+- **2026-06-14 — Ships & fitting (§8) as pure data + integer fitting.** `sim::ships`
+  holds hull/weapon catalogs as data (§31) and validates a `Loadout` against slot
+  counts, a power budget, tankage, and the crew minimum (`FitError`). Derived
+  `ShipStats` use a **simplified integer delta-v proxy** (`efficiency × remass ÷
+  mass`, not true Tsiolkovsky — ln needs floats; revisit if it matters). The §8b
+  table fell straight out of the mount counts: railgun mounts 0/1/1/2 are the
+  escalation axis, capitals out-alpha escorts, escorts out-maneuver (thrust÷mass)
+  and out-range (delta-v) capitals — verified live in the shipyard demo. Crew is a
+  named captain (deterministic procedural name, §11) + an abstract quality rating
+  that scales effective alpha and grows via `gain_experience` (§8c bottleneck).
+  Fleet-wide trained-crew *pool* caps and progression deferred to steps 8–10;
+  procedural meshes to step 11. Combat (step 7) will consume these stats.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

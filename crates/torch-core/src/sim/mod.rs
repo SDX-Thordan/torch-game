@@ -10,12 +10,14 @@ pub mod fixed;
 pub mod interdiction;
 pub mod orbit;
 pub mod rng;
+pub mod ships;
 pub mod traffic;
 pub mod world;
 
 pub use economy::{CommodityDef, Market, Stock};
 pub use event::Event;
 pub use interdiction::{Interceptor, Interdiction};
+pub use ships::{Crew, FitError, HullDef, Loadout, ShipClass, ShipStats, WeaponDef, WeaponKind};
 pub use traffic::Hauler;
 pub use world::{BodyState, Sim, Snapshot};
 

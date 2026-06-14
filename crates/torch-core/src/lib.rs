@@ -227,3 +227,85 @@ impl TorchSim {
         }
     }
 }
+
+/// Godot-facing view of the warship catalog and reference fits (§8). Exposes the
+/// derived stats of a sensible reference loadout per class so the shell can show
+/// the railgun escalation axis; the fitting logic stays in `sim::ships`.
+#[derive(GodotClass)]
+#[class(base = RefCounted)]
+struct TorchShipyard {
+    classes: Vec<(GString, sim::ShipStats)>,
+    _base: Base<RefCounted>,
+}
+
+#[godot_api]
+impl IRefCounted for TorchShipyard {
+    fn init(base: Base<RefCounted>) -> Self {
+        use sim::ships::{reference_loadout, ShipClass};
+        let mut rng = sim::rng::Pcg32::new(1);
+        let classes = [
+            ShipClass::Frigate,
+            ShipClass::Destroyer,
+            ShipClass::Cruiser,
+            ShipClass::Battleship,
+        ]
+        .into_iter()
+        .map(|c| {
+            let lo = reference_loadout(c, &mut rng);
+            (GString::from(lo.hull().name), lo.stats())
+        })
+        .collect();
+        Self {
+            classes,
+            _base: base,
+        }
+    }
+}
+
+#[godot_api]
+impl TorchShipyard {
+    #[func]
+    fn class_count(&self) -> i64 {
+        self.classes.len() as i64
+    }
+
+    #[func]
+    fn class_name(&self, index: i64) -> GString {
+        self.classes
+            .get(index as usize)
+            .map(|c| c.0.clone())
+            .unwrap_or_default()
+    }
+
+    #[func]
+    fn railguns(&self, index: i64) -> i64 {
+        self.classes
+            .get(index as usize)
+            .map(|c| c.1.railguns as i64)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn alpha(&self, index: i64) -> i64 {
+        self.classes
+            .get(index as usize)
+            .map(|c| c.1.effective_alpha())
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn delta_v(&self, index: i64) -> i64 {
+        self.classes
+            .get(index as usize)
+            .map(|c| c.1.delta_v)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn mobility(&self, index: i64) -> i64 {
+        self.classes
+            .get(index as usize)
+            .map(|c| c.1.thrust_to_mass)
+            .unwrap_or(0)
+    }
+}
