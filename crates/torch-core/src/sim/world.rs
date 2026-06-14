@@ -5,6 +5,7 @@
 //! [`Event`] stream returned by [`Sim::step`] (what changed). This is the seam
 //! the Godot shell binds to and that keeps the core headless and testable.
 
+use super::alerts::{AlertFeed, Priority};
 use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::interdiction::{resolve, Interceptor, Interdiction};
@@ -74,6 +75,7 @@ pub struct Sim {
     haulers: Vec<Hauler>,
     next_hauler_id: u64,
     pirate: Interceptor,
+    feed: AlertFeed,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -81,10 +83,16 @@ pub struct Sim {
 impl Sim {
     /// Create a sim seeded for determinism (§27). Same seed ⇒ same run.
     pub fn new(seed: u64) -> Self {
+        let markets = default_markets();
+        let market_names = markets.iter().map(|m| m.name().to_string()).collect();
+        let commodity_names = markets[0]
+            .defs()
+            .iter()
+            .map(|d| d.name.to_string())
+            .collect();
         Self {
             tick: 0,
             bodies: default_system(),
-            markets: default_markets(),
             haulers: Vec::new(),
             next_hauler_id: 0,
             // A raider lurking on the inner lanes (§13): quick but lightly crewed,
@@ -94,6 +102,8 @@ impl Sim {
                 speed: 24_000,
                 skill_bp: 400,
             },
+            feed: AlertFeed::new(seed, market_names, commodity_names),
+            markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
         }
@@ -124,6 +134,16 @@ impl Sim {
         &mut self.rng
     }
 
+    /// The alert feed (§19) — the voiced, ranked exception stream.
+    pub fn feed(&self) -> &AlertFeed {
+        &self.feed
+    }
+
+    /// Set the player-tunable alert surfacing threshold (§19).
+    pub fn set_alert_threshold(&mut self, min_priority: Priority) {
+        self.feed.set_threshold(min_priority);
+    }
+
     /// Advance exactly one fixed sim tick (§28) and return the events produced.
     /// The returned slice is valid until the next call to `step`.
     pub fn step(&mut self) -> &[Event] {
@@ -136,6 +156,11 @@ impl Sim {
         self.spawn_traffic();
         self.pirate_raid();
         self.events.push(Event::Tick { tick: self.tick });
+        // The alert feed (§19) consumes this tick's events (§29).
+        let tick = self.tick;
+        for e in &self.events {
+            self.feed.ingest(e, tick);
+        }
         &self.events
     }
 
@@ -375,6 +400,25 @@ mod tests {
             skill_bp: 0,
         };
         assert_ne!(sim.interdict_with(id, frigate), Interdiction::NoSolution);
+    }
+
+    #[test]
+    fn the_alert_feed_voices_the_run() {
+        // Over a run the feed fills with ranked alerts, including act-now
+        // shortages tagged with a verb (§19/§0.4).
+        let mut sim = Sim::new(0);
+        for _ in 0..2_000 {
+            sim.step();
+        }
+        let surfaced = sim.feed().surfaced();
+        assert!(
+            !surfaced.is_empty(),
+            "the feed should have something to say"
+        );
+        assert!(
+            surfaced.iter().any(|a| a.is_act_now() && a.verb.is_some()),
+            "an interdicted run should raise act-now shortages"
+        );
     }
 
     #[test]

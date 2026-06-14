@@ -4,6 +4,7 @@
 //! and is verified by native `cargo test` (§32). The Godot layer (`lib.rs`) is a
 //! thin binding over this.
 
+pub mod alerts;
 pub mod combat;
 pub mod economy;
 pub mod event;
@@ -15,6 +16,7 @@ pub mod ships;
 pub mod traffic;
 pub mod world;
 
+pub use alerts::{Alert, AlertFeed, Priority, Urgency, Verb};
 pub use combat::{Band, BattleOutcome, CombatEvent, Doctrine, Fleet, TargetPriority};
 pub use economy::{CommodityDef, Market, Stock};
 pub use event::Event;
