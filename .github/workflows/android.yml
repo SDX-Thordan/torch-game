@@ -85,19 +85,20 @@ jobs:
       - name: Import project (generates .godot + resource imports)
         run: godot --headless --path godot --import || true
 
-      - name: Configure Godot editor settings (SDK + JDK)
-        # Written AFTER import so the import run can't clobber these values; the
-        # debug keystore comes from the export preset, not here.
+      - name: Configure Godot editor settings (Android SDK path)
+        # Godot reads editor settings from editor_settings-<MAJOR>.<MINOR>.tres
+        # (e.g. 4.6). Writing the wrong name silently drops the SDK path, which
+        # surfaces as a blank export "configuration error". The JDK path and a
+        # debug keystore are auto-detected by Godot 4.6; we only must supply the
+        # Android SDK location.
         run: |
           mkdir -p "$HOME/.config/godot"
-          for f in editor_settings-4.tres editor_settings-4.3.tres; do
-            cat > "$HOME/.config/godot/$f" <<EOF
+          cat > "$HOME/.config/godot/editor_settings-4.6.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
           [resource]
           export/android/android_sdk_path = "${ANDROID_SDK_ROOT}"
           export/android/java_sdk_path = "${JAVA_HOME}"
           EOF
-          done
 
       - name: Export debug APK
         run: |
