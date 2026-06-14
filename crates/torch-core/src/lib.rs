@@ -134,17 +134,33 @@ impl TorchSim {
             .unwrap_or(0)
     }
 
-    /// Number of commodities in the home market (§7a).
+    /// Number of markets (§7a).
+    #[func]
+    fn market_count(&self) -> i64 {
+        self.sim.markets().len() as i64
+    }
+
+    #[func]
+    fn market_name(&self, market: i64) -> GString {
+        GString::from(
+            self.sim
+                .markets()
+                .get(market as usize)
+                .map(|m| m.name())
+                .unwrap_or(""),
+        )
+    }
+
+    /// Number of commodities (shared across markets).
     #[func]
     fn commodity_count(&self) -> i64 {
-        self.sim.market().defs().len() as i64
+        self.sim.markets()[0].defs().len() as i64
     }
 
     #[func]
     fn commodity_name(&self, index: i64) -> GString {
         GString::from(
-            self.sim
-                .market()
+            self.sim.markets()[0]
                 .defs()
                 .get(index as usize)
                 .map(|d| d.name)
@@ -152,23 +168,35 @@ impl TorchSim {
         )
     }
 
+    /// Price of commodity `c` at market `m`.
     #[func]
-    fn commodity_price(&self, index: i64) -> i64 {
+    fn price(&self, market: i64, commodity: i64) -> i64 {
         self.sim
-            .market()
-            .stocks()
-            .get(index as usize)
-            .map(|s| s.price)
+            .markets()
+            .get(market as usize)
+            .map(|m| m.price(commodity as usize))
             .unwrap_or(0)
     }
 
+    /// Stock of commodity `c` at market `m`.
     #[func]
-    fn commodity_stock(&self, index: i64) -> i64 {
+    fn stock(&self, market: i64, commodity: i64) -> i64 {
         self.sim
-            .market()
-            .stocks()
-            .get(index as usize)
-            .map(|s| s.stock)
+            .markets()
+            .get(market as usize)
+            .map(|m| m.stock(commodity as usize))
             .unwrap_or(0)
+    }
+
+    /// Number of haulers currently in flight (§7b).
+    #[func]
+    fn hauler_count(&self) -> i64 {
+        self.sim.haulers().len() as i64
+    }
+
+    /// Cut the in-flight hauler with `id`; returns whether one was interdicted.
+    #[func]
+    fn interdict(&mut self, id: i64) -> bool {
+        self.sim.interdict(id as u64)
     }
 }

@@ -9,10 +9,12 @@ pub mod event;
 pub mod fixed;
 pub mod orbit;
 pub mod rng;
+pub mod traffic;
 pub mod world;
 
 pub use economy::{CommodityDef, Market, Stock};
 pub use event::Event;
+pub use traffic::Hauler;
 pub use world::{BodyState, Sim, Snapshot};
 
 use rng::Pcg32;

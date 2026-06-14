@@ -14,17 +14,24 @@ func _ready() -> void:
 
 	var lines: Array[String] = []
 	lines.append(core.greeting())
-	lines.append("sim tick=%d" % sim.tick())
+	lines.append("sim tick=%d   haulers in flight=%d" % [sim.tick(), sim.hauler_count()])
 	lines.append("orrery:")
 	for b in sim.body_count():
 		var ax := sim.body_x(b) / 1_000_000.0
 		var ay := sim.body_y(b) / 1_000_000.0
 		lines.append("  %-6s (%+6.3f, %+6.3f) AU" % [sim.body_name(b), ax, ay])
-	lines.append("market:")
+
+	# Two markets side by side: the §7b price spread that drives the haulers.
+	var header := "  %-12s" % "commodity"
+	for m in sim.market_count():
+		header += " %12s" % sim.market_name(m)
+	lines.append("market prices (cr):")
+	lines.append(header)
 	for c in sim.commodity_count():
-		lines.append("  %-12s %5d cr  (stock %d)" % [
-			sim.commodity_name(c), sim.commodity_price(c), sim.commodity_stock(c)
-		])
+		var row := "  %-12s" % sim.commodity_name(c)
+		for m in sim.market_count():
+			row += " %12d" % sim.price(m, c)
+		lines.append(row)
 
 	var text := "\n".join(lines)
 	print("[TORCH]\n", text)

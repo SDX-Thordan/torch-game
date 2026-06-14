@@ -17,8 +17,13 @@ use super::rng::Pcg32;
 const BP: i64 = 10_000;
 /// Fraction of the price→target gap closed each tick.
 const PRICE_DAMP_BP: i64 = 2_000;
-/// Fraction of the stock error the NPC stabilizers correct each tick.
-const STABILIZE_BP: i64 = 2_000;
+/// Fraction of the stock error the NPC stabilizers correct each tick. Kept
+/// **gentle** so trade and interdiction (§7b) visibly move the average; the hard
+/// stock walls (not this spring) are what guarantee no death-spiral (§7c).
+const STABILIZE_BP: i64 = 400;
+/// Hard stock walls sit this fraction of `target_stock` inside `[0, max_stock]`,
+/// keeping price strictly off its rails however hard trade/jitter push (§7c).
+const WALL_MARGIN_DEN: i64 = 10;
 
 /// Static definition of a tradable commodity (the "numbers as data" of §31; held
 /// in Rust for now, trivially movable to RON/JSON later).
@@ -65,25 +70,59 @@ pub struct Stock {
     pub price: i64,
 }
 
-/// A single market: NPC industry that self-stabilizes around each commodity's
-/// target stock, with prices damped toward the stock-based target.
+/// A single market at a location (body): NPC industry that self-stabilizes
+/// each commodity toward a **setpoint** stock, with prices damped toward the
+/// stock-based target. The setpoint is decoupled from the price anchor
+/// (`def.target_stock`), so a producer (setpoint in glut ⇒ cheap) and a consumer
+/// (setpoint in scarcity ⇒ dear) reach *different* equilibrium prices — the
+/// spread that drives arbitrage traffic (§7b).
 #[derive(Clone, Debug)]
 pub struct Market {
+    name: &'static str,
+    body: usize,
     defs: Vec<CommodityDef>,
+    setpoints: Vec<i64>,
     stocks: Vec<Stock>,
 }
 
 impl Market {
-    /// Build a market sitting at equilibrium (stock at target, price at base).
+    /// A neutral market: stabilizer setpoint == price anchor ⇒ prices at base.
     pub fn new(defs: Vec<CommodityDef>) -> Self {
+        let setpoints = defs.iter().map(|d| d.target_stock).collect();
+        Self::with_setpoints("Market", 0, defs, setpoints)
+    }
+
+    /// A market located at `body` whose per-commodity stabilizer setpoints set
+    /// its equilibrium prices. Starts sitting at that equilibrium.
+    pub fn with_setpoints(
+        name: &'static str,
+        body: usize,
+        defs: Vec<CommodityDef>,
+        setpoints: Vec<i64>,
+    ) -> Self {
         let stocks = defs
             .iter()
-            .map(|d| Stock {
-                stock: d.target_stock,
-                price: d.base_price,
+            .zip(&setpoints)
+            .map(|(d, &sp)| Stock {
+                stock: sp,
+                price: target_price(d, sp).clamp(d.floor, d.ceiling),
             })
             .collect();
-        Self { defs, stocks }
+        Self {
+            name,
+            body,
+            defs,
+            setpoints,
+            stocks,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub fn body(&self) -> usize {
+        self.body
     }
 
     pub fn defs(&self) -> &[CommodityDef] {
@@ -94,30 +133,70 @@ impl Market {
         &self.stocks
     }
 
-    /// Advance the market one tick: NPC stabilizers move stock toward target
-    /// against demand noise, then prices damp toward the stock-based target.
+    /// Current price of commodity `c`.
+    pub fn price(&self, c: usize) -> i64 {
+        self.stocks[c].price
+    }
+
+    /// Current stock of commodity `c`.
+    pub fn stock(&self, c: usize) -> i64 {
+        self.stocks[c].stock
+    }
+
+    /// Low stock wall — kept above 0 so price never reaches its ceiling (§7c).
+    pub fn wall_low(&self, c: usize) -> i64 {
+        (self.defs[c].target_stock / WALL_MARGIN_DEN).max(1)
+    }
+
+    /// High stock wall — kept below `max_stock` so price never reaches its floor.
+    pub fn wall_high(&self, c: usize) -> i64 {
+        self.defs[c].max_stock - self.wall_low(c)
+    }
+
+    /// Land cargo at this market (a hauler delivery), repricing immediately.
+    pub fn add_stock(&mut self, c: usize, qty: i64) {
+        let (lo, hi) = (self.wall_low(c), self.wall_high(c));
+        self.stocks[c].stock = (self.stocks[c].stock + qty).clamp(lo, hi);
+        self.reprice(c);
+    }
+
+    /// Lift cargo from this market (a hauler loading), repricing immediately.
+    pub fn remove_stock(&mut self, c: usize, qty: i64) {
+        let (lo, hi) = (self.wall_low(c), self.wall_high(c));
+        self.stocks[c].stock = (self.stocks[c].stock - qty).clamp(lo, hi);
+        self.reprice(c);
+    }
+
+    /// Damp the price of commodity `c` one notch toward its stock-based target.
+    fn reprice(&mut self, c: usize) {
+        let def = &self.defs[c];
+        let s = &mut self.stocks[c];
+        let target = target_price(def, s.stock);
+        let delta = target - s.price;
+        let mut step = delta * PRICE_DAMP_BP / BP;
+        if step == 0 && delta != 0 {
+            step = delta.signum(); // never stall on integer truncation
+        }
+        s.price = (s.price + step).clamp(def.floor, def.ceiling);
+    }
+
+    /// Advance the market one tick: NPC stabilizers move stock toward its
+    /// setpoint against demand noise, then prices damp toward the target.
     pub fn step(&mut self, rng: &mut Pcg32) {
-        for (def, s) in self.defs.iter().zip(self.stocks.iter_mut()) {
-            // NPC stabilizer: proportional restoring flow toward target stock.
-            let err = def.target_stock - s.stock;
+        for c in 0..self.defs.len() {
+            let (lo, hi) = (self.wall_low(c), self.wall_high(c));
+            // NPC stabilizer: gentle proportional restoring toward the setpoint.
+            let err = self.setpoints[c] - self.stocks[c].stock;
             let stabilize = err * STABILIZE_BP / BP;
             // Deterministic demand noise in [-jitter, jitter].
-            let jitter = if def.demand_jitter > 0 {
-                rng.below((2 * def.demand_jitter + 1) as u32) as i64 - def.demand_jitter
+            let jit = self.defs[c].demand_jitter;
+            let jitter = if jit > 0 {
+                rng.below((2 * jit + 1) as u32) as i64 - jit
             } else {
                 0
             };
-            let hard_cap = def.max_stock + def.target_stock; // generous bound
-            s.stock = (s.stock + stabilize - jitter).clamp(0, hard_cap);
-
-            // Damped move of price toward the stock-based target.
-            let target = target_price(def, s.stock);
-            let delta = target - s.price;
-            let mut step = delta * PRICE_DAMP_BP / BP;
-            if step == 0 && delta != 0 {
-                step = delta.signum(); // never stall on integer truncation
-            }
-            s.price = (s.price + step).clamp(def.floor, def.ceiling);
+            self.stocks[c].stock = (self.stocks[c].stock + stabilize - jitter).clamp(lo, hi);
+            self.reprice(c);
         }
     }
 }
@@ -151,6 +230,39 @@ pub fn default_commodities() -> Vec<CommodityDef> {
         c("Remass", 70, 28, 210, 700, 1400, 18),
         c("Metals", 110, 44, 330, 600, 1200, 14),
         c("ReactorFuel", 180, 72, 540, 400, 800, 9),
+    ]
+}
+
+/// Commodity indices that are *raw* (the first tier); the rest are *refined*.
+const RAW: [usize; 3] = [0, 1, 2];
+
+/// Two complementary markets (§4): a Belt producer (cheap raw / dear refined) at
+/// Ceres and an inner consumer (dear raw / cheap refined) at Earth. The opposed
+/// setpoints create a standing two-way price spread for arbitrage traffic (§7b).
+pub fn default_markets() -> Vec<Market> {
+    // Halfway into glut ⇒ ~(base+floor)/2 (surplus); halfway into scarcity ⇒
+    // ~(base+ceiling)/2 (deficit). Both stay well within [floor, ceiling].
+    let glut = |d: &CommodityDef| (d.target_stock + d.max_stock) / 2;
+    let scarce = |d: &CommodityDef| d.target_stock / 2;
+    let setpoints = |raw_cheap: bool, defs: &[CommodityDef]| -> Vec<i64> {
+        defs.iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let cheap = RAW.contains(&i) == raw_cheap;
+                if cheap {
+                    glut(d)
+                } else {
+                    scarce(d)
+                }
+            })
+            .collect()
+    };
+    let defs = default_commodities();
+    let ceres = setpoints(true, &defs); // cheap raw, dear refined
+    let earth = setpoints(false, &defs); // dear raw, cheap refined
+    vec![
+        Market::with_setpoints("Ceres Yards", 3, defs.clone(), ceres),
+        Market::with_setpoints("Earth Hub", 1, defs, earth),
     ]
 }
 
