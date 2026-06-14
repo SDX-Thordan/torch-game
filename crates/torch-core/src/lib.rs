@@ -55,3 +55,79 @@ impl TorchCore {
         sim::fingerprint(seed as u64) as i64
     }
 }
+
+/// Godot-facing handle to the deterministic [`sim::Sim`] (§29). Exposes the
+/// fixed-tick advance plus scalar snapshot accessors the shell renders; the
+/// real game logic stays in `sim`, this is only the binding.
+#[derive(GodotClass)]
+#[class(base = RefCounted)]
+struct TorchSim {
+    sim: sim::Sim,
+    _base: Base<RefCounted>,
+}
+
+#[godot_api]
+impl IRefCounted for TorchSim {
+    fn init(base: Base<RefCounted>) -> Self {
+        Self { sim: sim::Sim::new(0), _base: base }
+    }
+}
+
+#[godot_api]
+impl TorchSim {
+    /// Reseed and restart the simulation (§27 determinism).
+    #[func]
+    fn reset(&mut self, seed: i64) {
+        self.sim = sim::Sim::new(seed as u64);
+    }
+
+    /// Advance one fixed sim tick (§28); returns the new tick.
+    #[func]
+    fn step(&mut self) -> i64 {
+        self.sim.step();
+        self.sim.tick() as i64
+    }
+
+    /// Current tick.
+    #[func]
+    fn tick(&self) -> i64 {
+        self.sim.tick() as i64
+    }
+
+    /// Number of bodies in the snapshot.
+    #[func]
+    fn body_count(&self) -> i64 {
+        self.sim.bodies().len() as i64
+    }
+
+    #[func]
+    fn body_name(&self, index: i64) -> GString {
+        GString::from(
+            self.sim
+                .bodies()
+                .get(index as usize)
+                .map(|b| b.name)
+                .unwrap_or(""),
+        )
+    }
+
+    #[func]
+    fn body_x(&self, index: i64) -> i64 {
+        self.sim
+            .snapshot()
+            .bodies
+            .get(index as usize)
+            .map(|b| b.x)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn body_y(&self, index: i64) -> i64 {
+        self.sim
+            .snapshot()
+            .bodies
+            .get(index as usize)
+            .map(|b| b.y)
+            .unwrap_or(0)
+    }
+}
