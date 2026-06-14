@@ -88,13 +88,6 @@ jobs:
           EOF
           printf '%s\n' "$SETTINGS" | tee "$HOME/.config/godot/editor_settings-4.tres" > "$HOME/.config/godot/editor_settings-4.3.tres"
 
-      - name: Install Android build template (gradle source)
-        run: |
-          mkdir -p godot/android/build
-          unzip -q "$HOME/.local/share/godot/export_templates/${GODOT_TPL_DIR}/android_source.zip" -d godot/android/build
-          echo "${GODOT_TPL_DIR}" > godot/android/.build_version
-          touch godot/android/build/.gdignore
-
       - name: Import project
         run: godot --headless --path godot --import || true
 
