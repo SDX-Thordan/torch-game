@@ -307,6 +307,85 @@ impl TorchSim {
         };
         GString::from(label)
     }
+
+    // ---- Progression (§10) ----
+
+    /// Current CEO level.
+    #[func]
+    fn ceo_level(&self) -> i64 {
+        self.sim.progression().ceo.level()
+    }
+
+    /// Grant the CEO experience (§10).
+    #[func]
+    fn ceo_gain_xp(&mut self, n: i64) {
+        self.sim.progression_mut().ceo.gain_xp(n);
+    }
+
+    /// Commit to a perk branch (0 industrialist, 1 trader, 2 warlord,
+    /// 3 diplomat); returns whether it was accepted (one-time choice).
+    #[func]
+    fn ceo_choose_branch(&mut self, code: i64) -> bool {
+        let branch = match code {
+            0 => sim::Branch::Industrialist,
+            1 => sim::Branch::Trader,
+            2 => sim::Branch::Warlord,
+            _ => sim::Branch::Diplomat,
+        };
+        self.sim.progression_mut().ceo.choose_branch(branch).is_ok()
+    }
+
+    #[func]
+    fn ceo_branch_name(&self) -> GString {
+        let label = match self.sim.progression().ceo.branch() {
+            Some(sim::Branch::Industrialist) => "Industrialist",
+            Some(sim::Branch::Trader) => "Trader",
+            Some(sim::Branch::Warlord) => "Warlord",
+            Some(sim::Branch::Diplomat) => "Diplomat",
+            None => "(none)",
+        };
+        GString::from(label)
+    }
+
+    /// Earn research points.
+    #[func]
+    fn research_add_points(&mut self, n: i64) {
+        self.sim.progression_mut().research.add_points(n);
+    }
+
+    /// Attempt to unlock tech `i`; returns whether it was researched.
+    #[func]
+    fn research_tech(&mut self, i: i64) -> bool {
+        self.sim
+            .progression_mut()
+            .research
+            .research(i as usize)
+            .is_ok()
+    }
+
+    /// Number of unlocked techs.
+    #[func]
+    fn research_unlocked_count(&self) -> i64 {
+        self.sim.progression().research.unlocked_count() as i64
+    }
+
+    /// Aggregate drive-efficiency research bonus (percent).
+    #[func]
+    fn research_drive_bonus(&self) -> i64 {
+        self.sim.progression().research.drive_bonus()
+    }
+
+    /// Discover blueprint `i` (honors its reputation gate); returns success.
+    #[func]
+    fn blueprint_discover(&mut self, i: i64) -> bool {
+        self.sim.discover_blueprint(i as usize)
+    }
+
+    /// Number of known blueprints.
+    #[func]
+    fn blueprint_known_count(&self) -> i64 {
+        self.sim.progression().blueprints.known_count() as i64
+    }
 }
 
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the

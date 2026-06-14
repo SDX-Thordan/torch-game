@@ -108,12 +108,14 @@ Status: [x] done, [~] in progress, [ ] todo.
   (§29) into ranked, voiced alerts with a hard FYI/act-now split; act-now alerts
   carry a verb (§0.4), threshold is player-tunable (§19). Crew-attachment depth
   (history/portraits, §11) right-sized later.
-- [~] **9. Progression** — research / blueprints / reputation / CEO skills.
+- [x] **9. Progression** — four layered tracks (§10).
   - [x] Factions + reputation (`sim::faction`): standings/tiers per faction, the
     §7b ripple wired (a *player* cut angers the owner, pleases their rival;
     pirate raids don't blame the player). Markets are faction-owned.
-  - [ ] Research tree, blueprint discovery, CEO skill track.
-- [ ] **10. Managers & automation** (exceptions-as-verbs).
+  - [x] Research tree + blueprint discovery (seed+params, rep-gated) + CEO skill
+    track (level + one perk branch of passive buffs) in `sim::progression`.
+- [~] **10. Managers & automation** (exceptions-as-verbs). Alert feed (§19) done
+  in step 8; policy/manager automation still to build.
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
 - [ ] **12. Tier-1→2 ascent + gate foreshadowing**.
 - [ ] **13. Pressure systems** + forecasting + pacing governor.
@@ -256,6 +258,17 @@ Status: [x] done, [~] in progress, [ ] todo.
   raids don't (the player isn't blamed), so `cut_hauler` returns the hauler and
   only the player paths call `ripple_reputation`. Verified live: interdicting an
   Earth hauler → Earth −50, Mars +20. Research/blueprints/CEO tracks next (9b).
+
+- **2026-06-14 — Progression tracks (§10) — kept light (§0.2).** `sim::progression`
+  holds three player-driven (no-RNG) tracks: a **research** tree (cheap prereqs →
+  percent stat bonuses, `drive/armor/screen_bonus`), **blueprints** (a design =
+  seed + `BlueprintParams`, §25; faction designs gated behind a reputation
+  threshold checked against `Relations`), and the **CEO** (level from XP + one
+  one-time perk branch whose `buff()` boosts its domain). `Sim` owns a
+  `Progression` + exposes read/mut accessors and `discover_blueprint` (which
+  passes its own `relations` to honor the gate). Bound to Godot; demo shows a CEO
+  hitting level 4/Warlord, a drive tech, and a discovered blueprint. Each pub
+  struct field stays reachable through the re-exports, so no dead-code trip.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
