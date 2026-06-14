@@ -45,11 +45,11 @@ jobs:
           fi
           SDKMANAGER="$(find "$SDK" -name sdkmanager -path '*cmdline-tools*' 2>/dev/null | head -1)"
           echo "SDK=$SDK sdkmanager=$SDKMANAGER"
-          # Godot 4.6 rejects export if no build-tools match the target SDK; the
-          # image ships only 33.0.2. Install platforms + build-tools 34 and 35.
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" "platforms;android-34" "platforms;android-35" \
-            "build-tools;34.0.0" "build-tools;35.0.0" >/dev/null 2>&1 || true
+          # Godot 4.6 rejects export if no build-tools match the target SDK (34);
+          # the image ships only 33.0.2. Install platform + build-tools 34.
+          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses || true
+          "$SDKMANAGER" --sdk_root="$SDK" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          test -x "$SDK/build-tools/34.0.0/apksigner" || { echo "build-tools 34 install failed"; exit 1; }
           NDK="$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1 || true)"
           if [ -z "$NDK" ]; then
             "$SDKMANAGER" "ndk;23.2.8568313" >/dev/null 2>&1 || true
