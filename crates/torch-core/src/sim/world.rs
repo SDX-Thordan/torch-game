@@ -1184,17 +1184,25 @@ impl Sim {
     /// where the origin has surplus and the destination has room.
     fn best_route(&self) -> Option<(usize, usize, usize, i64)> {
         let n = self.markets[0].defs().len();
+        let m = self.markets.len();
         let mut best: Option<(usize, usize, usize, i64)> = None;
         let mut best_spread = MIN_SPREAD;
         for c in 0..n {
             let qty = (self.markets[0].defs()[c].target_stock / 10).max(1);
-            for &(o, d) in &[(0usize, 1usize), (1, 0)] {
-                let spread = self.markets[d].price(c) - self.markets[o].price(c);
-                let has_surplus = self.markets[o].stock(c) > qty;
-                let has_room = self.markets[d].stock(c) + qty < self.markets[d].wall_high(c);
-                if spread > best_spread && has_surplus && has_room {
-                    best = Some((c, o, d, qty));
-                    best_spread = spread;
+            // Every ordered market pair — so a third market (or more) joins the
+            // arbitrage on its own merits, not just a hard-coded two (§7b).
+            for o in 0..m {
+                for d in 0..m {
+                    if o == d {
+                        continue;
+                    }
+                    let spread = self.markets[d].price(c) - self.markets[o].price(c);
+                    let has_surplus = self.markets[o].stock(c) > qty;
+                    let has_room = self.markets[d].stock(c) + qty < self.markets[d].wall_high(c);
+                    if spread > best_spread && has_surplus && has_room {
+                        best = Some((c, o, d, qty));
+                        best_spread = spread;
+                    }
                 }
             }
         }
@@ -1953,18 +1961,27 @@ mod tests {
     #[test]
     fn the_alert_feed_voices_the_run() {
         // Over a run the feed fills with ranked alerts, including act-now
-        // shortages tagged with a verb (§19/§0.4).
+        // shortages tagged with a verb (§19/§0.4). Act-now alerts age out after a
+        // TTL, so we watch the whole run rather than only the final tick.
         let mut sim = Sim::new(0);
-        for _ in 0..2_000 {
+        let mut saw_act_now = false;
+        for _ in 0..3_000 {
             sim.step();
+            if sim
+                .feed()
+                .surfaced()
+                .iter()
+                .any(|a| a.is_act_now() && a.verb.is_some())
+            {
+                saw_act_now = true;
+            }
         }
-        let surfaced = sim.feed().surfaced();
         assert!(
-            !surfaced.is_empty(),
+            !sim.feed().surfaced().is_empty(),
             "the feed should have something to say"
         );
         assert!(
-            surfaced.iter().any(|a| a.is_act_now() && a.verb.is_some()),
+            saw_act_now,
             "an interdicted run should raise act-now shortages"
         );
     }
@@ -1997,7 +2014,7 @@ mod tests {
         let snap = sim.snapshot();
         assert_eq!(snap.tick, 50);
         assert_eq!(snap.bodies.len(), default_system().len());
-        assert_eq!(snap.markets.len(), 2);
+        assert_eq!(snap.markets.len(), 3);
         assert_eq!((snap.bodies[0].x, snap.bodies[0].y), (0, 0)); // Sol fixed
     }
 

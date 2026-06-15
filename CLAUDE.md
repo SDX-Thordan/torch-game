@@ -806,6 +806,28 @@ Status: [x] done, [~] in progress, [ ] todo.
   contracts cap to 1 — now it's dense but non-overlapping. The "master-tables" half
   of the control model is finally legible at a glance. 126 tests green.
 
+- **2026-06-15 — Third market (Mars) + all-pairs arbitrage (§7b/§4).** Added a
+  **Mars Colony** market (body 2, `Faction::Mars`) — a third trading node that
+  activates Mars-faction reputation, more routes/interdiction targets, and a busier
+  orrery. **Key discovery:** the first attempt (balanced Mars) degenerated — *all*
+  traffic originated at Mars, none at Earth. Root cause was **not** Mars's profile
+  but that `best_route` **hard-coded the market pairs `(0,1)`/`(1,0)`** — a 2-market
+  limitation; inserting Mars at index 1 shoved Earth (now index 2) out of the
+  considered pairs entirely. Fix: generalize `best_route` to **every ordered market
+  pair** (`o≠d`), which is behaviour-identical for two markets (proven: all 126
+  tests green *before* adding Mars) and lets a third+ market join the spreads on its
+  merits. With that, Mars sits correctly between the Belt producer and Earth
+  consumer (render-verified: Ice 14/22/41, ReactorFuel 326/174/132 across
+  Ceres/Mars/Earth), traffic is well-distributed (Earth predation restored, so the
+  targeted-interdiction test passes again), and the §7c stability gate holds with
+  traffic on 3 markets. One test made robust: `the_alert_feed_voices_the_run` now
+  watches the whole run for an act-now (it ages out after a TTL, so a fixed-tick
+  snapshot was timing-fragile). QA review regenerated (3-market economics shift the
+  numbers; **still 0 concerns**). *Lesson:* a "filler" third node isn't the risk —
+  hard-coded pair lists are; generalize collection logic the moment a second
+  instance appears. Mars's *profile* (balanced vs. a designed specialist) is now a
+  free tuning knob on top of correct routing.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
