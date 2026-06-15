@@ -217,13 +217,12 @@ impl Strategy for Tycoon {
     fn act(&mut self, sim: &mut Sim, last_events: &[Event]) -> u32 {
         let mut actions = 0;
 
-        // 1. Answer last tick's act-now shortages: sell held cargo into the
-        //    short market (the ExploitShortage verb, §0.4).
+        // 1. Answer last tick's act-now shortages in one press: source the scarce
+        //    good cheap and sell it into the short market (the ExploitShortage
+        //    verb, §0.4) — no pre-held cargo needed.
         for e in last_events {
             if let Event::Scarcity { market, commodity } = e {
-                let (market, commodity) = (*market, *commodity);
-                let held = sim.corp().cargo(commodity);
-                if held > 0 && sim.sell(market, commodity, held.min(20)).is_ok() {
+                if sim.exploit_shortage(*market, *commodity, 20).is_ok() {
                     self.responses += 1;
                     actions += 1;
                 }

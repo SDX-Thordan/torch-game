@@ -144,7 +144,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
 
 
 func _draw() -> void:
@@ -195,6 +195,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				selected = (selected + 1) % sim.hauler_count()
 		KEY_I:
 			_do_interdict()
+		KEY_E:
+			status = "Exploited the shortage — sourced cheap, sold into the spike." if sim.answer_shortage() else "No open shortage to exploit."
 		KEY_N:
 			status = "Frigate commissioned." if sim.commission_ship(0) else "Can't build: short on crew or credits."
 		KEY_P:

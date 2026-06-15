@@ -5,7 +5,7 @@
 //! [`Event`] stream returned by [`Sim::step`] (what changed). This is the seam
 //! the Godot shell binds to and that keeps the core headless and testable.
 
-use super::alerts::{AlertFeed, Priority};
+use super::alerts::{AlertFeed, Priority, Verb};
 use super::automation::AutomationPolicy;
 use super::campaign::Campaign;
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
@@ -312,6 +312,42 @@ impl Sim {
         self.markets[m].add_stock(c, qty);
         self.corp.credit(net);
         Ok(net)
+    }
+
+    /// Answer an act-now shortage in one move (§0.4 / §3.3 speculate): source
+    /// `qty` of `commodity` at the cheapest *other* market and sell it into the
+    /// short `market` for the premium — no pre-held cargo needed. Resolves the
+    /// matching alert and returns the net profit (revenue − cost).
+    pub fn exploit_shortage(
+        &mut self,
+        market: usize,
+        commodity: usize,
+        qty: i64,
+    ) -> Result<i64, TradeError> {
+        if market >= self.markets.len() {
+            return Err(TradeError::InsufficientStock);
+        }
+        let source = (0..self.markets.len())
+            .filter(|&m| m != market)
+            .min_by_key(|&m| self.markets[m].price(commodity))
+            .ok_or(TradeError::InsufficientStock)?;
+        let cost = self.buy(source, commodity, qty)?;
+        let revenue = self.sell(market, commodity, qty)?;
+        self.feed.resolve_shortage(market, commodity);
+        Ok(revenue - cost)
+    }
+
+    /// One-press answer to the loudest open act-now shortage (the alert→verb
+    /// path the influence model wants). Returns whether one was answered.
+    pub fn answer_top_shortage(&mut self, qty: i64) -> bool {
+        let target = self.feed.surfaced().iter().find_map(|a| {
+            a.verb
+                .map(|Verb::ExploitShortage { market, commodity }| (market, commodity))
+        });
+        match target {
+            Some((m, c)) => self.exploit_shortage(m, c, qty).is_ok(),
+            None => false,
+        }
     }
 
     /// Commission a warship of `class` into the fleet (§5/§8c): pays its build
@@ -1017,6 +1053,42 @@ mod tests {
         assert!(revenue > cost, "selling dear should beat buying cheap");
         assert!(sim.corp().credits() > start, "the round trip should profit");
         assert_eq!(sim.corp().cargo(rf), 0);
+    }
+
+    #[test]
+    fn exploiting_a_shortage_is_a_one_press_profit() {
+        // ReactorFuel is dear at Ceres (the short market): exploiting sources it
+        // from the cheaper Earth and sells into Ceres, no pre-held cargo (§0.4).
+        let mut sim = Sim::new(0);
+        let (ceres, rf) = (0usize, 5usize);
+        assert_eq!(sim.corp().cargo(rf), 0);
+        let start = sim.corp().credits();
+        let profit = sim.exploit_shortage(ceres, rf, 20).unwrap();
+        assert!(profit > 0, "exploiting a real shortage should profit");
+        assert!(sim.corp().credits() > start);
+        assert_eq!(
+            sim.corp().cargo(rf),
+            0,
+            "the cargo round-trips through the warehouse"
+        );
+    }
+
+    #[test]
+    fn the_top_shortage_is_answerable_in_one_press() {
+        // Run until a shortage is surfaced, then answer it from the feed.
+        let mut sim = Sim::new(0);
+        let mut answered = false;
+        for _ in 0..2_000 {
+            sim.step();
+            if sim.feed().surfaced().iter().any(|a| a.is_act_now()) {
+                answered = sim.answer_top_shortage(20);
+                break;
+            }
+        }
+        assert!(
+            answered,
+            "an open act-now shortage should be answerable in one press"
+        );
     }
 
     #[test]

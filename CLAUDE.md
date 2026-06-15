@@ -492,6 +492,18 @@ Status: [x] done, [~] in progress, [ ] todo.
   `design_review`'s "Event plumbing" concern self-resolves (regression detection
   working as intended).
 
+- **2026-06-15 — Closed the alert→verb loop (QA finding).** The gameplay-QA review
+  flagged the same gap in every persona: act-now shortage alerts were *raised* but
+  never *answered* — "no one-press path from the alert to the trade," because the
+  only path needed the scarce cargo already on hand. Fix: `Sim::exploit_shortage`
+  (and `answer_top_shortage`) source the scarce good at the cheapest *other* market
+  and sell it into the short market in one call — speculate/exploit (§3.3/§0.4),
+  no pre-held cargo. It resolves the matching feed alert (`AlertFeed::resolve_shortage`).
+  Wired the Tycoon persona to use it (130/130 answered, the review flips to the
+  GOOD "closed the loop" branch) and bound it to the shell (E). Regenerate
+  `docs/SAMPLE_GAMEPLAY_REVIEW.md` after gameplay changes — its first line is a
+  hand-added "do not hand-edit" header outside `render_report`, so restore it.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

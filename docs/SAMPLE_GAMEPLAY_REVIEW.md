@@ -135,14 +135,14 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 | metric | value |
 | --- | --- |
-| treasury | 33000 → 242390 cr (+209390, ~7×) |
-| actions | 4083 over 100% of ticks |
+| treasury | 33000 → 239911 cr (+206911, ~7×) |
+| actions | 4213 over 100% of ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 1393 (~58 days) |
 | CEO level | 22 · techs 6 |
-| traffic | 166 flew, 35 arrived, 129 cut, 129 shortages |
-| act-now alerts | 129 raised, 0 answered |
-| standings (E/M/B/I) | -942 / 20 / -104 / 0 |
+| traffic | 166 flew, 34 arrived, 130 cut, 130 shortages |
+| act-now alerts | 130 raised, 130 answered |
+| standings (E/M/B/I) | -892 / 0 / -144 / 0 |
 | market wall hits | 0 |
 
 **Ascents:** The Region @ 49 → Sol & the Cold War @ 433 → The Gate @ 1393
@@ -150,10 +150,10 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1393 (~58 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 242390 cr (+209390, ~7×).
-- **[INFO]** _Agency_ — Issued 4083 actions across 100% of ticks.
-- **[NOTE]** _Alert feed_ — 129 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-942). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 239911 cr (+206911, ~7×).
+- **[INFO]** _Agency_ — Issued 4213 actions across 100% of ticks.
+- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 130 of 130 act-now shortages.
+- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-892). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
 - **[INFO]** _Fleet_ — Fielded 1 warship(s) and 1 freighter(s); trained-crew pool at 40 (the §8c bottleneck that caps capital ships).
 
 ## Design review — cross-cutting

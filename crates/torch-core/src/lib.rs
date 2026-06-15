@@ -287,6 +287,13 @@ impl TorchSim {
             .unwrap_or(false)
     }
 
+    /// One-press answer to the loudest open act-now shortage: exploit it (§0.4).
+    /// Returns whether a shortage was answered.
+    #[func]
+    fn answer_shortage(&mut self) -> bool {
+        self.sim.answer_top_shortage(20)
+    }
+
     /// Number of factions the player has standings with (§10).
     #[func]
     fn faction_count(&self) -> i64 {
