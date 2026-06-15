@@ -520,6 +520,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   crew-capped (§8c) and decisive (§13), so a persona fights a *few pivotal*
   battles, not a grind; balance is proven by the unit test, not the small sample.
 
+- **2026-06-15 — Auto-pause-on-exception + the agency reframe (QA finding).** The
+  QA flagged low action density ("long stretches with nothing to press"; the
+  GDD's §36 top risk). Two parts: (1) the **shell** now fast-forwards dead time but
+  auto-pauses the instant a fresh act-now shortage fires (`TorchSim::just_alerted`,
+  set by scanning `step()`'s events for `Scarcity`; shell breaks the step loop and
+  zeroes the clock; toggle Y). So the player compresses the quiet and is stopped
+  only at decisions (§28/§0.4). (2) The **harness/review** now measure `busy_ticks`
+  (an act-now alert pending) and `longest_idle_run` (consecutive ticks with nothing
+  pending + no action); the agency finding flips Note→Good when the idle run is
+  short (≤120t) — dead time is fast-forwardable, not a pacing gap. Nice emergent
+  signal: answering shortages keeps the feed clean (Tycoon 130 pending vs ~3929
+  for passive styles, since unanswered scarcity alerts linger in the ring buffer).
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

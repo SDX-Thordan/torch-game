@@ -63,6 +63,9 @@ impl TorchCore {
 #[class(base = RefCounted)]
 struct TorchSim {
     sim: sim::Sim,
+    /// Whether the last `step` raised a fresh act-now alert (a shortage) — the
+    /// shell uses this for auto-pause-on-exception (§28/§0.4).
+    just_alerted: bool,
     _base: Base<RefCounted>,
 }
 
@@ -71,6 +74,7 @@ impl IRefCounted for TorchSim {
     fn init(base: Base<RefCounted>) -> Self {
         Self {
             sim: sim::Sim::new(0),
+            just_alerted: false,
             _base: base,
         }
     }
@@ -82,13 +86,25 @@ impl TorchSim {
     #[func]
     fn reset(&mut self, seed: i64) {
         self.sim = sim::Sim::new(seed as u64);
+        self.just_alerted = false;
     }
 
-    /// Advance one fixed sim tick (§28); returns the new tick.
+    /// Advance one fixed sim tick (§28); returns the new tick. Also records
+    /// whether this tick raised a fresh act-now shortage (for auto-pause).
     #[func]
     fn step(&mut self) -> i64 {
-        self.sim.step();
+        let events = self.sim.step();
+        self.just_alerted = events
+            .iter()
+            .any(|e| matches!(e, sim::Event::Scarcity { .. }));
         self.sim.tick() as i64
+    }
+
+    /// Whether the last `step` raised a fresh act-now alert — the shell pauses on
+    /// this so the player never idles through dead time (§28/§36).
+    #[func]
+    fn just_alerted(&self) -> bool {
+        self.just_alerted
     }
 
     /// Current tick.
