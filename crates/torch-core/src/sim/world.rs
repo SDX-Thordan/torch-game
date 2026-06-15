@@ -21,6 +21,7 @@ use super::orbit::{default_system, Body};
 use super::pressure::{Intensity, PressureKind, PressureSystem};
 use super::progression::Progression;
 use super::rng::Pcg32;
+use super::salvage::{SalvageField, SalvageReward};
 use super::ships::{self, Loadout, ShipClass};
 use super::traffic::Hauler;
 
@@ -180,6 +181,7 @@ pub struct Sim {
     routes: Vec<TradeRoute>,
     stations: Vec<Station>,
     board: ContractBoard,
+    salvage: SalvageField,
     pressure: PressureSystem,
     rng: Pcg32,
     events: Vec<Event>,
@@ -207,6 +209,8 @@ impl Sim {
             .map(|d| d.name.to_string())
             .collect();
         let commodity_count = markets[0].defs().len();
+        let blueprint_count = Progression::new().blueprints.catalog().len();
+        let body_count = default_system().len();
         Self {
             tick: 0,
             bodies: default_system(),
@@ -228,6 +232,7 @@ impl Sim {
             routes: Vec::new(),
             stations: Vec::new(),
             board: ContractBoard::new(seed),
+            salvage: SalvageField::new(seed, blueprint_count, body_count),
             pressure: PressureSystem::new(Intensity::default()),
             markets,
             rng: Pcg32::new(seed),
@@ -728,6 +733,39 @@ impl Sim {
             .is_ok()
     }
 
+    /// The wrecks currently sighted and awaiting salvage (§15).
+    pub fn wrecks(&self) -> &[super::salvage::Wreck] {
+        self.salvage.wrecks()
+    }
+
+    /// Strip the sighted wreck `id` (§15): bank its reward — scrap → credits, data
+    /// → research, or a reverse-engineered blueprint (no rep gate) — and count it
+    /// as an operation on the climb (§0). Returns whether a wreck was salvaged.
+    pub fn salvage_wreck(&mut self, id: u64) -> bool {
+        let Some(reward) = self.salvage.claim(id) else {
+            return false;
+        };
+        match reward {
+            SalvageReward::Scrap(credits) => self.corp.credit(credits),
+            SalvageReward::Data(points) => self.progression.research.add_points(points),
+            SalvageReward::Blueprint(i) => {
+                self.progression.blueprints.reverse_engineer(i);
+            }
+        }
+        self.events.push(Event::WreckSalvaged { id });
+        self.complete_op();
+        true
+    }
+
+    /// One-press salvage of the first sighted wreck (§15/§0.4). Returns whether one
+    /// was stripped.
+    pub fn salvage_top(&mut self) -> bool {
+        match self.salvage.first() {
+            Some(id) => self.salvage_wreck(id),
+            None => false,
+        }
+    }
+
     /// Set the player-tunable alert surfacing threshold (§19).
     pub fn set_alert_threshold(&mut self, min_priority: Priority) {
         self.feed.set_threshold(min_priority);
@@ -752,6 +790,11 @@ impl Sim {
         self.run_logistics();
         self.run_industry();
         self.run_contracts();
+        // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
+        // keeps the economy bit-identical whether or not anyone salvages.
+        if let Some(id) = self.salvage.maybe_sight(self.tick) {
+            self.events.push(Event::WreckSighted { id });
+        }
         self.charge_upkeep();
         if self.tick.is_multiple_of(REP_RECOVERY_INTERVAL) {
             self.relations.decay_toward_neutral(REP_RECOVERY_STEP);
@@ -1690,6 +1733,34 @@ mod tests {
             healed < 0,
             "but a deep grudge shouldn't fully heal that fast"
         );
+    }
+
+    #[test]
+    fn salvage_discovers_wrecks_without_perturbing_the_economy() {
+        // A world where the player strips every sighted wreck keeps bit-identical
+        // *markets* to one that ignores them — the salvage field's own RNG (§15)
+        // never advances the world economy (the §27 contract-board lesson).
+        let mut control = Sim::new(5);
+        let mut salvager = Sim::new(5);
+        let (mut sighted, mut stripped) = (0, 0);
+        for _ in 0..2_000 {
+            control.step();
+            for e in salvager.step().to_vec() {
+                if let Event::WreckSighted { .. } = e {
+                    sighted += 1;
+                }
+            }
+            // Strip whatever's adrift; rewards land in the corp/progression, not
+            // the markets.
+            while salvager.salvage_top() {
+                stripped += 1;
+            }
+            for (cm, sm) in control.markets().iter().zip(salvager.markets()) {
+                assert_eq!(cm.stocks(), sm.stocks(), "salvage perturbed the economy");
+            }
+        }
+        assert!(sighted > 0, "the field should turn up wrecks over the run");
+        assert_eq!(sighted, stripped, "every sighted wreck was strippable");
     }
 
     #[test]

@@ -34,4 +34,8 @@ pub enum Event {
     /// An incoming threat is telegraphed `eta` ticks ahead (§13 forecasting), so
     /// nothing arrives unforeseeable — the player can pre-position or divert.
     ThreatForecast { kind: PressureKind, eta: u64 },
+    /// A derelict was sighted, ripe to strip (§15 discovery & wonder).
+    WreckSighted { id: u64 },
+    /// A wreck was stripped for its reward (§15).
+    WreckSalvaged { id: u64 },
 }

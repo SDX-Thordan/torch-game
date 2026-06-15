@@ -324,6 +324,30 @@ impl TorchSim {
         self.sim.answer_top_shortage(20)
     }
 
+    /// Number of derelicts currently sighted and awaiting salvage (§15).
+    #[func]
+    fn wreck_count(&self) -> i64 {
+        self.sim.wrecks().len() as i64
+    }
+
+    /// Name of sighted wreck `i` (§15), or "".
+    #[func]
+    fn wreck_name(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .wrecks()
+                .get(i as usize)
+                .map(|w| w.name)
+                .unwrap_or(""),
+        )
+    }
+
+    /// Strip the first sighted wreck (§15); returns whether one was salvaged.
+    #[func]
+    fn salvage_wreck(&mut self) -> bool {
+        self.sim.salvage_top()
+    }
+
     /// A §13 pressure gauge, `0..=100`: 0 = FactionWar, 1 = Piracy, 2 = Scarcity.
     #[func]
     fn pressure_level(&self, kind: i64) -> i64 {

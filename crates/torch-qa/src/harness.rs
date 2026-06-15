@@ -114,6 +114,9 @@ pub struct Transcript {
     /// keeps raids from arriving unforeseeable. A healthy world warns before it
     /// bites — `forecasts >= haulers_interdicted` means every strike was foreseen.
     pub forecasts: u64,
+    /// Derelicts the world turned up, and how many the persona stripped (§15).
+    pub wrecks_sighted: u64,
+    pub wrecks_salvaged: u64,
 
     // Economy extremes.
     pub start_credits: i64,
@@ -148,6 +151,8 @@ impl Transcript {
             tier_ascended_events: 0,
             battles_fought: 0,
             forecasts: 0,
+            wrecks_sighted: 0,
+            wrecks_salvaged: 0,
             battles_won: 0,
             start_credits: 0,
             end_credits: 0,
@@ -280,6 +285,8 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                     }
                 }
                 Event::ThreatForecast { .. } => t.forecasts += 1,
+                Event::WreckSighted { .. } => t.wrecks_sighted += 1,
+                Event::WreckSalvaged { .. } => t.wrecks_salvaged += 1,
                 Event::Tick { .. } => {}
             }
         }
