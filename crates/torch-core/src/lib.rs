@@ -864,6 +864,33 @@ impl TorchSim {
         self.sim.routes().len() as i64
     }
 
+    /// A one-line description of standing route `index` (§4), for the master-table.
+    #[func]
+    fn route_desc(&self, index: i64) -> GString {
+        let Some(r) = self.sim.routes().get(index as usize) else {
+            return GString::new();
+        };
+        let commodity = self.sim.markets()[0]
+            .defs()
+            .get(r.commodity)
+            .map(|d| d.name)
+            .unwrap_or("?");
+        let origin = self.sim.markets()[r.origin].name();
+        let dest = self.sim.markets()[r.dest].name();
+        let state = if r.in_transit {
+            "in transit"
+        } else {
+            let spread = self.sim.markets()[r.dest].price(r.commodity)
+                - self.sim.markets()[r.origin].price(r.commodity);
+            if spread >= r.min_margin {
+                "loading"
+            } else {
+                "idle"
+            }
+        };
+        GString::from(format!("{commodity} {origin}→{dest} ×{} [{state}]", r.qty))
+    }
+
     /// Found a refinery turning raw commodity `raw` (0..2) into its refined
     /// product, sourcing at `buy_market` and selling surplus at `sell_market`
     /// (§3.1). Returns whether it was built.

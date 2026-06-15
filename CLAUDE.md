@@ -794,6 +794,18 @@ Status: [x] done, [~] in progress, [ ] todo.
   deliberately subtle (alpha 0.4) so it informs without cluttering. Render-verified
   under xvfb. Pure shell + two read-only bindings; 126 tests green.
 
+- **2026-06-15 — Master-tables in the command deck (§4 influence model).** The
+  influence model is "map + master-tables"; the map (orrery) was strong but the
+  standing orders showed only the *first* route/station/contract as a summary line.
+  Now the deck renders each as a **table** — every route with its live state
+  (`[in transit]`/`[loading]`/`[idle]`), every station, and contracts — via a
+  `_append_table(rows, count, cap, getter, empty)` helper (a `Callable` getter +
+  capped rows + an `…(+N more)` overflow tally) and a new `route_desc(i)` binding.
+  **Render-tuned the fit:** the extra rows overflowed into the feed, so (caught by
+  xvfb capture) the deck dropped to font 10, the feed moved to y=636 / 2 lines, and
+  contracts cap to 1 — now it's dense but non-overlapping. The "master-tables" half
+  of the control model is finally legible at a glance. 126 tests green.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
