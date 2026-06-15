@@ -119,6 +119,19 @@ impl AlertFeed {
         self.min_priority
     }
 
+    /// Mark the newest act-now shortage for `(market, commodity)` as answered by
+    /// dropping it from the feed (the exception→verb loop closed, §0.4). Returns
+    /// whether one was resolved.
+    pub fn resolve_shortage(&mut self, market: usize, commodity: usize) -> bool {
+        let want = Some(Verb::ExploitShortage { market, commodity });
+        if let Some(pos) = self.alerts.iter().rposition(|a| a.verb == want) {
+            self.alerts.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Classify a world event into an alert (or nothing, for routine noise).
     pub fn ingest(&mut self, event: &Event, tick: u64) {
         let alert = match event {
