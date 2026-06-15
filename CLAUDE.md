@@ -144,7 +144,9 @@ Status: [x] done, [~] in progress, [ ] todo.
   drive the deterministic core headless and the run is critiqued into a written
   **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
   design findings). The §32 counterpart to `cargo test`: tests assert systems
-  *work*, this critiques how the game *plays*. Same seed ⇒ same review.
+  *work*, this critiques how the game *plays*. Same seed ⇒ same review. Now a
+  **two-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
+  (engaging & fun?).
 - [~] **14. Juice & audio pass**, then UX polish. **Playable shell + 3D orrery
   done** (`godot/main.gd`): real-time-with-pause loop (§28), a **3D orrery** (§21:
   lit bodies orbit the sun on the ecliptic, haulers run the lanes, an
@@ -832,6 +834,27 @@ Status: [x] done, [~] in progress, [ ] todo.
   `MultiMeshInstance3D` of 600 billboarded unshaded quads on a deterministic shell
   (radius 55–80, seeded RNG) behind the system, so the dark space reads as depth,
   not emptiness. Cheap (one draw), pure shell, render-verified under xvfb.
+- **2026-06-15 — QA gets a second lens: engagement & "fun" (`torch-qa::engagement`).**
+  The harness could say *does it work* (`review`/`design_review`); it now also
+  asks *is it engaging*. `assess(&Transcript)` scores six **structural proxies**
+  0–100 — Direction (the §0 destination pull, from gate %), Flow (dead-air from
+  `longest_idle_run`), Agency (ops climbed + act-now shortages answered), Reward
+  rhythm (ascent count × spread), Stakes (a sweet-spot curve over treasury
+  drawdown + ship losses + rep cost + pressure peak, with a frustration cap for
+  always-lose combat), and Variety (distinct event kinds + tiers) — and
+  `assess_fun(&[Transcript])` synthesises the cross-cutting read: which styles
+  clear a 50/100 bar (a dominant-strategy check), the weakest dimension to invest
+  in, the strongest, and hands-off watchability. Three new telemetry fields feed
+  it (`distinct_event_kinds`, `battle_losses`, `peak_pressure`). **Honest by
+  construction**: a deterministic bot can flag aimlessness, dead air, flat stakes,
+  starved rewards, and dominant strategies, but it *can't feel delight* — the
+  report says so up front and the scores read "where is fun at *risk*?", not "how
+  fun is it?". First run on seed 7: Tycoon 98 / Privateer 90 down to Spectator 26
+  / Arbitrageur 29 (passive, aimless styles correctly score low); the headline
+  finding is **Agency is the weakest dimension (avg 36/100)** — most play styles
+  never touch the act-now exception→verb loop. Lesson: keep the facets few,
+  weighted, and *documented as heuristics*; the value is the comparison
+  (weakest-link + dominant-strategy), not any single number.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

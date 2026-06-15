@@ -17,10 +17,12 @@
 //! print!("{report}");
 //! ```
 
+pub mod engagement;
 pub mod harness;
 pub mod review;
 pub mod strategy;
 
+pub use engagement::{assess, assess_fun, EngagementProfile, Facet};
 pub use harness::{run, Sample, Transcript};
 pub use review::{design_review, render_report, review, Finding, Severity};
 pub use strategy::{roster, Strategy};
@@ -94,6 +96,48 @@ mod tests {
             assert!(!review(t).is_empty(), "{} got no findings", t.persona);
         }
         assert!(!design_review(&runs).is_empty());
+    }
+
+    /// Engagement profiles are well-formed: every facet and the overall sit in
+    /// 0..=100, and a goal-driven operator out-engages a do-nothing spectator on
+    /// the destination pull.
+    #[test]
+    fn engagement_scores_are_well_formed() {
+        let tycoon = run(0, 4_000, 200, Box::new(strategy::Tycoon::default()));
+        let spectator = run(0, 4_000, 200, Box::new(strategy::Spectator));
+        let pt = assess(&tycoon);
+        let ps = assess(&spectator);
+        for p in [&pt, &ps] {
+            assert!(p.overall <= 100);
+            assert_eq!(p.facets.len(), 6);
+            for facet in &p.facets {
+                assert!(facet.score <= 100, "{} out of range", facet.name);
+            }
+        }
+        assert!(
+            pt.facet("Direction") > ps.facet("Direction"),
+            "an operator that climbs should beat a spectator on Direction"
+        );
+        assert!(
+            pt.overall > ps.overall,
+            "the operator should out-engage idle"
+        );
+    }
+
+    /// The fun synthesis is deterministic and always says something.
+    #[test]
+    fn the_fun_assessment_speaks_deterministically() {
+        let runs = |seed| -> Vec<Transcript> {
+            roster()
+                .into_iter()
+                .map(|s| run(seed, 3_000, 200, s))
+                .collect()
+        };
+        let a = assess_fun(&runs(5));
+        let b = assess_fun(&runs(5));
+        assert!(!a.is_empty(), "the fun assessment should produce findings");
+        assert_eq!(a.len(), b.len(), "same seed ⇒ same fun findings");
+        assert_eq!(a[0].message, b[0].message);
     }
 
     /// The transcript's event tally matches the raw event stream (the harness

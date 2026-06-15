@@ -117,6 +117,12 @@ pub struct Transcript {
     /// Derelicts the world turned up, and how many the persona stripped (§15).
     pub wrecks_sighted: u64,
     pub wrecks_salvaged: u64,
+    /// Player ships lost across all engagements (the felt cost of combat, §13).
+    pub battle_losses: u64,
+    /// Distinct event *kinds* the run produced — a breadth-of-systems proxy.
+    pub distinct_event_kinds: u32,
+    /// Highest pressure gauge reached at any sample (§13 tension peak, 0..=100).
+    pub peak_pressure: i32,
 
     // Economy extremes.
     pub start_credits: i64,
@@ -153,6 +159,9 @@ impl Transcript {
             forecasts: 0,
             wrecks_sighted: 0,
             wrecks_salvaged: 0,
+            battle_losses: 0,
+            distinct_event_kinds: 0,
+            peak_pressure: 0,
             battles_won: 0,
             start_credits: 0,
             end_credits: 0,
@@ -192,6 +201,24 @@ impl Transcript {
     /// Integer growth multiple of the treasury (end ÷ start, floored at 0).
     pub fn growth_multiple(&self) -> i64 {
         self.end_credits / self.start_credits.max(1)
+    }
+
+    /// The deepest peak-to-trough dip in the sampled treasury, as a percent of
+    /// the running peak (0 = monotonic climb). A measure of felt setback — a line
+    /// that only goes up has no tension.
+    pub fn max_drawdown_pct(&self) -> u64 {
+        let (mut peak, mut worst) = (self.start_credits.max(1), 0i64);
+        for s in &self.samples {
+            peak = peak.max(s.credits);
+            let dip = (peak - s.credits) * 100 / peak;
+            worst = worst.max(dip);
+        }
+        worst.max(0) as u64
+    }
+
+    /// Tiers experienced over the run (1 = stayed at the Station … 4 = the Gate).
+    pub fn tiers_experienced(&self) -> u32 {
+        self.ascents.len() as u32 + 1
     }
 }
 
@@ -246,6 +273,7 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
 
     let mut last_events: Vec<Event> = Vec::new();
     let mut idle_run = 0u64;
+    let mut seen_kinds = 0u32;
     for _ in 0..ticks {
         let actions = strat.act(&mut sim, &last_events);
         t.actions += actions as u64;
@@ -269,6 +297,7 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
         }
 
         for e in &last_events {
+            seen_kinds |= event_kind_bit(e);
             match e {
                 Event::HaulerDeparted { .. } => t.haulers_departed += 1,
                 Event::HaulerArrived { .. } => t.haulers_arrived += 1,
@@ -278,8 +307,9 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                     t.act_now_raised += 1;
                 }
                 Event::TierAscended { .. } => t.tier_ascended_events += 1,
-                Event::BattleResolved { won, .. } => {
+                Event::BattleResolved { won, losses } => {
                     t.battles_fought += 1;
+                    t.battle_losses += *losses as u64;
                     if *won {
                         t.battles_won += 1;
                     }
@@ -290,6 +320,7 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                 Event::Tick { .. } => {}
             }
         }
+        t.peak_pressure = t.peak_pressure.max(sim.pressure().peak_level());
 
         // Observe ascents from campaign *state* (the tier only ever climbs), so
         // we capture player-driven ascents even though their events are wiped.
@@ -305,7 +336,30 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
         }
     }
 
+    t.distinct_event_kinds = seen_kinds.count_ones();
     t.end_credits = sim.corp().credits();
     t.alerts_responded = strat.responses();
     t
 }
+
+/// A one-bit discriminant per event *kind* (excluding the always-present `Tick`),
+/// so OR-ing them across a run counts the distinct kinds the world produced — a
+/// breadth-of-systems signal for the engagement assessment.
+fn event_kind_bit(e: &Event) -> u32 {
+    match e {
+        Event::Tick { .. } => 0,
+        Event::HaulerDeparted { .. } => 1 << 0,
+        Event::HaulerArrived { .. } => 1 << 1,
+        Event::HaulerInterdicted { .. } => 1 << 2,
+        Event::Scarcity { .. } => 1 << 3,
+        Event::TierAscended { .. } => 1 << 4,
+        Event::BattleResolved { .. } => 1 << 5,
+        Event::ThreatForecast { .. } => 1 << 6,
+        Event::WreckSighted { .. } => 1 << 7,
+        Event::WreckSalvaged { .. } => 1 << 8,
+    }
+}
+
+/// The number of distinct event kinds the engagement variety facet scores
+/// against (the bits `event_kind_bit` can set).
+pub const EVENT_KIND_COUNT: u32 = 9;

@@ -45,12 +45,25 @@ Strategy (persona)  ──act()──►  Sim  ──step()──►  events + s
     answer shortages (§0–§19).
 - **`harness`** — drives a persona through the sim for thousands of ticks,
   tallies the event stream, and samples world state into a `Transcript`.
-- **`review`** — heuristics that turn a `Transcript` into ranked `Finding`s, plus
-  a cross-cutting `design_review` that compares personas.
+- **`review`** — correctness/balance heuristics that turn a `Transcript` into
+  ranked `Finding`s, plus a cross-cutting `design_review` that compares personas.
+- **`engagement`** — the *second lens*: scores six **structural proxies of
+  engagement** per play style (Direction, Flow, Agency, Reward rhythm, Stakes,
+  Variety) and synthesises a cross-cutting "is it fun?" read — which styles are
+  engaging (dominant-strategy check), the weakest dimension to invest in, and
+  whether the hands-off world is watchable. It can't measure subjective fun; it
+  flags the anti-patterns that reliably kill it (aimlessness, dead air, flat
+  stakes, starved rewards, a single dominant approach).
+
+## Two questions, two lenses
+
+- **Does it work / is it balanced?** → `review` + `design_review`.
+- **Is it engaging to play?** → `engagement` (read the scores as "where is fun at
+  *risk*?", not "how fun is it?").
 
 ## Extending it
 
 Add a play style by implementing `Strategy` and dropping it into
-`strategy::roster()`. Add a new lens on the experience by writing a heuristic in
-`review.rs` that reads `Transcript` fields. Both keep the determinism guarantee,
-so new checks are reproducible in CI.
+`strategy::roster()`. Add a correctness lens with a heuristic in `review.rs`, or
+an engagement facet in `engagement.rs`, both reading `Transcript` fields. All
+keep the determinism guarantee, so new checks are reproducible in CI.
