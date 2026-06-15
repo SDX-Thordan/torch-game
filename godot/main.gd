@@ -9,8 +9,10 @@ extends Node2D
 
 const TICKS_PER_SECOND := 6.0           # sim ticks per real second at 1× (§28)
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]   # pause / 1× / 6× / 24× (§6)
-const ORRERY_CENTRE := Vector2(840, 384)
-const ORRERY_RADIUS := 320.0            # px for the outermost body
+const ORRERY_CENTRE := Vector2(910, 360)
+const ORRERY_RADIUS := 300.0            # px for the outermost body
+const THRESHOLD_NAMES := ["info", "notice", "warning", "critical"]
+const BRANCH_NAMES := ["Industrialist", "Trader", "Warlord", "Diplomat"]
 const AU := 1_000_000.0
 const MAX_AU := 2.9                     # Ceres orbit, for scaling
 const QTY_STEP := 5
@@ -25,11 +27,13 @@ var selected := 0                       # index of the selected in-flight hauler
 var sel_comm := 5                       # commodity (ReactorFuel by default)
 var sel_market := 0                     # market (Ceres)
 var trade_qty := 20
+var ceo_pick := 2                       # CEO branch under consideration (Warlord)
 
 var status := "Welcome, CEO."
 
 var _top: Label
 var _assets: Label
+var _deck: Label
 var _feed: Label
 var _help: Label
 var _font: Font
@@ -41,8 +45,9 @@ func _ready() -> void:
 	sim.reset(7)
 	_top = _make_label(Vector2(12, 8), 18)
 	_assets = _make_label(Vector2(12, 44), 15)
-	_feed = _make_label(Vector2(12, 596), 15)
-	_help = _make_label(Vector2(12, 690), 12)
+	_deck = _make_label(Vector2(12, 318), 14)
+	_feed = _make_label(Vector2(12, 560), 14)
+	_help = _make_label(Vector2(12, 678), 12)
 
 
 func _make_label(pos: Vector2, size: int) -> Label:
@@ -106,13 +111,35 @@ func _refresh() -> void:
 	lines.append("» " + status)
 	_assets.text = "\n".join(lines)
 
+	# Command deck — the policy a CEO sets and the company she grows (§10/§12).
+	var deck: Array[String] = ["── COMMAND DECK ──"]
+	var rep := "  "
+	for f in sim.faction_count():
+		rep += "%s %+d %s   " % [sim.faction_name(f), sim.faction_standing(f), sim.faction_tier(f)]
+		if f == 1:
+			deck.append(rep)
+			rep = "  "
+	if rep.strip_edges() != "":
+		deck.append(rep)
+	var branch := sim.ceo_branch_name()
+	var branch_str := branch if branch != "(none)" else "(pick %s: C cycle, X commit)" % BRANCH_NAMES[ceo_pick]
+	deck.append("CEO Lv %d %s    research %d techs (+%d%% drive), %d pts" % [
+		sim.ceo_level(), branch_str, sim.research_unlocked_count(),
+		sim.research_drive_bonus(), sim.research_points()
+	])
+	deck.append("patrol: %s (%s)    auto-research: %s    alerts ≥ %s" % [
+		"ON" if sim.patrol_enabled() else "off", sim.patrol_target_name(),
+		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()]
+	])
+	_deck.text = "\n".join(deck)
+
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
 	for a in mini(sim.alert_count(), 3):
 		var tag := "[!]" if sim.alert_is_act_now(a) else "   "
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space]pause [1/2/3]speed  ·  [↑↓]commodity [←→]market [ [ ] ]qty  ·  [B]uy [S]ell  ·  [Tab]select [I]nterdict  ·  [N]ew frigate"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict  [N]ew ship\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
 
 
 func _draw() -> void:
@@ -165,6 +192,25 @@ func _unhandled_input(event: InputEvent) -> void:
 			_do_interdict()
 		KEY_N:
 			status = "Frigate commissioned." if sim.commission_ship(0) else "Can't build: short on crew or credits."
+		KEY_P:
+			sim.toggle_patrol()
+			status = "Interdiction patrol %s." % ("engaged" if sim.patrol_enabled() else "stood down")
+		KEY_O:
+			sim.cycle_patrol_target()
+			status = "Patrol now hunts: %s." % sim.patrol_target_name()
+		KEY_R:
+			sim.toggle_auto_research()
+			status = "Auto-research %s." % ("on" if sim.auto_research_enabled() else "off")
+		KEY_V:
+			status = "Researched a new tech." if sim.research_next() else "Not enough research points yet."
+		KEY_A:
+			sim.nudge_alert_threshold(1)
+		KEY_Z:
+			sim.nudge_alert_threshold(-1)
+		KEY_C:
+			ceo_pick = (ceo_pick + 1) % BRANCH_NAMES.size()
+		KEY_X:
+			status = "CEO committed to %s." % BRANCH_NAMES[ceo_pick] if sim.ceo_choose_branch(ceo_pick) else "Branch already chosen."
 
 
 func _do_buy() -> void:

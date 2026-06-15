@@ -388,6 +388,12 @@ impl TorchSim {
         self.sim.progression().research.unlocked_count() as i64
     }
 
+    /// Unspent research points (earned through operations, §10).
+    #[func]
+    fn research_points(&self) -> i64 {
+        self.sim.progression().research.points()
+    }
+
     /// Aggregate drive-efficiency research bonus (percent).
     #[func]
     fn research_drive_bonus(&self) -> i64 {
@@ -511,6 +517,86 @@ impl TorchSim {
             _ => sim::ShipClass::Frigate,
         };
         self.sim.commission_ship(class).is_ok()
+    }
+
+    // ---- The command deck: standing policy a CEO sets (§12) ----
+
+    /// Whether the standing interdiction patrol is hunting.
+    #[func]
+    fn patrol_enabled(&self) -> bool {
+        self.sim.policy().interdiction.enabled
+    }
+
+    /// Toggle the standing interdiction patrol on/off (§12).
+    #[func]
+    fn toggle_patrol(&mut self) {
+        let on = self.sim.policy().interdiction.enabled;
+        self.sim.policy_mut().interdiction.enabled = !on;
+    }
+
+    /// Name of the patrol's current target filter ("any" or a faction).
+    #[func]
+    fn patrol_target_name(&self) -> GString {
+        let label = match self.sim.policy().interdiction.target {
+            None => "any",
+            Some(f) => f.name(),
+        };
+        GString::from(label)
+    }
+
+    /// Cycle the patrol target: any → Earth → Mars → Belt → Independents → any.
+    #[func]
+    fn cycle_patrol_target(&mut self) {
+        let cur = self.sim.policy().interdiction.target;
+        let next = match cur {
+            None => Some(sim::Faction::ALL[0]),
+            Some(f) => {
+                let i = sim::Faction::ALL.iter().position(|x| *x == f).unwrap_or(0);
+                sim::Faction::ALL.get(i + 1).copied()
+            }
+        };
+        self.sim.policy_mut().interdiction.target = next;
+    }
+
+    /// Whether managers auto-invest research points.
+    #[func]
+    fn auto_research_enabled(&self) -> bool {
+        self.sim.policy().auto_research
+    }
+
+    /// Toggle manager auto-research (§12).
+    #[func]
+    fn toggle_auto_research(&mut self) {
+        let on = self.sim.policy().auto_research;
+        self.sim.policy_mut().auto_research = on ^ true;
+    }
+
+    /// Research the cheapest currently-affordable tech; returns success (§10).
+    #[func]
+    fn research_next(&mut self) -> bool {
+        let prog = self.sim.progression_mut();
+        match prog.research.cheapest_researchable() {
+            Some(i) => prog.research.research(i).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Current alert-feed threshold as 0..3 (info..critical, §19).
+    #[func]
+    fn alert_threshold(&self) -> i64 {
+        match self.sim.feed().threshold() {
+            sim::Priority::Info => 0,
+            sim::Priority::Notice => 1,
+            sim::Priority::Warning => 2,
+            sim::Priority::Critical => 3,
+        }
+    }
+
+    /// Nudge the alert threshold by `delta`, clamped to 0..3 (§19).
+    #[func]
+    fn nudge_alert_threshold(&mut self, delta: i64) {
+        let level = (self.alert_threshold() + delta).clamp(0, 3);
+        self.set_alert_threshold(level);
     }
 }
 
