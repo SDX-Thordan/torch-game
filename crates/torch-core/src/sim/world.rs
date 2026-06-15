@@ -87,6 +87,12 @@ const MIN_TRAVEL: u64 = 24;
 const PIRATE_INTERVAL: u64 = 72;
 /// Ticks between automated interdiction sorties (§12 patrol cadence).
 const AUTOMATION_INTERVAL: u64 = 12;
+/// Ticks between reputation-decay ticks (§10): grudges fade slowly toward
+/// neutral, so a Hostile standing is recoverable if you stop antagonizing.
+const REP_RECOVERY_INTERVAL: u64 = 24;
+/// How far each standing drifts toward neutral per recovery tick. Slow enough
+/// that an active raider still outruns it.
+const REP_RECOVERY_STEP: i64 = 8;
 
 /// A renderable view of one body at a single tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -539,6 +545,9 @@ impl Sim {
         self.run_logistics();
         self.run_industry();
         self.charge_upkeep();
+        if self.tick.is_multiple_of(REP_RECOVERY_INTERVAL) {
+            self.relations.decay_toward_neutral(REP_RECOVERY_STEP);
+        }
         self.events.push(Event::Tick { tick: self.tick });
         // The alert feed (§19) consumes everything surfacing this tick (§29):
         // the carried-over player events plus this tick's own.
@@ -1294,6 +1303,28 @@ mod tests {
         assert!(
             sim.relations().standing(faction) < 0,
             "the owner should resent it"
+        );
+    }
+
+    #[test]
+    fn hostility_recovers_once_the_raiding_stops() {
+        // Drive Earth to Hostile, then stop: standing must drift back toward
+        // neutral over time (§10) — the cliff is now a dial.
+        use crate::sim::faction::Faction;
+        let mut sim = Sim::new(0);
+        sim.relations_mut().adjust(Faction::Earth, -1_000);
+        assert_eq!(sim.relations().standing(Faction::Earth), -1_000);
+        for _ in 0..2_000 {
+            sim.step();
+        }
+        let healed = sim.relations().standing(Faction::Earth);
+        assert!(
+            healed > -1_000,
+            "Earth should be recovering, still at {healed}"
+        );
+        assert!(
+            healed < 0,
+            "but a deep grudge shouldn't fully heal that fast"
         );
     }
 
