@@ -106,7 +106,7 @@ fn review_pacing(t: &Transcript, active: bool, f: &mut Vec<Finding>) {
         None => f.push(Finding::new(
             if active { Severity::Note } else { Severity::Info },
             "Pacing",
-            "Never advanced the campaign. The retention spine only counts player interdictions as operations, so this play style cannot climb toward the gate at all."
+            "Never advanced the campaign — this play style completed no operations (a cut, a commissioned ship, a founded station, or a delivered route), so it never drew the gate closer."
                 .to_string(),
         )),
     }
@@ -304,13 +304,37 @@ pub fn design_review(runs: &[Transcript]) -> Vec<Finding> {
         ));
     }
 
-    // 2. Combat is built but unreachable in the live loop.
-    f.push(Finding::new(
-        Severity::Concern,
-        "Combat",
-        "The combat resolver (sim::combat) has no trigger in the live Sim loop — there is no fleet-engagement verb on Sim, so no playthrough can reach it. Ships are commissioned but never fight; combat is only exercised by the shipyard's demo_duel. The §7/§9 depth is currently dark for the player."
-            .to_string(),
-    ));
+    // 2. Is combat reachable from the live loop?
+    let battles: u64 = runs.iter().map(|t| t.battles_fought).sum();
+    if battles == 0 {
+        f.push(Finding::new(
+            Severity::Concern,
+            "Combat",
+            "The combat resolver (sim::combat) has no trigger in the live Sim loop — there is no fleet-engagement verb on Sim, so no playthrough can reach it. Ships are commissioned but never fight; combat is only exercised by the shipyard's demo_duel. The §7/§9 depth is dark for the player."
+                .to_string(),
+        ));
+    } else {
+        let won: u64 = runs.iter().map(|t| t.battles_won).sum();
+        f.push(Finding::new(
+            Severity::Good,
+            "Combat",
+            format!(
+                "Combat is reachable from the live loop: {battles} fleet engagements fought ({won} held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel."
+            ),
+        ));
+        // A matched mirror that the player almost always loses (or wins) is a
+        // balance signal worth surfacing once the mechanism is reachable.
+        let win_pct = won * 100 / battles;
+        if win_pct <= 10 || win_pct >= 90 {
+            f.push(Finding::new(
+                Severity::Note,
+                "Combat",
+                format!(
+                    "Lopsided outcomes: the player held the field in {win_pct}% of matched engagements. A symmetric raider pack should be closer to a coin-flip — initiative/doctrine in the resolver, or pack sizing, needs a balance pass."
+                ),
+            ));
+        }
+    }
 
     // 3. Hand-trading vs the standing route it is meant to motivate. Manual
     //    trade now pays a brokerage fee the route avoids, and routing buys
@@ -453,6 +477,13 @@ fn render_persona(out: &mut String, t: &Transcript) {
         "| act-now alerts | {} raised, {} answered |",
         t.act_now_raised, t.alerts_responded
     );
+    if t.battles_fought > 0 {
+        let _ = writeln!(
+            out,
+            "| battles | {} fought, {} won |",
+            t.battles_fought, t.battles_won
+        );
+    }
     let _ = writeln!(
         out,
         "| standings (E/M/B/I) | {} / {} / {} / {} |",

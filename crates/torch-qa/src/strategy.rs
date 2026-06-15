@@ -7,7 +7,7 @@
 //! and a balanced operator — so the review can compare how each *feels* and
 //! where the design pushes or starves the player.
 
-use torch_core::sim::{Event, Hauler, Interceptor, Interdiction, ShipClass, Sim};
+use torch_core::sim::{Band, Event, Hauler, Interceptor, Interdiction, ShipClass, Sim};
 
 /// A programmatic player. The harness calls [`Strategy::setup`] once, then
 /// [`Strategy::act`] every tick before advancing the sim.
@@ -249,6 +249,36 @@ impl Strategy for Tycoon {
     }
 }
 
+/// Builds a war fleet and throws it at raider packs — exercises the combat
+/// resolver the live loop never reached, and tracks the attrition (§7/§9).
+pub struct Warlord;
+
+impl Strategy for Warlord {
+    fn name(&self) -> &'static str {
+        "Warlord"
+    }
+    fn intent(&self) -> &'static str {
+        "Stands up warships and fights raider packs — is the combat resolver reachable, and does attrition bite? (§7/§9)"
+    }
+    fn setup(&mut self, sim: &mut Sim) {
+        // Stand up an initial squadron from the starting treasury + crew pool.
+        while sim.commission_ship(ShipClass::Frigate).is_ok() {}
+    }
+    fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
+        let mut actions = 0;
+        // Reinforce when credits and the crew pool allow.
+        if sim.tick().is_multiple_of(24) && sim.commission_ship(ShipClass::Frigate).is_ok() {
+            actions += 1;
+        }
+        // Pick a fight on a cadence whenever there's a fleet to send.
+        if sim.tick().is_multiple_of(60) && !sim.corp().fleet().is_empty() {
+            sim.engage_raiders(Band::Medium);
+            actions += 1;
+        }
+        actions
+    }
+}
+
 /// The full roster the report runs.
 pub fn roster() -> Vec<Box<dyn Strategy>> {
     vec![
@@ -256,6 +286,7 @@ pub fn roster() -> Vec<Box<dyn Strategy>> {
         Box::new(Arbitrageur),
         Box::new(Logistician),
         Box::new(Privateer),
+        Box::new(Warlord),
         Box::new(Tycoon::default()),
     ]
 }

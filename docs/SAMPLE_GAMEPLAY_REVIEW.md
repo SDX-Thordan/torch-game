@@ -22,7 +22,7 @@ _Touches nothing — is the world alive and worth watching with hands off the co
 
 **Findings:**
 
-- **[INFO]** _Pacing_ — Never advanced the campaign. The retention spine only counts player interdictions as operations, so this play style cannot climb toward the gate at all.
+- **[INFO]** _Pacing_ — Never advanced the campaign — this play style completed no operations (a cut, a commissioned ship, a founded station, or a delivered route), so it never drew the gate closer.
 - **[GOOD]** _Watchability_ — Hands fully off, the world stayed alive: 166 convoys flew, 53 cut on the lanes, 53 shortages voiced. There is something to watch before there is something to do.
 - **[NOTE]** _Alert feed_ — 53 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 
@@ -44,7 +44,7 @@ _Hand-trades the spread every tick — does the economy stay a decision, or beco
 
 **Findings:**
 
-- **[NOTE]** _Pacing_ — Never advanced the campaign. The retention spine only counts player interdictions as operations, so this play style cannot climb toward the gate at all.
+- **[NOTE]** _Pacing_ — Never advanced the campaign — this play style completed no operations (a cut, a commissioned ship, a founded station, or a delivered route), so it never drew the gate closer.
 - **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 242226 cr (+192226, ~4×).
 - **[INFO]** _Agency_ — Issued 4000 actions across 100% of ticks.
 - **[NOTE]** _Alert feed_ — 47 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
@@ -102,6 +102,33 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 - **[CONCERN]** _Reputation_ — Raiding drove Earth to Hostile (-1000) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
 - **[INFO]** _Reputation_ — Mars warmed to 1000 over the run.
 
+## Warlord
+
+_Stands up warships and fights raider packs — is the combat resolver reachable, and does attrition bite? (§7/§9)_
+
+| metric | value |
+| --- | --- |
+| treasury | 30000 → 30000 cr (+0, ~1×) |
+| actions | 67 over 1% of ticks |
+| campaign | The Region · gate 33% · 1 ascent(s) |
+| gate reached | — |
+| CEO level | 2 · techs 0 |
+| traffic | 166 flew, 114 arrived, 48 cut, 48 shortages |
+| act-now alerts | 48 raised, 0 answered |
+| battles | 67 fought, 0 won |
+| standings (E/M/B/I) | 0 / 0 / 0 / 0 |
+| market wall hits | 0 |
+
+**Ascents:** The Region @ 0
+
+**Findings:**
+
+- **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
+- **[NOTE]** _Economy_ — Active all run but treasury never moved — the loop found no work (e.g. a standing order idle below its margin). That idle state is the exception the feed should surface.
+- **[NOTE]** _Agency_ — Acted on only 1% of ticks (67 actions) — long stretches with nothing to press. Real-time-with-pause needs either denser decisions or faster time-compression here.
+- **[NOTE]** _Alert feed_ — 48 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[INFO]** _Fleet_ — Fielded 5 warship(s) and 0 freighter(s); trained-crew pool at 0 (the §8c bottleneck that caps capital ships).
+
 ## Tycoon
 
 _The intended full-loop operator: trade, route, raid to climb, auto-research, and answer shortages (§0–§19)._
@@ -135,8 +162,9 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 What the comparison of play styles reveals about the design as it stands:
 
-- **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
-- **[CONCERN]** _Combat_ — The combat resolver (sim::combat) has no trigger in the live Sim loop — there is no fleet-engagement verb on Sim, so no playthrough can reach it. Ships are commissioned but never fight; combat is only exercised by the shipyard's demo_duel. The §7/§9 depth is currently dark for the player.
+- **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
+- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 67 fleet engagements fought (0 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
+- **[NOTE]** _Combat_ — Lopsided outcomes: the player held the field in 0% of matched engagements. A symmetric raider pack should be closer to a coin-flip — initiative/doctrine in the resolver, or pack sizing, needs a balance pass.
 - **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (242226 cr by hand vs 104030 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
 - **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~4× (≈242226 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
 - **[NOTE]** _Logistics_ — Only one standing trade route exists at a time (Sim::route is a single Option). A 'spreadsheet sim in space' wants a *table* of routes and presets, each with its own params and exception line.

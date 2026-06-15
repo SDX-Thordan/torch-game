@@ -412,6 +412,21 @@ Status: [x] done, [~] in progress, [ ] todo.
   observe *campaign state* directly (poll `tier()` each tick) and keep the event
   tally only to *detect* the dropped-event discrepancy.
 
+- **2026-06-15 — QA finding #4 fixed: combat is reachable from the live loop.**
+  `sim::combat` had no trigger on `Sim`, so commissioned warships never fought —
+  only the shipyard's `demo_duel` exercised the resolver. New verb
+  `Sim::engage_raiders(band)`: clones the corp fleet's loadouts, generates a
+  matched raider pack, resolves via `combat::resolve`, applies losses
+  (`Corp::lose_ships_to`), counts a win as an operation, and emits a new
+  `Event::BattleResolved { won, losses }` the alert feed voices (§9/§19). Bound
+  to the shell (`TorchSim::engage`). New QA **Warlord** persona builds a squadron
+  and throws it at raiders; the harness tallies `battles_fought/won` and the
+  `design_review` combat finding flips Concern → Good. Two follow-on findings the
+  harness then surfaced: (a) setup-time ops were climbing the spine *before* the
+  baseline tier was sampled (fixed: `note_ascent` now baselines pre-setup), and
+  (b) the matched mirror is **lopsided** — the player held the field in 0% of
+  engagements, flagged as a combat-balance Note for a later pass.
+
 - **2026-06-15 — QA finding #3 fixed: instant trade has a cost + a wealth sink.**
   Manual buy/sell was instant, riskless, and free, so it was a constant faucet
   that dominated the transit-paying route. Two §5 sinks: (1) a **brokerage fee**
