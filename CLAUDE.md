@@ -726,6 +726,16 @@ Status: [x] done, [~] in progress, [ ] todo.
   (`godot --headless` runs clean). The first visual *juice* (§23 minus audio);
   pointer-driven market/CEO selection and the 3D orrery are the next UX rungs.
 
+- **2026-06-15 — Orrery as control surface + ascent fanfare (§21/§0.3).** Extended
+  click-picking: a left-click tries a hauler first, then falls back to selecting a
+  **market by its body** (new `market_body(m)` binding → `_pick_market`), so the
+  trade cursor is now pointer-driven, not just `←/→`. Added a **gold tier-ascension
+  flash** — the shell watches `tier_name()` across frames and fires `ascend_flash`
+  (a warm gold frame, ~1 s) the moment you climb, the visual half of the §0.3
+  fanfare the feed already voices. Headless-verified. The orrery is becoming the
+  map-half of the §-influence-model "map + master-tables" control; the 3D orrery
+  and a richer master-table panel are the remaining UX rungs.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

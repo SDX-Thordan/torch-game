@@ -31,6 +31,8 @@ var accum := 0.0
 var auto_pause := true                   # pause when an act-now alert fires (§28)
 var selected := 0                       # index of the selected in-flight hauler
 var flash := 0.0                         # act-now alert juice: a fading screen tint (§23)
+var ascend_flash := 0.0                  # tier-ascension fanfare: a fading gold glow (§0.3)
+var last_tier := ""                      # to detect a tier ascent across frames
 
 # The trade cursor — granular control over what/where/how much you deal (§5).
 var sel_comm := 5                       # commodity (ReactorFuel by default)
@@ -84,7 +86,14 @@ func _process(delta: float) -> void:
 					accum = 0.0
 					status = "Auto-paused — act-now shortage. [E] exploit, then resume."
 					break
-	flash = maxf(0.0, flash - delta * 2.0)   # ~0.5 s fade
+	# Tier ascent (§0.3): catch the climb and fire a celebratory gold fanfare.
+	var tier := sim.tier_name()
+	if last_tier != "" and tier != last_tier:
+		ascend_flash = 1.0
+		status = "Ascended to %s — the ring-gate draws closer." % tier
+	last_tier = tier
+	flash = maxf(0.0, flash - delta * 2.0)           # ~0.5 s fade
+	ascend_flash = maxf(0.0, ascend_flash - delta)   # ~1 s celebratory fade
 	_refresh()
 	queue_redraw()
 
@@ -198,7 +207,8 @@ func _orrery_pos(wx: float, wy: float) -> Vector2:
 
 
 ## Select the in-flight hauler nearest a screen point, if one is within reach.
-func _pick_hauler(pos: Vector2) -> void:
+## Returns whether a hauler was picked.
+func _pick_hauler(pos: Vector2) -> bool:
 	var best := -1
 	var best_d := 16.0   # px pick radius
 	for hi in sim.hauler_count():
@@ -209,8 +219,25 @@ func _pick_hauler(pos: Vector2) -> void:
 	if best >= 0:
 		selected = best
 		status = "Targeted hauler %d — [I] to interdict." % best
-	else:
-		status = "No hauler there to target."
+		return true
+	return false
+
+
+## Select the market whose body is nearest a screen point (sets the trade cursor).
+func _pick_market(pos: Vector2) -> void:
+	var best := -1
+	var best_d := 20.0   # px pick radius around the body
+	for m in sim.market_count():
+		var b := sim.market_body(m)
+		if b < 0:
+			continue
+		var d := _orrery_pos(sim.body_x(b), sim.body_y(b)).distance_to(pos)
+		if d < best_d:
+			best_d = d
+			best = m
+	if best >= 0:
+		sel_market = best
+		status = "Market: %s — trade cursor here." % sim.market_name(best)
 
 
 func _draw() -> void:
@@ -249,13 +276,19 @@ func _draw() -> void:
 	# Act-now juice (§23): a fading red frame pulls the eye to a fresh decision.
 	if flash > 0.0:
 		draw_rect(Rect2(2, 2, vp.x - 4, vp.y - 4), Color(1.0, 0.35, 0.25, flash * 0.85), false, 5.0)
+	# Tier-ascension fanfare (§0.3): a warm gold frame celebrates the climb.
+	if ascend_flash > 0.0:
+		draw_rect(Rect2(3, 3, vp.x - 6, vp.y - 6), Color(1.0, 0.82, 0.3, ascend_flash * 0.9), false, 8.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	# Click an in-flight hauler in the orrery to target it for interdiction (§21) —
 	# a directness the Tab-cycle alone doesn't give.
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_pick_hauler(event.position)
+		# Target a hauler if one is under the cursor; otherwise select a market by
+		# its body — the orrery is the control surface (§21).
+		if not _pick_hauler(event.position):
+			_pick_market(event.position)
 		return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return

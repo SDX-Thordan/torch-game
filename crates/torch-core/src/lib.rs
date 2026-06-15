@@ -167,6 +167,16 @@ impl TorchSim {
         )
     }
 
+    /// The orrery body a market sits at (§21), for click-to-select. `-1` if none.
+    #[func]
+    fn market_body(&self, market: i64) -> i64 {
+        self.sim
+            .markets()
+            .get(market as usize)
+            .map(|m| m.body() as i64)
+            .unwrap_or(-1)
+    }
+
     /// Number of commodities (shared across markets).
     #[func]
     fn commodity_count(&self) -> i64 {
