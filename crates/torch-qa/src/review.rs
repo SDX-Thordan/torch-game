@@ -240,10 +240,10 @@ fn review_reputation(t: &Transcript, f: &mut Vec<Finding>) {
         let faction = Faction::ALL[i].name();
         if s <= -600 {
             f.push(Finding::new(
-                Severity::Concern,
+                Severity::Note,
                 "Reputation",
                 format!(
-                    "Raiding drove {faction} to Hostile ({s}) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial."
+                    "Sustained raiding kept {faction} pinned at Hostile ({s}). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real."
                 ),
             ));
         } else if s >= 200 {

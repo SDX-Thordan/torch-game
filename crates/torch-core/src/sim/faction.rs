@@ -116,6 +116,21 @@ impl Relations {
             self.adjust(rival, RIVAL_BONUS);
         }
     }
+
+    /// Memory fades: drift every standing one `step` toward neutral (§10). This
+    /// is the recovery path the reputation system lacked — stop antagonizing a
+    /// faction and the grudge slowly heals, so a Hostile standing is a dial you
+    /// can walk back, not a one-way cliff (gameplay-QA finding). Continued raids
+    /// outrun the drift, so an active raider still pays the price.
+    pub fn decay_toward_neutral(&mut self, step: i64) {
+        for s in &mut self.standing {
+            if *s > 0 {
+                *s = (*s - step).max(0);
+            } else if *s < 0 {
+                *s = (*s + step).min(0);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -164,5 +179,25 @@ mod tests {
         let mut r = Relations::new();
         r.on_player_interdict(Faction::Independents);
         assert_eq!(r.standing(Faction::Independents), -INTERDICT_PENALTY);
+    }
+
+    #[test]
+    fn standings_heal_toward_neutral_but_never_overshoot() {
+        let mut r = Relations::new();
+        r.adjust(Faction::Earth, -1_000); // Hostile
+        r.adjust(Faction::Mars, 30); // a small positive grudge
+        r.decay_toward_neutral(8);
+        assert_eq!(
+            r.standing(Faction::Earth),
+            -992,
+            "a deep grudge heals slowly"
+        );
+        assert_eq!(r.standing(Faction::Mars), 22);
+        // Healing stops exactly at neutral — it never flips the sign.
+        for _ in 0..10 {
+            r.decay_toward_neutral(8);
+        }
+        assert_eq!(r.standing(Faction::Mars), 0);
+        assert!(r.standing(Faction::Earth) < 0, "Earth is still recovering");
     }
 }

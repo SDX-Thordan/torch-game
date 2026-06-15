@@ -412,6 +412,16 @@ Status: [x] done, [~] in progress, [ ] todo.
   observe *campaign state* directly (poll `tier()` each tick) and keep the event
   tally only to *detect* the dropped-event discrepancy.
 
+- **2026-06-15 — QA finding #5 fixed: reputation is a dial, not a one-way cliff.**
+  Raiding tanked a faction to Hostile with no modeled way back. `Relations::
+  decay_toward_neutral(step)` drifts every standing toward 0, called from `step()`
+  every `REP_RECOVERY_INTERVAL` (24) ticks by `REP_RECOVERY_STEP` (8). Stop
+  antagonizing a faction and the grudge heals slowly (~3000 ticks from −1000);
+  keep raiding every tick and you outrun the drift, so the price is still real
+  (the existing automation rep tests — which raid continuously — stay green).
+  Core test `hostility_recovers_once_the_raiding_stops`; the per-persona
+  reputation finding drops Concern → Note (recoverable dial).
+
 - **2026-06-15 — QA finding #4 fixed: combat is reachable from the live loop.**
   `sim::combat` had no trigger on `Sim`, so commissioned warships never fought —
   only the shipyard's `demo_duel` exercised the resolver. New verb

@@ -88,7 +88,7 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 | CEO level | 23 · techs 0 |
 | traffic | 166 flew, 0 arrived, 166 cut, 166 shortages |
 | act-now alerts | 166 raised, 0 answered |
-| standings (E/M/B/I) | -1000 / 1000 / 0 / 0 |
+| standings (E/M/B/I) | -1000 / 960 / 0 / 0 |
 | market wall hits | 0 |
 
 **Ascents:** The Region @ 97 → Sol & the Cold War @ 457 → The Gate @ 1273
@@ -99,8 +99,8 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 - **[NOTE]** _Economy_ — Active all run but treasury never moved — the loop found no work (e.g. a standing order idle below its margin). That idle state is the exception the feed should surface.
 - **[NOTE]** _Agency_ — Acted on only 2% of ticks (119 actions) — long stretches with nothing to press. Real-time-with-pause needs either denser decisions or faster time-compression here.
 - **[NOTE]** _Alert feed_ — 166 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[CONCERN]** _Reputation_ — Raiding drove Earth to Hostile (-1000) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
-- **[INFO]** _Reputation_ — Mars warmed to 1000 over the run.
+- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-1000). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
+- **[INFO]** _Reputation_ — Mars warmed to 960 over the run.
 
 ## Warlord
 
@@ -142,7 +142,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 | CEO level | 22 · techs 6 |
 | traffic | 166 flew, 33 arrived, 132 cut, 132 shortages |
 | act-now alerts | 132 raised, 0 answered |
-| standings (E/M/B/I) | -980 / 1000 / -800 / 0 |
+| standings (E/M/B/I) | -964 / 92 / -50 / 0 |
 | market wall hits | 0 |
 
 **Ascents:** The Region @ 49 → Sol & the Cold War @ 433 → The Gate @ 1393
@@ -153,9 +153,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 - **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 246033 cr (+213033, ~7×).
 - **[INFO]** _Agency_ — Issued 4083 actions across 100% of ticks.
 - **[NOTE]** _Alert feed_ — 132 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[CONCERN]** _Reputation_ — Raiding drove Earth to Hostile (-980) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
-- **[INFO]** _Reputation_ — Mars warmed to 1000 over the run.
-- **[CONCERN]** _Reputation_ — Raiding drove Belt to Hostile (-800) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
+- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-964). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
 - **[INFO]** _Fleet_ — Fielded 1 warship(s) and 1 freighter(s); trained-crew pool at 40 (the §8c bottleneck that caps capital ships).
 
 ## Design review — cross-cutting
