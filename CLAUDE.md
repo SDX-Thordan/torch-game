@@ -717,6 +717,15 @@ Status: [x] done, [~] in progress, [ ] todo.
   player plays without sound) — the only roadmap item we're consciously dropping
   from the §23 "juice & audio" pass; the juice/3D-orrery half remains open.
 
+- **2026-06-15 — Shell interaction + first juice (§21/§23).** Direct manipulation
+  on top of the keyboard verbs: **click an in-flight hauler** in the orrery to
+  target it for interdiction (`_pick_hauler` reuses the shared `_orrery_pos`
+  world→screen map so render + picking can't disagree), and an **act-now flash** —
+  a fading red frame (`flash` decays in `_process`, drawn in `_draw`) that pulls the
+  eye to a fresh decision whether or not auto-pause is on. Both headless-verified
+  (`godot --headless` runs clean). The first visual *juice* (§23 minus audio);
+  pointer-driven market/CEO selection and the 3D orrery are the next UX rungs.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
