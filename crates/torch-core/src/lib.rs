@@ -531,6 +531,23 @@ impl TorchSim {
         self.sim.commission_freighter().is_ok()
     }
 
+    /// Engage the player fleet against a raider pack at `band` (0 close, 1 medium,
+    /// 2 long) and resolve the battle (§9). Returns 1 if the fleet held the field,
+    /// 0 if it lost or stalemated, −1 if there were no warships to send.
+    #[func]
+    fn engage(&mut self, band: i64) -> i64 {
+        let band = match band {
+            0 => sim::Band::Close,
+            2 => sim::Band::Long,
+            _ => sim::Band::Medium,
+        };
+        match self.sim.engage_raiders(band) {
+            Some(o) if o.winner == Some(0) => 1,
+            Some(_) => 0,
+            None => -1,
+        }
+    }
+
     /// Set a Trade Route standing order: buy `commodity` at `origin`, sell at
     /// `dest`, `qty`/trip, while the spread clears `min_margin` (§4).
     #[func]

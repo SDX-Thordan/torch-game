@@ -125,6 +125,7 @@ impl AlertFeed {
             Event::Scarcity { market, commodity } => Some(self.scarcity(*market, *commodity, tick)),
             Event::HaulerInterdicted { .. } => Some(self.raid(tick)),
             Event::TierAscended { tier } => Some(Self::milestone(tier, tick)),
+            Event::BattleResolved { won, losses } => Some(self.battle(*won, *losses, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -187,6 +188,37 @@ impl AlertFeed {
         Alert {
             tick,
             priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message,
+            verb: None,
+        }
+    }
+
+    /// A resolved fleet engagement (§9). A loss is louder than a win; neither is
+    /// act-now (the fight is already over).
+    fn battle(&self, won: bool, losses: usize, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        let (priority, message) = if won {
+            (
+                Priority::Notice,
+                format!(
+                    "{}: Engagement won — the fleet held the field ({losses} lost).",
+                    mgr.name
+                ),
+            )
+        } else {
+            (
+                Priority::Warning,
+                format!(
+                    "{}: Engagement lost — raiders broke our line ({losses} ships down).",
+                    mgr.name
+                ),
+            )
+        };
+        Alert {
+            tick,
+            priority,
             urgency: Urgency::Fyi,
             voice: mgr.name.clone(),
             message,

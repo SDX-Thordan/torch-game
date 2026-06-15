@@ -116,4 +116,11 @@ impl Corp {
     pub fn add_ship(&mut self, ship: OwnedShip) {
         self.fleet.push(ship);
     }
+
+    /// Battle losses: keep `survivors` ships, scrapping the rest (their crews go
+    /// down with them — not returned to the pool, §8c). The abstraction tracks
+    /// only how many held the field, not which hull died.
+    pub fn lose_ships_to(&mut self, survivors: usize) {
+        self.fleet.truncate(survivors);
+    }
 }

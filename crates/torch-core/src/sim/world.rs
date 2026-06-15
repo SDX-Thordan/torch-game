@@ -8,6 +8,7 @@
 use super::alerts::{AlertFeed, Priority};
 use super::automation::AutomationPolicy;
 use super::campaign::Campaign;
+use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::corp::{Corp, OwnedShip};
 use super::economy::{default_markets, Market};
 use super::event::Event;
@@ -18,7 +19,7 @@ use super::logistics::TradeRoute;
 use super::orbit::{default_system, Body};
 use super::progression::Progression;
 use super::rng::Pcg32;
-use super::ships::{self, ShipClass};
+use super::ships::{self, Loadout, ShipClass};
 use super::traffic::Hauler;
 
 /// Credits charged per unit of a commissioned hull's dry mass (§5 sink).
@@ -577,6 +578,55 @@ impl Sim {
         outcome
     }
 
+    /// Send the player fleet against a raider pack at `band` and resolve the
+    /// battle (§9). This is the missing trigger the gameplay-QA review flagged:
+    /// `sim::combat` had no verb on `Sim`, so commissioned warships never fought.
+    /// The raider pack is sized to the fleet for a real contest; losses are
+    /// applied to the corp, a win counts as an operation on the climb (§0), and a
+    /// `BattleResolved` event is emitted for the feed (§19) and diorama (§22).
+    /// Returns the outcome, or `None` if the player has no warships to send.
+    pub fn engage_raiders(&mut self, band: Band) -> Option<BattleOutcome> {
+        let player_ships: Vec<Loadout> = self
+            .corp
+            .fleet()
+            .iter()
+            .map(|s| s.loadout.clone())
+            .collect();
+        if player_ships.is_empty() {
+            return None;
+        }
+        // A matched pack of raider frigates — quantity the player must answer
+        // with quality and doctrine (§8a/§9 saturation tension).
+        let pack: Vec<Loadout> = (0..player_ships.len())
+            .map(|_| ships::reference_loadout(ShipClass::Frigate, &mut self.rng))
+            .collect();
+        let doctrine = Doctrine {
+            band,
+            salvo_reload: 6,
+            target: TargetPriority::Biggest,
+        };
+        let outcome = combat::resolve(
+            &Fleet {
+                ships: &player_ships,
+                doctrine,
+            },
+            &Fleet {
+                ships: &pack,
+                doctrine,
+            },
+            &mut self.rng,
+        );
+        let survivors = outcome.survivors[0];
+        let losses = player_ships.len() - survivors;
+        self.corp.lose_ships_to(survivors);
+        let won = outcome.winner == Some(0);
+        if won {
+            self.complete_op(); // holding the field is progress on the climb (§0)
+        }
+        self.events.push(Event::BattleResolved { won, losses });
+        Some(outcome)
+    }
+
     /// A *player* cut sours relations with the hauler's owner faction (§7b/§10)
     /// and counts as an operation on the climb (§0); pirate raids do neither.
     fn ripple_reputation(&mut self, h: &Hauler) {
@@ -1024,6 +1074,35 @@ mod tests {
         for m in sim.markets() {
             assert!(sim.relations().standing(m.faction()) >= 0);
         }
+    }
+
+    #[test]
+    fn the_fleet_can_actually_fight() {
+        // The combat resolver was unreachable from the live loop; now a player
+        // with warships can engage a raider pack and the battle resolves into a
+        // BattleResolved event (§9). With no fleet, there's nothing to send.
+        use crate::sim::combat::Band;
+        let mut sim = Sim::new(0);
+        assert!(
+            sim.engage_raiders(Band::Medium).is_none(),
+            "no warships ⇒ no engagement"
+        );
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        let fleet_before = sim.corp().fleet().len();
+        let outcome = sim.engage_raiders(Band::Medium).expect("a fleet can fight");
+        assert!(outcome.winner.is_some() || outcome.ticks > 0);
+        // The battle resolves into an event the feed can voice (surviving the
+        // step's player-event plumbing).
+        let events = sim.step().to_vec();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::BattleResolved { .. })),
+            "the engagement should emit a BattleResolved event"
+        );
+        // Losses are applied to the fleet (it can only shrink).
+        assert!(sim.corp().fleet().len() <= fleet_before);
     }
 
     #[test]

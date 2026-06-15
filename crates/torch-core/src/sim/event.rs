@@ -26,4 +26,7 @@ pub enum Event {
     Scarcity { market: usize, commodity: usize },
     /// The company climbed to a new tier (§0.3 arrival fanfare).
     TierAscended { tier: &'static str },
+    /// The player fleet fought a raider pack and the battle resolved (§9). `won`
+    /// is whether the player held the field; `losses` is player ships destroyed.
+    BattleResolved { won: bool, losses: usize },
 }

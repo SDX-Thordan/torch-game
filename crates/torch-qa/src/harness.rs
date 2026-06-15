@@ -102,6 +102,9 @@ pub struct Transcript {
     /// happen in `act()` before `step()`, whose `events.clear()` wipes them — so
     /// a climb with `ascents` but zero events here exposes that dropped-event gap.
     pub tier_ascended_events: u64,
+    /// Fleet engagements fought (§9), and how many the player won.
+    pub battles_fought: u64,
+    pub battles_won: u64,
 
     // Economy extremes.
     pub start_credits: i64,
@@ -132,6 +135,8 @@ impl Transcript {
             first_tier_up: None,
             gate_reached: None,
             tier_ascended_events: 0,
+            battles_fought: 0,
+            battles_won: 0,
             start_credits: 0,
             end_credits: 0,
             min_credits: 0,
@@ -173,6 +178,22 @@ impl Transcript {
     }
 }
 
+/// Record a tier change (the campaign only ever climbs) into the transcript,
+/// observed from state so it survives even when a player-verb's `TierAscended`
+/// event is dropped. Updates `last_tier` in place.
+fn note_ascent(t: &mut Transcript, sim: &Sim, last_tier: &mut Tier) {
+    let tier = sim.campaign().tier();
+    if tier != *last_tier {
+        let at = sim.tick();
+        t.first_tier_up.get_or_insert(at);
+        if tier == Tier::Gate {
+            t.gate_reached.get_or_insert(at);
+        }
+        t.ascents.push((at, tier.name()));
+        *last_tier = tier;
+    }
+}
+
 /// Count sampled commodity readings sitting at (or past) a price wall — the
 /// §7c gate normally keeps prices strictly between floor and ceiling, so any
 /// hit is an instability signal.
@@ -196,11 +217,15 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
     let mut sim = Sim::new(seed);
     let mut t = Transcript::new(strat.name(), strat.intent(), seed, ticks);
 
+    // Baseline the tier *before* setup, so any ascent setup triggers (e.g. a
+    // Warlord commissioning a squadron, which climbs the spine) is captured.
+    let mut last_tier = sim.campaign().tier();
     strat.setup(&mut sim);
+    note_ascent(&mut t, &sim, &mut last_tier);
+
     t.start_credits = sim.corp().credits();
     t.min_credits = t.start_credits;
     t.max_credits = t.start_credits;
-    let mut last_tier = sim.campaign().tier();
 
     let mut last_events: Vec<Event> = Vec::new();
     for _ in 0..ticks {
@@ -221,22 +246,19 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                     t.act_now_raised += 1;
                 }
                 Event::TierAscended { .. } => t.tier_ascended_events += 1,
+                Event::BattleResolved { won, .. } => {
+                    t.battles_fought += 1;
+                    if *won {
+                        t.battles_won += 1;
+                    }
+                }
                 Event::Tick { .. } => {}
             }
         }
 
         // Observe ascents from campaign *state* (the tier only ever climbs), so
         // we capture player-driven ascents even though their events are wiped.
-        let tier = sim.campaign().tier();
-        if tier != last_tier {
-            let at = sim.tick();
-            t.first_tier_up.get_or_insert(at);
-            if tier == Tier::Gate {
-                t.gate_reached.get_or_insert(at);
-            }
-            t.ascents.push((at, tier.name()));
-            last_tier = tier;
-        }
+        note_ascent(&mut t, &sim, &mut last_tier);
 
         let credits = sim.corp().credits();
         t.min_credits = t.min_credits.min(credits);
