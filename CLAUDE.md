@@ -132,7 +132,10 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
 - [~] **12. Tier ascent + gate foreshadowing** — model + always-visible gate done
   (`sim::campaign`, voiced ascents); per-tier content/"new kind of game" later.
-- [ ] **13. Pressure systems** + forecasting + pacing governor.
+- [x] **13. Pressure systems** (`sim::pressure`) — three decaying gauges (faction
+  war / piracy / scarcity), **forecasting** (raids telegraphed ahead), a **pacing
+  governor** (no two spikes dogpile), biting-but-recoverable decay, and an
+  independent **intensity** difficulty knob. Voiced via the feed; gauges on the HUD.
 - [x] **QA. Automated gameplay harness** (`crates/torch-qa`) — autoplayer personas
   drive the deterministic core headless and the run is critiqued into a written
   **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
@@ -589,6 +592,32 @@ Status: [x] done, [~] in progress, [ ] todo.
   already in the locked tree via gdext) over RON to avoid a new fetch; §31 says
   "JSON/RON", so JSON satisfies it. `itoa` (serde_json dep) wasn't pre-cached, so
   this needs a network-enabled environment for the first build.
+
+- **2026-06-15 — Pressure, tension & pacing (§13) — `sim::pressure`.** The §35
+  build-order item #13: turn ambient predation into a *calibrated* pressure layer.
+  `PressureSystem` owns three decaying gauges (FactionWar/Piracy/Scarcity), the
+  raid schedule, and the two mechanics §13 names as the stress-vs-tension dial:
+  (1) **forecasting** — an incoming raid is telegraphed `FORECAST_LEAD` (18t) ahead
+  as `Event::ThreatForecast`, so nothing arrives unforeseeable (the feed voices it
+  as a Warning/FYI heads-up); (2) a **pacing governor** — a raid never lands within
+  `PACING_COOLDOWN` (24t) of another flashpoint (e.g. a fresh scarcity), and a
+  due-but-blocked raid is *deferred, not skipped*. Gauges ebb 1/tick
+  (biting-but-recoverable) so a quiet stretch heals while a sustained assault
+  outruns the drift. An independent **`Intensity`** knob (Calm/Normal/Harsh) scales
+  raid cadence + gauge gains — §13's difficulty setting that does *not* rubber-band
+  earned power. **Integration:** the old `pirate_raid` hard-coded a 72t interval;
+  that's gone — `run_pressure()` now telegraphs + governs the same raider resolve.
+  Normal intensity keeps the 72t cadence, so default play and the §7c gate are
+  unchanged; `pirates_raid_the_lanes`/`pirate_raids_do_not_blame_the_player` stay
+  green (the governor only defers when the *player* causes a scarcity near a raid —
+  ambient cuts are 72t apart, well clear of the 24t cooldown). Pure/integer, draws
+  no RNG (`the_schedule_is_deterministic`). Bound to the shell: a pressure HUD line
+  + **U** to cycle intensity. **QA:** new `forecasts` tally + a `Pressure`
+  design-review finding (GOOD: "raids were telegraphed N times"). *Lesson:* the
+  harness's `haulers_interdicted` folds in the player's *own* cuts, so a
+  forecasts-vs-cuts comparison falsely flagged the Privateer — the finding reports
+  the telegraph count, not a ratio. Sample review regenerated (raid timing shifts
+  slightly under the governor; all findings still Good).
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

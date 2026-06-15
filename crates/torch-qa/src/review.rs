@@ -68,10 +68,30 @@ pub fn review(t: &Transcript) -> Vec<Finding> {
     review_economy(t, active, &mut f);
     review_agency(t, active, &mut f);
     review_alerts(t, &mut f);
+    review_pressure(t, &mut f);
     review_reputation(t, &mut f);
     review_fleet(t, &mut f);
 
     f
+}
+
+/// §13 pressure: is the world telegraphing its threats? Each ambient-raid window
+/// emits a forecast `FORECAST_LEAD` ticks ahead, so the player can pre-position or
+/// divert — nothing arrives unforeseeable. (We can't compare to cuts here: the
+/// `haulers_interdicted` tally folds in the player's *own* interdictions, which
+/// are chosen, not forecast.)
+fn review_pressure(t: &Transcript, f: &mut Vec<Finding>) {
+    if t.forecasts == 0 {
+        return; // a placid stretch with no raids to forecast
+    }
+    f.push(Finding::new(
+        Severity::Good,
+        "Pressure",
+        format!(
+            "Incoming raids were telegraphed {} times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.",
+            t.forecasts
+        ),
+    ));
 }
 
 fn review_pacing(t: &Transcript, active: bool, f: &mut Vec<Finding>) {
