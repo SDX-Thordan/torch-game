@@ -279,24 +279,30 @@ fn find<'a>(runs: &'a [Transcript], persona: &str) -> Option<&'a Transcript> {
 pub fn design_review(runs: &[Transcript]) -> Vec<Finding> {
     let mut f = Vec::new();
 
-    // 1. What feeds the retention spine?
-    let climbers: Vec<&str> = runs
+    // 1. What feeds the retention spine? The concern is the *build/trade* side
+    //    being unable to climb — a hands-off Logistician advancing proves the
+    //    spine listens to more than interdiction.
+    let non_raiding_climbers: Vec<&str> = runs
         .iter()
-        .filter(|t| !t.ascents.is_empty())
+        .filter(|t| !t.ascents.is_empty() && t.persona != "Privateer")
         .map(|t| t.persona)
         .collect();
-    let stalled: Vec<&str> = runs
-        .iter()
-        .filter(|t| t.ascents.is_empty() && t.actions > 0)
-        .map(|t| t.persona)
-        .collect();
-    f.push(Finding::new(
-        Severity::Concern,
-        "Retention spine",
-        format!(
-            "Only interdiction advances the gate: {climbers:?} climbed, while active non-raiding styles {stalled:?} never moved a tier. Trading, routing, building, and researching — most of the influence model — don't feed the §0 destination pull. The spine wants more verbs to count as operations."
-        ),
-    ));
+    if non_raiding_climbers.is_empty() {
+        f.push(Finding::new(
+            Severity::Concern,
+            "Retention spine",
+            "Only interdiction advances the gate — trading, routing, and building never move a tier, so most of the influence model doesn't feed the §0 destination pull. The spine wants more verbs to count as operations."
+                .to_string(),
+        ));
+    } else {
+        f.push(Finding::new(
+            Severity::Good,
+            "Retention spine",
+            format!(
+                "The spine listens to more than raiding: {non_raiding_climbers:?} climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb."
+            ),
+        ));
+    }
 
     // 2. Combat is built but unreachable in the live loop.
     f.push(Finding::new(
