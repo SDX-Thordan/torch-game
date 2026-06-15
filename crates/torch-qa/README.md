@@ -1,0 +1,56 @@
+# torch-qa — automated gameplay QA
+
+A headless framework that **plays TORCH automatically** and writes a **gameplay
+review**. Because the sim core (`torch-core`) is pure and deterministic (§27),
+it can be driven by a program; this crate is that program.
+
+It is the QA counterpart to `cargo test`. Tests assert that systems *work*;
+`torch-qa` asserts (and critiques) how the game *plays* — pacing, agency,
+economy bounds, alert engagement, reputation tradeoffs, and the cross-cutting
+design gaps only a full playthrough surfaces. Same seed ⇒ same review, so a
+regression in *feel* shows up as a diff.
+
+## Run it
+
+```bash
+cargo run -p torch-qa                 # seed 7, 4000 ticks → review on stdout
+cargo run -p torch-qa -- 42 8000      # a different seed / longer run
+cargo run -p torch-qa -- 7 4000 > review.md
+TORCH_QA_OUT=qa-reports cargo run -p torch-qa   # also write a file
+```
+
+See `docs/SAMPLE_GAMEPLAY_REVIEW.md` for example output.
+
+## How it works
+
+```
+Strategy (persona)  ──act()──►  Sim  ──step()──►  events + state
+        ▲                                                │
+        └───────────  Harness samples a Transcript  ◄────┘
+                                   │
+                            Review engine ──► findings (Markdown)
+```
+
+- **`strategy`** — a `Strategy` trait and a roster of autoplayer personas, each a
+  play style that presses the same verbs a human would:
+  - **Spectator** — touches nothing; measures whether the world is alive and
+    watchable on its own (§28).
+  - **Arbitrageur** — hand-trades the spread every tick; stress-tests the
+    economy's bounds (§5/§7a).
+  - **Logistician** — sets one standing trade route and walks away; tests the
+    parameterized standing-order heart (§4).
+  - **Privateer** — raids the lanes; the only style that climbs the retention
+    spine, and pays for it in reputation (§7b/§0).
+  - **Tycoon** — the intended full-loop operator: trade, route, raid, research,
+    answer shortages (§0–§19).
+- **`harness`** — drives a persona through the sim for thousands of ticks,
+  tallies the event stream, and samples world state into a `Transcript`.
+- **`review`** — heuristics that turn a `Transcript` into ranked `Finding`s, plus
+  a cross-cutting `design_review` that compares personas.
+
+## Extending it
+
+Add a play style by implementing `Strategy` and dropping it into
+`strategy::roster()`. Add a new lens on the experience by writing a heuristic in
+`review.rs` that reads `Transcript` fields. Both keep the determinism guarantee,
+so new checks are reproducible in CI.

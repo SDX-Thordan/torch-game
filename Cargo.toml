@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/torch-core"]
+members = ["crates/torch-core", "crates/torch-qa"]
 resolver = "2"
 
 [workspace.package]
