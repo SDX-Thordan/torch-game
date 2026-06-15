@@ -117,8 +117,9 @@ Status: [x] done, [~] in progress, [ ] todo.
   screen up close (the equalizer), crew quality scales it. Diorama (§22) later.
 - [x] **8. Alert-feed system** (`sim::alerts`) — consumes the world event stream
   (§29) into ranked, voiced alerts with a hard FYI/act-now split; act-now alerts
-  carry a verb (§0.4), threshold is player-tunable (§19). Crew-attachment depth
-  (history/portraits, §11) right-sized later.
+  carry a verb (§0.4), threshold is player-tunable (§19). Crew-attachment depth:
+  ship names + service history (§11/§14) now in (`OwnedShip`, the Rocinante effect);
+  portraits/deeper crew arcs right-sized later.
 - [x] **9. Progression** — four layered tracks (§10).
   - [x] Factions + reputation (`sim::faction`): standings/tiers per faction, the
     §7b ripple wired (a *player* cut angers the owner, pleases their rival;
@@ -641,6 +642,25 @@ Status: [x] done, [~] in progress, [ ] todo.
   removed). Bound to the shell (`tier_briefing`/`station_cap`/`route_cap` + HUD
   lines). QA review byte-identical (personas don't reach the old caps). The full
   "each tier a wholly new game" (Tier-4 procedural systems) stays post-MVP (#15).
+
+- **2026-06-15 — Ship identity & the Rocinante effect (§14/§11).** Closed the
+  named-crew-attachment depth #8 deferred. `OwnedShip` now carries a **christened
+  call-sign** (`ships::christen_ship`, a 16-name evocative pool, deterministic §27)
+  + class, and an accruing **service history** — `commissioned_tick` (age),
+  `battles`, `battles_won`, `is_veteran()`. The §13 stakes are now *felt*: losing a
+  blooded hull is a real, named loss. **Mechanical Rocinante effect:**
+  `Corp::resolve_engagement(survivors, won)` sorts the fleet veterans-first (wins →
+  battles → seniority) so the **most-storied hulls pull through** and the green
+  ships die, then bloods every survivor; it returns the lost hulls' names so the
+  feed can mourn them. `Corp::flagship()` is the most-decorated hull for the shell
+  to spotlight. Replaced the old count-only `lose_ships_to` (removed). **Self-
+  contained** — touches only `ships`/`corp`/`world` (commission + `engage_raiders`),
+  no event/alert/QA-harness churn, so it doesn't tangle with the other open PRs.
+  Bound: `ship_name/age/battles/battles_won` + `flagship_name` + a fleet-roster HUD
+  line. *Note:* sorting the persistent fleet veterans-first realigns combat RNG for
+  a persona's *later* engagements, so the QA sample shifted (Warlord 3→2 battles) —
+  benign variance (the 64-seed combat-balance test holds, no new CONCERNs);
+  regenerated `SAMPLE_GAMEPLAY_REVIEW.md`.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

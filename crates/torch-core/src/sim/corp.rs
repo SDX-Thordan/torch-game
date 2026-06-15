@@ -14,11 +14,53 @@ const STARTING_CREDITS: i64 = 50_000;
 /// Trained crew on the books at founding (§8c bottleneck): a few frigates' worth.
 const STARTING_CREW: i64 = 60;
 
-/// A ship in the player's fleet: a validated fit plus a christened name (§14).
+/// A ship in the player's fleet: a validated fit, a christened name (§14), and an
+/// accruing **service history** (§11/§13) — the age and battle record that turn a
+/// hull into a *beloved hero ship* and make losing a veteran a felt, permanent
+/// loss (the load-bearing source of tension, §13).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnedShip {
     pub name: String,
     pub loadout: Loadout,
+    /// Tick the hull was commissioned (for its age in service).
+    pub commissioned_tick: u64,
+    /// Engagements fought, and how many were won — its blooding (§8c/§13).
+    pub battles: u16,
+    pub battles_won: u16,
+}
+
+/// Battles a hull must have won to read as a *veteran* (a hero ship, §14).
+const VETERAN_WINS: u16 = 1;
+
+impl OwnedShip {
+    /// A freshly commissioned hull (no history yet).
+    pub fn new(name: String, loadout: Loadout, commissioned_tick: u64) -> Self {
+        Self {
+            name,
+            loadout,
+            commissioned_tick,
+            battles: 0,
+            battles_won: 0,
+        }
+    }
+
+    /// Record an engagement this hull lived through (§13 blooding).
+    pub fn record_battle(&mut self, won: bool) {
+        self.battles = self.battles.saturating_add(1);
+        if won {
+            self.battles_won = self.battles_won.saturating_add(1);
+        }
+    }
+
+    /// A blooded hull the player has reason to care about (the Rocinante effect).
+    pub fn is_veteran(&self) -> bool {
+        self.battles_won >= VETERAN_WINS
+    }
+
+    /// Ticks in service as of `now`.
+    pub fn age(&self, now: u64) -> u64 {
+        now.saturating_sub(self.commissioned_tick)
+    }
 }
 
 /// The player corporation's holdings.
@@ -117,10 +159,103 @@ impl Corp {
         self.fleet.push(ship);
     }
 
-    /// Battle losses: keep `survivors` ships, scrapping the rest (their crews go
-    /// down with them — not returned to the pool, §8c). The abstraction tracks
-    /// only how many held the field, not which hull died.
-    pub fn lose_ships_to(&mut self, survivors: usize) {
+    /// Resolve an engagement against the fleet (§11/§13): the most-storied hulls
+    /// pull through first (the Rocinante effect — veterans survive preferentially),
+    /// the green ships are lost, and every survivor is blooded by the fight. Returns
+    /// the names of the hulls lost, so the feed/log can mourn them by name.
+    pub fn resolve_engagement(&mut self, survivors: usize, won: bool) -> Vec<String> {
+        // Veterans (by wins, then battles, then seniority) sort to the front and
+        // survive; the truncated tail is lost.
+        self.fleet.sort_by(|a, b| {
+            b.battles_won
+                .cmp(&a.battles_won)
+                .then(b.battles.cmp(&a.battles))
+                .then(a.commissioned_tick.cmp(&b.commissioned_tick))
+        });
+        let lost: Vec<String> = self
+            .fleet
+            .iter()
+            .skip(survivors.min(self.fleet.len()))
+            .map(|s| s.name.clone())
+            .collect();
         self.fleet.truncate(survivors);
+        for s in &mut self.fleet {
+            s.record_battle(won);
+        }
+        lost
+    }
+
+    /// The most decorated hull in the fleet (most wins), if any — the hero ship the
+    /// shell can spotlight (§14 Rocinante effect).
+    pub fn flagship(&self) -> Option<&OwnedShip> {
+        self.fleet.iter().max_by_key(|s| (s.battles_won, s.battles))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::rng::Pcg32;
+    use crate::sim::ships::{reference_loadout, ShipClass};
+
+    /// A fleet of frigates with the given names, all commissioned at tick 0.
+    fn fleet(names: &[&str]) -> Corp {
+        let mut rng = Pcg32::new(1);
+        let mut corp = Corp::new(6);
+        for n in names {
+            let loadout = reference_loadout(ShipClass::Frigate, &mut rng);
+            corp.add_ship(OwnedShip::new(n.to_string(), loadout, 0));
+        }
+        corp
+    }
+
+    #[test]
+    fn a_surviving_hull_is_blooded_and_becomes_a_veteran() {
+        let mut corp = fleet(&["Lodestar", "Kestrel"]);
+        assert!(!corp.fleet()[0].is_veteran());
+        let lost = corp.resolve_engagement(2, true); // both live, both win
+        assert!(lost.is_empty());
+        for s in corp.fleet() {
+            assert_eq!((s.battles, s.battles_won), (1, 1));
+            assert!(s.is_veteran(), "a won engagement bloods the hull");
+        }
+    }
+
+    #[test]
+    fn veterans_pull_through_first_and_the_green_are_lost() {
+        // One hull already has a win; a brutal fight leaves only one survivor.
+        let mut corp = fleet(&["Green", "Hero"]);
+        // Blood "Hero" in an earlier all-survive fight, then reset to two hulls.
+        corp.fleet[1].record_battle(true);
+        let lost = corp.resolve_engagement(1, false);
+        assert_eq!(corp.fleet().len(), 1);
+        assert_eq!(corp.fleet()[0].name, "Hero", "the veteran pulls through");
+        assert_eq!(
+            lost,
+            vec!["Green".to_string()],
+            "the green hull is mourned by name"
+        );
+    }
+
+    #[test]
+    fn flagship_is_the_most_decorated() {
+        let mut corp = fleet(&["A", "B", "C"]);
+        corp.fleet[1].battles_won = 3;
+        corp.fleet[1].battles = 5;
+        assert_eq!(corp.flagship().unwrap().name, "B");
+    }
+
+    #[test]
+    fn age_counts_ticks_in_service() {
+        let ship = {
+            let mut rng = Pcg32::new(2);
+            OwnedShip::new(
+                "X".into(),
+                reference_loadout(ShipClass::Frigate, &mut rng),
+                100,
+            )
+        };
+        assert_eq!(ship.age(360), 260);
+        assert_eq!(ship.age(50), 0, "never negative");
     }
 }

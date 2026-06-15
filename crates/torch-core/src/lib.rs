@@ -583,6 +583,64 @@ impl TorchSim {
         self.sim.corp().fleet().len() as i64
     }
 
+    /// Name of fleet ship `i` (its christened call-sign + class, §14).
+    #[func]
+    fn ship_name(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .corp()
+                .fleet()
+                .get(i as usize)
+                .map(|s| s.name.as_str())
+                .unwrap_or(""),
+        )
+    }
+
+    /// Ticks ship `i` has been in service (its age, §11).
+    #[func]
+    fn ship_age(&self, i: i64) -> i64 {
+        let now = self.sim.tick();
+        self.sim
+            .corp()
+            .fleet()
+            .get(i as usize)
+            .map(|s| s.age(now) as i64)
+            .unwrap_or(0)
+    }
+
+    /// Engagements ship `i` has fought, and how many it won (its blooding, §13).
+    #[func]
+    fn ship_battles(&self, i: i64) -> i64 {
+        self.sim
+            .corp()
+            .fleet()
+            .get(i as usize)
+            .map(|s| s.battles as i64)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn ship_battles_won(&self, i: i64) -> i64 {
+        self.sim
+            .corp()
+            .fleet()
+            .get(i as usize)
+            .map(|s| s.battles_won as i64)
+            .unwrap_or(0)
+    }
+
+    /// The fleet's most decorated hull — the hero ship to spotlight (§14), or "".
+    #[func]
+    fn flagship_name(&self) -> GString {
+        GString::from(
+            self.sim
+                .corp()
+                .flagship()
+                .map(|s| s.name.as_str())
+                .unwrap_or(""),
+        )
+    }
+
     /// Warehouse cargo held of commodity `c`.
     #[func]
     fn cargo(&self, commodity: i64) -> i64 {
