@@ -278,6 +278,7 @@ impl Sim {
         self.corp.assign_crew(hull.crew_required);
         let name = format!("{} {:02}", hull.name, self.corp.fleet().len() + 1);
         self.corp.add_ship(OwnedShip { name, loadout });
+        self.complete_op(); // building the fleet is progress on the climb (§0)
         Ok(())
     }
 
@@ -294,6 +295,7 @@ impl Sim {
         self.corp.debit(price);
         self.corp.assign_crew(hull.crew_required);
         self.corp.add_freighter();
+        self.complete_op(); // standing up logistics is progress on the climb (§0)
         Ok(())
     }
 
@@ -344,6 +346,7 @@ impl Sim {
                 self.corp.credit(revenue);
                 rt.in_transit = false;
                 rt.carrying = 0;
+                self.complete_op(); // a delivered standing order is an op (§0/§4)
             }
         } else if rt.active && self.corp.freighters() > 0 {
             let buy = self.markets[rt.origin].price(rt.commodity);
@@ -395,6 +398,7 @@ impl Sim {
             sell_above: REFINERY_SELL_ABOVE,
             output_target: REFINERY_TARGET,
         });
+        self.complete_op(); // founding industry is progress on the climb (§0)
         Ok(())
     }
 
@@ -534,8 +538,18 @@ impl Sim {
     fn ripple_reputation(&mut self, h: &Hauler) {
         let faction = self.markets[h.origin].faction();
         self.relations.on_player_interdict(faction);
-        // Operations build the company's expertise — progression earned through
-        // play (§10), not handed out.
+        self.complete_op();
+    }
+
+    /// Record a completed player **operation** — the unit of progress on the §0
+    /// climb. Interdiction was the *only* verb that called this, so the retention
+    /// spine ignored the whole build/trade/route side of the influence model
+    /// (the gameplay-QA review's #1 finding). Now every substantive player act —
+    /// a cut, a commissioned ship/freighter, a founded station, a completed
+    /// route delivery — advances the campaign and earns the CEO/research
+    /// progress operations grant (§10, earned through play). Emits the ascent
+    /// fanfare on a tier crossing (§0.3).
+    fn complete_op(&mut self) {
         self.progression.ceo.gain_xp(OP_XP);
         self.progression.research.add_points(OP_RESEARCH_POINTS);
         if let Some(tier) = self.campaign.record_op() {
@@ -894,6 +908,37 @@ mod tests {
             sim.commission_ship(ShipClass::Battleship),
             Err(CommissionError::NotEnoughCrew)
         );
+    }
+
+    #[test]
+    fn building_and_routing_advance_the_spine_too() {
+        // The retention spine used to count only interdictions; now the build and
+        // logistics side of the influence model climbs it as well (§0). A few
+        // commissions plus a self-running route should advance past the Station
+        // with no raiding at all.
+        use crate::sim::campaign::Tier;
+        let mut sim = Sim::new(0);
+        assert_eq!(sim.campaign().tier(), Tier::Station);
+        // Two commissions are two operations on their own.
+        sim.commission_freighter().unwrap();
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        // A standing route then delivers itself toward the next rung.
+        sim.set_trade_route(5, 1, 0, 20, 1); // ReactorFuel, Earth → Ceres
+        for _ in 0..3_000 {
+            sim.step();
+            if sim.campaign().tier() != Tier::Station {
+                break;
+            }
+        }
+        assert_ne!(
+            sim.campaign().tier(),
+            Tier::Station,
+            "build + route operations should climb the spine without interdiction"
+        );
+        // ...and none of it touched reputation (no cuts were made).
+        for m in sim.markets() {
+            assert!(sim.relations().standing(m.faction()) >= 0);
+        }
     }
 
     #[test]

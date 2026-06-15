@@ -412,6 +412,17 @@ Status: [x] done, [~] in progress, [ ] todo.
   observe *campaign state* directly (poll `tier()` each tick) and keep the event
   tally only to *detect* the dropped-event discrepancy.
 
+- **2026-06-15 — QA finding #2 fixed: the spine listens to more than raiding.**
+  `record_op` was only reachable via interdiction, so the whole build/trade/route
+  side of the influence model never advanced the §0 climb. Extracted
+  `Sim::complete_op` (campaign `record_op` + CEO XP + research points + ascent
+  fanfare) and now call it from every substantive player act: a cut, a
+  commissioned ship/freighter, a founded station, and each completed standing
+  route delivery. A hands-off Logistician now climbs to Sol on routing alone;
+  pure manual teleport-trade still doesn't climb (by design — it's the degenerate
+  verb, nerfed separately). Core test `building_and_routing_advance_the_spine_too`;
+  the QA `design_review` spine finding flips Concern → Good.
+
 - **2026-06-15 — QA finding #1 fixed: player-verb events survive the step (#27).**
   `step()` opened with `self.events.clear()`, wiping anything a between-tick player
   verb (`interdict`/`interdict_with`) had pushed before the feed or the returned

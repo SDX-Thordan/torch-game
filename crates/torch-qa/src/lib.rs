@@ -60,19 +60,25 @@ mod tests {
         assert!(t.haulers_departed > 0, "no convoys ever flew");
     }
 
-    /// The raider climbs the retention spine; the pure trader cannot (the spine
-    /// only responds to interdiction — a finding the review reports).
+    /// Both the raider and the hands-off logistician climb the spine now that
+    /// building/routing count as operations; pure manual teleport-trade still
+    /// doesn't (the degenerate verb the economy PR also nerfs).
     #[test]
-    fn only_the_raider_climbs() {
+    fn raiding_and_routing_both_climb() {
         let raider = run(0, 4_000, 200, Box::new(strategy::Privateer));
         assert!(
             !raider.ascents.is_empty(),
             "the Privateer should advance a tier"
         );
+        let logistician = run(0, 4_000, 200, Box::new(strategy::Logistician));
+        assert!(
+            !logistician.ascents.is_empty(),
+            "routing/building should advance the spine without raiding"
+        );
         let trader = run(0, 4_000, 200, Box::new(strategy::Arbitrageur));
         assert!(
             trader.ascents.is_empty(),
-            "hand-trading should not move the campaign"
+            "pure hand-trading is not an operation, so it should not climb"
         );
     }
 
