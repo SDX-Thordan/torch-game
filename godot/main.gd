@@ -257,6 +257,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			status = "Contract accepted — deliver the goods before it lapses." if sim.accept_first_contract() else "No open contract to accept."
 		KEY_J:
 			status = "Contract delivered — paid and reputation lifted." if sim.fulfill_ready_contract() else "No contract you can fill from the warehouse."
+		KEY_L:
+			# Hot-reload commodity tuning (§31) from a designer-droppable override.
+			var err := sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
+			status = "Commodity data reloaded." if err == "" else "Reload failed: %s" % err
 
 
 func _do_buy() -> void:

@@ -184,6 +184,20 @@ impl TorchSim {
         )
     }
 
+    /// Hot-reload commodity numbers from a JSON tuning file at `path` (§31).
+    /// Returns an empty string on success, or a human-readable error (bad path,
+    /// invalid JSON, unknown commodity) for the shell to surface — the live sim is
+    /// left untouched on any failure. File I/O lives here in the shell binding, not
+    /// in the pure deterministic core.
+    #[func]
+    fn reload_commodity_data(&mut self, path: GString) -> GString {
+        let path = path.to_string();
+        let result = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {path}: {e}"))
+            .and_then(|json| self.sim.reload_commodities(&json));
+        GString::from(result.err().unwrap_or_default())
+    }
+
     /// Price of commodity `c` at market `m`.
     #[func]
     fn price(&self, market: i64, commodity: i64) -> i64 {

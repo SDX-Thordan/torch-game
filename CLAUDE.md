@@ -95,12 +95,13 @@ Status: [x] done, [~] in progress, [ ] todo.
   always-visible ring-gate. Player operations climb it; ascents are voiced.
 - [x] **3. Deterministic core sim** — fixed-tick `Sim`, snapshot + typed event
   contract (§29), stub deterministic orbital model + integer fixed-point trig.
-- [~] **4. Economy & industry** (data-driven) **+ headless stability test**.
+- [x] **4. Economy & industry** (data-driven) **+ headless stability test**.
   - [x] Stockpile pricing (§7a): piecewise damped target, NPC stabilizers, the
     §7c no-death-spiral gate (64 seeds × 5000 ticks). Single self-sufficient market.
   - [x] Multi-market (Ceres producer ↔ Earth consumer) with decoupled setpoints
     → standing two-way price spread.
-  - [ ] RON/JSON hot-reloadable commodity data (§31).
+  - [x] JSON hot-reloadable commodity data (§31): `data/commodities.json` tuning
+    overlay (numbers in data, set/identity in code), live `reload_commodities`.
 - [x] **5. Interdiction prototype** (§7b) — price-arbitrage haulers fly the orrery
   between markets and *damp* spreads; cutting one (`Sim::interdict`) denies the
   delivery → local shortage. Stability re-checked with traffic (32 seeds).
@@ -565,6 +566,29 @@ Status: [x] done, [~] in progress, [ ] todo.
   delivery window, accepted ones persist (you still owe it). Bound to the shell
   (K accept / J fill-from-warehouse + a deck line). `fulfill_ready_contract` is
   the one-press accept-and-deliver for a contract whose cargo is already on hand.
+
+- **2026-06-15 — Hot-reloadable commodity data (§31) — closes the §4 economy
+  block.** The last open economy sub-item: numbers in data, logic in Rust. Chose
+  a **tuning-overlay**, not a fully data-defined set — the commodity *identity*
+  (names as `&'static str`) and *order* are load-bearing (recipe indices: `RAW =
+  [0,1,2]`, industry output = input + RAW_COUNT), so they stay code-defined;
+  `data/commodities.json` supplies only the six per-commodity numbers, matched by
+  name. This sidesteps the `&'static str` ripple (no `Box::leak` on reload) and is
+  the realistic dev loop anyway (tweak prices → reload → watch). `economy`:
+  `CommodityTuning` (serde), `parse_tuning`/`apply_tuning` (partial overlay,
+  unknown-name = error for typo protection), `tuned_commodities`, and
+  `Market::retune` (swap defs on a live market, re-clamp stock/setpoints into the
+  new walls, reprice — **touches no RNG**, so a mid-run reload stays
+  deterministic). `Sim::reload_commodities(json)` parses *before* mutating, so a
+  bad file leaves markets untouched. **Sync guarantee:** `DEFAULT_COMMODITY_JSON`
+  is `include_str!`'d and `data_file_matches_compiled_defaults` asserts it
+  reproduces `default_commodities()` exactly — the file and code can't drift.
+  Bound to the shell as `reload_commodity_data(path) -> ""|error`. Default `Sim`
+  still uses compiled defaults, so the §7c gate and QA review are untouched
+  (review body byte-identical). **Dep note:** picked **JSON** (`serde`/`serde_json`,
+  already in the locked tree via gdext) over RON to avoid a new fetch; §31 says
+  "JSON/RON", so JSON satisfies it. `itoa` (serde_json dep) wasn't pre-cached, so
+  this needs a network-enabled environment for the first build.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
