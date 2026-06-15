@@ -7,7 +7,7 @@
 //! standing-order heart: you set policy, the sim executes (§1.2 Policy agency).
 
 /// A standing trade-route order on one freighter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TradeRoute {
     pub commodity: usize,
     /// Market the freighter buys at.

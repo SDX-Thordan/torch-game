@@ -198,6 +198,34 @@ impl TorchSim {
         GString::from(result.err().unwrap_or_default())
     }
 
+    /// Save the run to a JSON file at `path` (§30). Returns "" on success or a
+    /// human-readable error. File I/O lives here in the shell binding, not the core.
+    #[func]
+    fn save_game(&self, path: GString) -> GString {
+        let path = path.to_string();
+        let result = std::fs::write(&path, self.sim.save_json())
+            .map_err(|e| format!("cannot write {path}: {e}"));
+        GString::from(result.err().unwrap_or_default())
+    }
+
+    /// Load a run from a JSON save file at `path` (§30), replacing the live sim.
+    /// Returns "" on success or a human-readable error; the live sim is left
+    /// untouched on any failure (it parses + rebuilds before swapping).
+    #[func]
+    fn load_game(&mut self, path: GString) -> GString {
+        let path = path.to_string();
+        match std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {path}: {e}"))
+            .and_then(|json| sim::Sim::load_json(&json))
+        {
+            Ok(sim) => {
+                self.sim = sim;
+                GString::new()
+            }
+            Err(e) => GString::from(e),
+        }
+    }
+
     /// Price of commodity `c` at market `m`.
     #[func]
     fn price(&self, market: i64, commodity: i64) -> i64 {

@@ -190,6 +190,28 @@ impl Corp {
     pub fn flagship(&self) -> Option<&OwnedShip> {
         self.fleet.iter().max_by_key(|s| (s.battles_won, s.battles))
     }
+
+    /// Cargo held per commodity (for persistence, §30).
+    pub fn warehouse(&self) -> &[i64] {
+        &self.warehouse
+    }
+
+    /// Overwrite the whole holdings from a loaded save (§30). The fleet is rebuilt
+    /// by the caller (loadouts are reconstructed from class + crew quality).
+    pub fn restore(
+        &mut self,
+        credits: i64,
+        warehouse: Vec<i64>,
+        trained_crew: i64,
+        freighters: i64,
+        fleet: Vec<OwnedShip>,
+    ) {
+        self.credits = credits;
+        self.warehouse = warehouse;
+        self.trained_crew = trained_crew;
+        self.freighters = freighters;
+        self.fleet = fleet;
+    }
 }
 
 #[cfg(test)]

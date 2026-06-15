@@ -42,7 +42,7 @@ const BP: i32 = 10_000;
 
 /// The independent **pressure-intensity** difficulty setting (§13): scales raid
 /// cadence and gauge gains without rubber-banding the player's earned power.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Intensity {
     /// Rare raids, gentle gauges — a builder's sandbox.
     Calm,

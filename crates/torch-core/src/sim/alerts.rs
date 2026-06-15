@@ -19,7 +19,9 @@ const MAX_ALERTS: usize = 64;
 const ACT_NOW_TTL: u64 = 72;
 
 /// How loud an alert is. Ordered: `Info < Notice < Warning < Critical`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Priority {
     Info,
     Notice,

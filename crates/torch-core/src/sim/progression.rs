@@ -119,6 +119,20 @@ impl Research {
         self.unlocked.get(i).copied().unwrap_or(false)
     }
 
+    /// The unlocked-tech flags, for persistence (§30).
+    pub fn flags(&self) -> &[bool] {
+        &self.unlocked
+    }
+
+    /// Overwrite progress from a loaded save (§30): the catalog is rebuilt from
+    /// code, only the dynamic flags + points are restored (sized to the catalog).
+    pub fn restore(&mut self, unlocked: Vec<bool>, points: i64) {
+        if unlocked.len() == self.unlocked.len() {
+            self.unlocked = unlocked;
+        }
+        self.points = points.max(0);
+    }
+
     /// Whether tech `i` can be researched right now.
     pub fn can_research(&self, i: usize) -> Result<(), ResearchError> {
         let def = &self.catalog[i];
@@ -295,6 +309,18 @@ impl Blueprints {
         self.known.iter().filter(|k| **k).count()
     }
 
+    /// The known-design flags, for persistence (§30).
+    pub fn flags(&self) -> &[bool] {
+        &self.known
+    }
+
+    /// Restore known designs from a loaded save (§30), sized to the rebuilt catalog.
+    pub fn restore(&mut self, known: Vec<bool>) {
+        if known.len() == self.known.len() {
+            self.known = known;
+        }
+    }
+
     /// Reverse-engineer design `i` from a salvaged wreck (§15) — no reputation
     /// gate (you recovered it, you didn't buy it). Returns whether it was new.
     pub fn reverse_engineer(&mut self, i: usize) -> bool {
@@ -327,7 +353,7 @@ impl Blueprints {
 // ---- CEO skill track (§10) ----------------------------------------------
 
 /// The CEO's perk branch (§10): one chosen path of passive buffs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Branch {
     Industrialist,
     Trader,
@@ -378,6 +404,17 @@ impl Ceo {
     /// Earn CEO experience.
     pub fn gain_xp(&mut self, n: i64) {
         self.xp += n.max(0);
+    }
+
+    /// Raw accumulated XP, for persistence (§30).
+    pub fn xp(&self) -> i64 {
+        self.xp
+    }
+
+    /// Restore the CEO track from a loaded save (§30).
+    pub fn restore(&mut self, xp: i64, branch: Option<Branch>) {
+        self.xp = xp.max(0);
+        self.branch = branch;
     }
 
     /// Level 1 at 0 XP, rising every `XP_PER_LEVEL`.

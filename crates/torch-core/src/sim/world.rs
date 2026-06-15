@@ -166,6 +166,9 @@ pub struct Snapshot {
 
 /// The authoritative deterministic simulation.
 pub struct Sim {
+    /// The world seed (§27) — kept so a save can reconstruct the deterministic
+    /// world and ambient phase by re-simming from it (§30).
+    seed: u64,
     tick: u64,
     bodies: Vec<Body>,
     markets: Vec<Market>,
@@ -212,6 +215,7 @@ impl Sim {
         let blueprint_count = Progression::new().blueprints.catalog().len();
         let body_count = default_system().len();
         Self {
+            seed,
             tick: 0,
             bodies: default_system(),
             haulers: Vec::new(),
@@ -771,6 +775,122 @@ impl Sim {
         self.feed.set_threshold(min_priority);
     }
 
+    /// Capture the run as a deterministic [`SaveState`] (§30): seed + tick + the
+    /// mutable player/economy state. Static content (catalogs, bodies) is rebuilt
+    /// on load, so it isn't stored.
+    pub fn to_save(&self) -> super::persist::SaveState {
+        use super::persist::{MarketSave, SaveState, ShipSave, SAVE_VERSION};
+        let fleet = self
+            .corp
+            .fleet()
+            .iter()
+            .map(|s| ShipSave {
+                name: s.name.clone(),
+                class: s.loadout.hull().class,
+                commissioned_tick: s.commissioned_tick,
+                battles: s.battles,
+                battles_won: s.battles_won,
+                crew_quality: s.loadout.crew().quality,
+            })
+            .collect();
+        let markets = self
+            .markets
+            .iter()
+            .map(|m| MarketSave {
+                stocks: m.stocks().iter().map(|s| s.stock).collect(),
+                prices: m.stocks().iter().map(|s| s.price).collect(),
+            })
+            .collect();
+        SaveState {
+            version: SAVE_VERSION,
+            seed: self.seed,
+            tick: self.tick,
+            credits: self.corp.credits(),
+            warehouse: self.corp.warehouse().to_vec(),
+            trained_crew: self.corp.trained_crew(),
+            freighters: self.corp.freighters(),
+            fleet,
+            relations: self.relations.clone(),
+            campaign: self.campaign,
+            research_unlocked: self.progression.research.flags().to_vec(),
+            research_points: self.progression.research.points(),
+            blueprints_known: self.progression.blueprints.flags().to_vec(),
+            ceo_xp: self.progression.ceo.xp(),
+            ceo_branch: self.progression.ceo.branch(),
+            routes: self.routes.clone(),
+            stations: self.stations.clone(),
+            policy: self.policy,
+            intensity: self.pressure.intensity(),
+            alert_threshold: self.feed.threshold(),
+            markets,
+        }
+    }
+
+    /// Serialize the run to a JSON save document (§30).
+    pub fn save_json(&self) -> String {
+        self.to_save().to_json()
+    }
+
+    /// Rebuild a [`Sim`] from a JSON save (§30): reconstruct the seeded world,
+    /// re-sim the ambient layer up to the saved tick so its phase lines up, then
+    /// overlay the saved player + economy state. Returns a human-readable error on
+    /// a malformed or version-mismatched document.
+    pub fn load_json(json: &str) -> Result<Self, String> {
+        let save = super::persist::SaveState::from_json(json)?;
+        let mut sim = Sim::new(save.seed);
+        // Advance the ambient world (traffic, pressure, salvage, RNG phase) to the
+        // saved tick. Player automation is off in a fresh sim, so these steps add
+        // no player-driven state — the overlay below restores all of that.
+        for _ in 0..save.tick {
+            sim.step();
+        }
+        sim.apply_save(&save);
+        Ok(sim)
+    }
+
+    /// Overlay a loaded [`SaveState`] onto a sim already re-simmed to its tick.
+    fn apply_save(&mut self, s: &super::persist::SaveState) {
+        self.tick = s.tick;
+        // Rebuild each hull's loadout from its class + crew quality (§14), then
+        // restore its name and service history.
+        let fleet = s
+            .fleet
+            .iter()
+            .map(|sh| {
+                let loadout =
+                    ships::reference_loadout_quality(sh.class, sh.crew_quality, &mut self.rng);
+                let mut ship = OwnedShip::new(sh.name.clone(), loadout, sh.commissioned_tick);
+                ship.battles = sh.battles;
+                ship.battles_won = sh.battles_won;
+                ship
+            })
+            .collect();
+        self.corp.restore(
+            s.credits,
+            s.warehouse.clone(),
+            s.trained_crew,
+            s.freighters,
+            fleet,
+        );
+        self.relations = s.relations.clone();
+        self.campaign = s.campaign;
+        self.progression
+            .research
+            .restore(s.research_unlocked.clone(), s.research_points);
+        self.progression
+            .blueprints
+            .restore(s.blueprints_known.clone());
+        self.progression.ceo.restore(s.ceo_xp, s.ceo_branch);
+        self.routes = s.routes.clone();
+        self.stations = s.stations.clone();
+        self.policy = s.policy;
+        self.pressure.set_intensity(s.intensity);
+        self.feed.set_threshold(s.alert_threshold);
+        for (m, ms) in self.markets.iter_mut().zip(&s.markets) {
+            m.restore_stocks(&ms.stocks, &ms.prices);
+        }
+    }
+
     /// Advance exactly one fixed sim tick (§28) and return the events produced.
     /// The returned slice is valid until the next call to `step`.
     pub fn step(&mut self) -> &[Event] {
@@ -1134,6 +1254,60 @@ impl Sim {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::pressure::Intensity;
+    use crate::sim::ships::ShipClass;
+
+    #[test]
+    fn a_run_round_trips_through_a_json_save() {
+        // Play a varied run — trade, build, route, research, tune difficulty — so
+        // every persisted facet is exercised (§30).
+        let mut a = Sim::new(7);
+        for _ in 0..40 {
+            a.step();
+        }
+        let _ = a.buy(1, 5, 30); // hold some cargo
+        let _ = a.commission_freighter();
+        a.set_trade_route(5, 1, 0, 20, 10);
+        let _ = a.found_refinery(0, 1, 0);
+        let _ = a.commission_ship(ShipClass::Frigate);
+        a.set_intensity(Intensity::Harsh);
+        a.set_alert_threshold(Priority::Warning);
+        a.progression_mut().research.add_points(120);
+        a.progression_mut().ceo.gain_xp(300);
+        for _ in 0..60 {
+            a.step();
+        }
+
+        let json = a.save_json();
+        let b = Sim::load_json(&json).expect("a valid save reloads");
+
+        // The whole persisted state round-trips bit-for-bit (the SaveState is the
+        // complete contract): treasury, warehouse, fleet identity + history,
+        // standings, campaign, progression, standing orders, policy, difficulty,
+        // and every market's stock/price.
+        assert_eq!(a.to_save(), b.to_save());
+        assert_eq!(a.tick(), b.tick());
+        // Spot-check a few live readers agree, not just the snapshot.
+        assert_eq!(a.corp().credits(), b.corp().credits());
+        assert_eq!(a.corp().fleet().len(), b.corp().fleet().len());
+        assert_eq!(
+            a.campaign().gate_progress_bp(),
+            b.campaign().gate_progress_bp()
+        );
+        assert_eq!(
+            a.markets()[0].stocks()[5].price,
+            b.markets()[0].stocks()[5].price
+        );
+    }
+
+    #[test]
+    fn a_bad_save_is_rejected_cleanly() {
+        assert!(Sim::load_json("not json").is_err());
+        // A future version is refused rather than misread.
+        let mut s = Sim::new(1).to_save();
+        s.version = 999;
+        assert!(Sim::load_json(&s.to_json()).is_err());
+    }
 
     #[test]
     fn step_advances_tick_and_emits_event() {

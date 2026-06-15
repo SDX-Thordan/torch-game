@@ -69,7 +69,7 @@ pub fn weapon(kind: WeaponKind) -> WeaponDef {
 }
 
 /// Ship classes (§8b military, §8d Q-ship, §8e civilian).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ShipClass {
     Frigate,
     Destroyer,
