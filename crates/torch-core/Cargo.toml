@@ -11,3 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 godot = "0.2"
+# Numbers-as-data (§31): commodity tuning is loaded from JSON. serde/serde_json
+# are already in the locked tree (transitive via gdext), so this adds no fetch.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -254,6 +254,19 @@ impl Sim {
         &self.markets
     }
 
+    /// Hot-reload commodity numbers from a JSON tuning document (§31): re-tune
+    /// every live market in place, keeping stock/setpoints and touching no RNG, so
+    /// a designer can retune prices mid-run without breaking determinism. Returns a
+    /// human-readable error (bad JSON, unknown commodity) and leaves markets
+    /// untouched if parsing fails (it parses before mutating anything).
+    pub fn reload_commodities(&mut self, json: &str) -> Result<(), String> {
+        let defs = super::economy::tuned_commodities(json)?;
+        for m in &mut self.markets {
+            m.retune(&defs)?;
+        }
+        Ok(())
+    }
+
     /// The haulers currently in flight (§7b).
     pub fn haulers(&self) -> &[Hauler] {
         &self.haulers
