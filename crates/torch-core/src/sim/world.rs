@@ -27,6 +27,17 @@ const SHIP_PRICE_PER_MASS: i64 = 5;
 const OP_XP: i64 = 200;
 /// Research points earned per completed player operation.
 const OP_RESEARCH_POINTS: i64 = 40;
+/// Basis-point denominator for the brokerage fee.
+const FEE_DEN: i64 = 10_000;
+/// Treasury a company can hold before operating overhead bites (§5 sink): the
+/// starting float plus headroom for a capital purchase, so early/mid play is
+/// untaxed and only runaway hoarding is throttled.
+const UPKEEP_FREE_FLOAT: i64 = 100_000;
+/// Per-tick fraction of the *taxable* treasury skimmed as overhead. Together
+/// with the free float this gives a wealth-scaled sink (overhead grows with the
+/// enterprise you run), so income strategies settle at a sustainable equilibrium
+/// instead of compounding without bound (gameplay-QA economy finding).
+const UPKEEP_DEN: i64 = 150;
 /// Credits to found a production station (§3.1).
 const STATION_COST: i64 = 8_000;
 /// Cap on player stations (Tier-1 scope).
@@ -143,6 +154,12 @@ pub struct Sim {
 }
 
 impl Sim {
+    /// Brokerage fee on instant market orders, in basis points (§5 sink). Tuned
+    /// so hand-trading thin spreads loses money — only a fat spread clears it,
+    /// which makes the trade a decision and keeps the transit-paying standing
+    /// route competitive.
+    pub const TRADE_FEE_BP: i64 = 300;
+
     /// Create a sim seeded for determinism (§27). Same seed ⇒ same run.
     pub fn new(seed: u64) -> Self {
         let markets = default_markets();
@@ -225,28 +242,53 @@ impl Sim {
         &self.corp
     }
 
-    /// Buy `qty` of commodity `c` at market `m` (§5): debits credits at the
-    /// current price, lifts the goods into the warehouse, and nudges the price up.
+    /// Skim operating overhead off the treasury each tick (§5 sink). Overhead is
+    /// a fraction of holdings *above* a free float, so it bites only runaway
+    /// hoarding — the wealth-scaled sink that turns every income strategy into a
+    /// sustainable equilibrium rather than an unbounded faucet.
+    fn charge_upkeep(&mut self) {
+        let taxable = self.corp.credits() - UPKEEP_FREE_FLOAT;
+        if taxable > 0 {
+            let upkeep = taxable / UPKEEP_DEN;
+            if upkeep > 0 {
+                self.corp.debit(upkeep);
+            }
+        }
+    }
+
+    /// Brokerage fee on a `value`-credit instant market order (§5). This is the
+    /// cost of *immediate* liquidity the standing route (which pays transit
+    /// instead) doesn't incur — so hand-trading is a real decision against the
+    /// fee, not a riskless faucet (gameplay-QA economy finding).
+    fn trade_fee(value: i64) -> i64 {
+        value * Self::TRADE_FEE_BP / FEE_DEN
+    }
+
+    /// Buy `qty` of commodity `c` at market `m` (§5): debits the goods cost plus
+    /// the brokerage fee, lifts the goods into the warehouse, and nudges the
+    /// price up. Returns the total credits spent (cost + fee).
     pub fn buy(&mut self, m: usize, c: usize, qty: i64) -> Result<i64, TradeError> {
         if qty <= 0 {
             return Ok(0);
         }
         let price = self.markets[m].price(c);
         let cost = price * qty;
+        let total = cost + Self::trade_fee(cost);
         if self.markets[m].stock(c) < qty {
             return Err(TradeError::InsufficientStock);
         }
-        if self.corp.credits() < cost {
+        if self.corp.credits() < total {
             return Err(TradeError::InsufficientCredits);
         }
         self.markets[m].remove_stock(c, qty);
-        self.corp.debit(cost);
+        self.corp.debit(total);
         self.corp.store(c, qty);
-        Ok(cost)
+        Ok(total)
     }
 
     /// Sell `qty` of commodity `c` into market `m` (§5): lands warehouse cargo at
-    /// the current price for credits, nudging the price down.
+    /// the current price less the brokerage fee, nudging the price down. Returns
+    /// the net credits received (revenue − fee).
     pub fn sell(&mut self, m: usize, c: usize, qty: i64) -> Result<i64, TradeError> {
         if qty <= 0 {
             return Ok(0);
@@ -256,10 +298,11 @@ impl Sim {
         }
         let price = self.markets[m].price(c);
         let revenue = price * qty;
+        let net = revenue - Self::trade_fee(revenue);
         self.corp.unstore(c, qty);
         self.markets[m].add_stock(c, qty);
-        self.corp.credit(revenue);
-        Ok(revenue)
+        self.corp.credit(net);
+        Ok(net)
     }
 
     /// Commission a warship of `class` into the fleet (§5/§8c): pays its build
@@ -494,6 +537,7 @@ impl Sim {
         self.run_automation();
         self.run_logistics();
         self.run_industry();
+        self.charge_upkeep();
         self.events.push(Event::Tick { tick: self.tick });
         // The alert feed (§19) consumes everything surfacing this tick (§29):
         // the carried-over player events plus this tick's own.
@@ -893,6 +937,47 @@ mod tests {
         assert_eq!(sim.buy(0, 0, 1_000_000), Err(TradeError::InsufficientStock));
         // Affordable stock-wise, but beyond the treasury (200 dear ReactorFuel).
         assert_eq!(sim.buy(0, 5, 200), Err(TradeError::InsufficientCredits));
+    }
+
+    #[test]
+    fn instant_trades_pay_a_brokerage_fee() {
+        // Buying and selling the same lot at one market (no spread) must lose
+        // money to the fee — instant liquidity is not free (§5 sink). The fee is
+        // what makes hand-trading a decision instead of a riskless skim.
+        let mut sim = Sim::new(0);
+        let (m, c) = (0usize, 5usize);
+        let start = sim.corp().credits();
+        let spent = sim.buy(m, c, 10).unwrap();
+        let got = sim.sell(m, c, 10).unwrap();
+        assert!(
+            got < spent,
+            "a flat round-trip should lose the fee, got {got} vs {spent}"
+        );
+        assert!(sim.corp().credits() < start, "the fee leaves the treasury");
+    }
+
+    #[test]
+    fn overhead_caps_runaway_hoarding() {
+        // Operating overhead is a wealth-scaled sink: a treasury far above the
+        // free float is skimmed each tick, so hoards can't compound without
+        // bound. A small float below the threshold is left untouched.
+        let mut sim = Sim::new(0);
+        sim.corp.credit(900_000); // well above the free float (private field, test-only)
+        let rich = sim.corp().credits();
+        sim.step();
+        assert!(
+            sim.corp().credits() < rich,
+            "overhead should skim a large treasury"
+        );
+        // A company at the float is not taxed (early/mid play stays clean).
+        let mut lean = Sim::new(0);
+        let base = lean.corp().credits();
+        lean.step();
+        assert_eq!(
+            lean.corp().credits(),
+            base,
+            "a treasury at the free float pays no overhead"
+        );
     }
 
     #[test]

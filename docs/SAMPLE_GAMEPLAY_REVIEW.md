@@ -32,7 +32,7 @@ _Hand-trades the spread every tick — does the economy stay a decision, or beco
 
 | metric | value |
 | --- | --- |
-| treasury | 50000 → 4923240 cr (+4873240, ~98×) |
+| treasury | 50000 → 242226 cr (+192226, ~4×) |
 | actions | 4000 over 100% of ticks |
 | campaign | The Station · gate 0% · 0 ascent(s) |
 | gate reached | — |
@@ -45,7 +45,7 @@ _Hand-trades the spread every tick — does the economy stay a decision, or beco
 **Findings:**
 
 - **[NOTE]** _Pacing_ — Never advanced the campaign. The retention spine only counts player interdictions as operations, so this play style cannot climb toward the gate at all.
-- **[CONCERN]** _Economy_ — Treasury ran away: 50000 → 4923240 cr (~98×) with no wealth-scaled sink. Repeated arbitrage compounds without bound, so trading stops being a decision and becomes a faucet.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 242226 cr (+192226, ~4×).
 - **[INFO]** _Agency_ — Issued 4000 actions across 100% of ticks.
 - **[NOTE]** _Alert feed_ — 47 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 
@@ -55,7 +55,7 @@ _Sets one standing trade route, then leaves — does the policy→execute→exce
 
 | metric | value |
 | --- | --- |
-| treasury | 37000 → 120280 cr (+83280, ~3×) |
+| treasury | 37000 → 104030 cr (+67030, ~2×) |
 | actions | 0 over 0% of ticks |
 | campaign | Sol & the Cold War · gate 66% · 2 ascent(s) |
 | gate reached | — |
@@ -70,7 +70,7 @@ _Sets one standing trade route, then leaves — does the policy→execute→exce
 **Findings:**
 
 - **[INFO]** _Pacing_ — Climbed to Sol & the Cold War (2 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 37000 → 120280 cr (+83280, ~3×).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 37000 → 104030 cr (+67030, ~2×).
 - **[GOOD]** _Watchability_ — Hands fully off, the world stayed alive: 166 convoys flew, 52 cut on the lanes, 52 shortages voiced. There is something to watch before there is something to do.
 - **[NOTE]** _Alert feed_ — 52 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[INFO]** _Fleet_ — Fielded 0 warship(s) and 1 freighter(s); trained-crew pool at 52 (the §8c bottleneck that caps capital ships).
@@ -108,7 +108,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 | metric | value |
 | --- | --- |
-| treasury | 33000 → 4679885 cr (+4646885, ~141×) |
+| treasury | 33000 → 246033 cr (+213033, ~7×) |
 | actions | 4083 over 100% of ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 1393 (~58 days) |
@@ -123,7 +123,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1393 (~58 days).
-- **[CONCERN]** _Economy_ — Treasury ran away: 33000 → 4679885 cr (~141×) with no wealth-scaled sink. Repeated arbitrage compounds without bound, so trading stops being a decision and becomes a faucet.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 246033 cr (+213033, ~7×).
 - **[INFO]** _Agency_ — Issued 4083 actions across 100% of ticks.
 - **[NOTE]** _Alert feed_ — 132 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[CONCERN]** _Reputation_ — Raiding drove Earth to Hostile (-980) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
@@ -137,6 +137,6 @@ What the comparison of play styles reveals about the design as it stands:
 
 - **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
 - **[CONCERN]** _Combat_ — The combat resolver (sim::combat) has no trigger in the live Sim loop — there is no fleet-engagement verb on Sim, so no playthrough can reach it. Ships are commissioned but never fight; combat is only exercised by the shipyard's demo_duel. The §7/§9 depth is currently dark for the player.
-- **[NOTE]** _Economy_ — Manual buy/sell is instant and riskless, while only the routed trade pays transit time. Over the same run the hand-trading Arbitrageur banked 4923240 cr vs the standing Logistician's 120280 cr — hand-trading strictly dominates the standing order it should be motivating (§4 vs §5).
-- **[CONCERN]** _Economy_ — No wealth-scaled credit sink: the Arbitrageur compounded ~98× on one repeated press. Arbitrage needs diminishing returns (deeper price impact) or a sink (upkeep, taxes, build costs that scale) to stay a decision.
+- **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (242226 cr by hand vs 104030 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
+- **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~4× (≈242226 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
 - **[NOTE]** _Logistics_ — Only one standing trade route exists at a time (Sim::route is a single Option). A 'spreadsheet sim in space' wants a *table* of routes and presets, each with its own params and exception line.

@@ -412,6 +412,21 @@ Status: [x] done, [~] in progress, [ ] todo.
   observe *campaign state* directly (poll `tier()` each tick) and keep the event
   tally only to *detect* the dropped-event discrepancy.
 
+- **2026-06-15 — QA finding #3 fixed: instant trade has a cost + a wealth sink.**
+  Manual buy/sell was instant, riskless, and free, so it was a constant faucet
+  that dominated the transit-paying route. Two §5 sinks: (1) a **brokerage fee**
+  (`Sim::TRADE_FEE_BP`, 3%/leg) prices the instant verb's liquidity — sub-fee
+  spreads now lose money, so hand-trading is a decision (the QA Arbitrageur skips
+  them); the standing route avoids the fee (it pays transit instead). (2) a
+  **wealth-scaled overhead** (`charge_upkeep`: a fraction of treasury above a
+  100k free float, skimmed each tick) caps runaway hoarding — every income
+  strategy now settles at a sustainable equilibrium (~245k for the high-income
+  styles) instead of compounding. The free float keeps early/mid play and the
+  route/refinery profit tests untaxed. Combined with #28 (routing climbs the
+  spine), hand-trading and routing are now complementary, not strictly ordered.
+  Core tests `instant_trades_pay_a_brokerage_fee`, `overhead_caps_runaway_hoarding`;
+  both economy `design_review` findings flip to Good.
+
 - **2026-06-15 — QA finding #2 fixed: the spine listens to more than raiding.**
   `record_op` was only reachable via interdiction, so the whole build/trade/route
   side of the influence model never advanced the §0 climb. Extracted

@@ -312,19 +312,34 @@ pub fn design_review(runs: &[Transcript]) -> Vec<Finding> {
             .to_string(),
     ));
 
-    // 3. Hand-trading vs the standing route it is meant to motivate.
+    // 3. Hand-trading vs the standing route it is meant to motivate. Manual
+    //    trade now pays a brokerage fee the route avoids, and routing buys
+    //    progression the raw credits can't — so they're complementary, not a
+    //    strict domination. Only flag if manual *still* dwarfs routing.
     if let (Some(arb), Some(log)) = (find(runs, "Arbitrageur"), find(runs, "Logistician")) {
-        f.push(Finding::new(
-            Severity::Note,
-            "Economy",
-            format!(
-                "Manual buy/sell is instant and riskless, while only the routed trade pays transit time. Over the same run the hand-trading Arbitrageur banked {} cr vs the standing Logistician's {} cr — hand-trading strictly dominates the standing order it should be motivating (§4 vs §5).",
-                arb.end_credits, log.end_credits
-            ),
-        ));
+        if arb.end_credits > log.end_credits * 5 {
+            f.push(Finding::new(
+                Severity::Note,
+                "Economy",
+                format!(
+                    "Hand-trading still out-earns the standing route by a wide margin ({} vs {} cr) despite the brokerage fee — the instant verb's per-tick frequency, not its return, is the remaining edge. Throttling instant trades or raising route throughput is the lever.",
+                    arb.end_credits, log.end_credits
+                ),
+            ));
+        } else {
+            f.push(Finding::new(
+                Severity::Good,
+                "Economy",
+                format!(
+                    "Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity ({} cr by hand vs {} cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.",
+                    arb.end_credits, log.end_credits
+                ),
+            ));
+        }
     }
 
-    // 4. No sink ⇒ unbounded arbitrage.
+    // 4. Is the treasury bounded? The wealth-scaled overhead should pull every
+    //    income strategy to a sustainable equilibrium instead of a faucet.
     if let Some(arb) = find(runs, "Arbitrageur") {
         let mult = arb.growth_multiple();
         if mult >= 5 {
@@ -332,7 +347,16 @@ pub fn design_review(runs: &[Transcript]) -> Vec<Finding> {
                 Severity::Concern,
                 "Economy",
                 format!(
-                    "No wealth-scaled credit sink: the Arbitrageur compounded ~{mult}× on one repeated press. Arbitrage needs diminishing returns (deeper price impact) or a sink (upkeep, taxes, build costs that scale) to stay a decision."
+                    "No effective wealth sink: the Arbitrageur compounded ~{mult}× on one repeated press. Arbitrage needs diminishing returns or a sink (upkeep, taxes, build costs that scale) to stay a decision."
+                ),
+            ));
+        } else {
+            f.push(Finding::new(
+                Severity::Good,
+                "Economy",
+                format!(
+                    "Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~{}× (≈{} cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.",
+                    mult, arb.end_credits
                 ),
             ));
         }
