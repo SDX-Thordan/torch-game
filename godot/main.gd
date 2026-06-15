@@ -21,6 +21,7 @@ const QTY_MAX := 500
 var sim: TorchSim
 var speed_idx := 1
 var accum := 0.0
+var auto_pause := true                   # pause when an act-now alert fires (§28)
 var selected := 0                       # index of the selected in-flight hauler
 
 # The trade cursor — granular control over what/where/how much you deal (§5).
@@ -65,6 +66,14 @@ func _process(delta: float) -> void:
 		while accum >= 1.0:
 			sim.step()
 			accum -= 1.0
+			# Auto-pause on an exception (§28/§0.4): fast-forward dead time, but
+			# stop the instant an act-now shortage fires so you never idle through
+			# nothing — then press [E] to exploit it and resume.
+			if auto_pause and sim.just_alerted():
+				speed_idx = 0
+				accum = 0.0
+				status = "Auto-paused — act-now shortage. [E] exploit, then resume."
+				break
 	_refresh()
 	queue_redraw()
 
@@ -127,9 +136,10 @@ func _refresh() -> void:
 		sim.ceo_level(), branch_str, sim.research_unlocked_count(),
 		sim.research_drive_bonus(), sim.research_points()
 	])
-	deck.append("patrol: %s (%s)    auto-research: %s    alerts ≥ %s" % [
+	deck.append("patrol: %s (%s)    auto-research: %s    alerts ≥ %s    auto-pause: %s" % [
 		"ON" if sim.patrol_enabled() else "off", sim.patrol_target_name(),
-		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()]
+		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()],
+		"ON" if auto_pause else "off"
 	])
 	deck.append("freighters %d    route: %s" % [sim.freighters(), sim.route_status()])
 	var stations := "stations %d" % sim.station_count()
@@ -144,7 +154,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause"
 
 
 func _draw() -> void:
@@ -197,6 +207,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_do_interdict()
 		KEY_E:
 			status = "Exploited the shortage — sourced cheap, sold into the spike." if sim.answer_shortage() else "No open shortage to exploit."
+		KEY_Y:
+			auto_pause = not auto_pause
+			status = "Auto-pause %s." % ("on" if auto_pause else "off")
 		KEY_N:
 			status = "Frigate commissioned." if sim.commission_ship(0) else "Can't build: short on crew or credits."
 		KEY_P:

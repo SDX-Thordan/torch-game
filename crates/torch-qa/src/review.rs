@@ -166,20 +166,36 @@ fn review_economy(t: &Transcript, active: bool, f: &mut Vec<Finding>) {
 fn review_agency(t: &Transcript, active: bool, f: &mut Vec<Finding>) {
     if active {
         let density = t.action_density_pct();
-        if density < 5 {
-            f.push(Finding::new(
-                Severity::Note,
-                "Agency",
-                format!(
-                    "Acted on only {density}% of ticks ({} actions) — long stretches with nothing to press. Real-time-with-pause needs either denser decisions or faster time-compression here.",
-                    t.actions
-                ),
-            ));
-        } else {
+        // Low action density is only a pacing problem if the dead time isn't
+        // fast-forwardable — i.e. there are long stretches with *nothing pending*.
+        // With frequent exceptions + time-compression + auto-pause-on-exception
+        // (§28), the player compresses the quiet and is only stopped when an
+        // act-now alert fires, so a low density with a short idle run is fine.
+        let idle = t.longest_idle_run;
+        if density >= 5 {
             f.push(Finding::new(
                 Severity::Info,
                 "Agency",
                 format!("Issued {} actions across {density}% of ticks.", t.actions),
+            ));
+        } else if idle <= 120 {
+            f.push(Finding::new(
+                Severity::Good,
+                "Agency",
+                format!(
+                    "Acted on {density}% of ticks ({} actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was {idle} ticks (~{} days). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.",
+                    t.actions,
+                    idle / 24
+                ),
+            ));
+        } else {
+            f.push(Finding::new(
+                Severity::Note,
+                "Agency",
+                format!(
+                    "Acted on only {density}% of ticks ({} actions), and the longest dead stretch with nothing pending ran {idle} ticks — the world needs denser exceptions there, not just faster time-compression (§36).",
+                    t.actions
+                ),
             ));
         }
     } else if t.haulers_departed > 0 && t.act_now_raised > 0 {
@@ -454,6 +470,11 @@ fn render_persona(out: &mut String, t: &Transcript) {
         "| actions | {} over {}% of ticks |",
         t.actions,
         t.action_density_pct()
+    );
+    let _ = writeln!(
+        out,
+        "| pacing | {} ticks pending · longest idle {} ticks |",
+        t.busy_ticks, t.longest_idle_run
     );
     let _ = writeln!(
         out,

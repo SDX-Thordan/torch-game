@@ -93,6 +93,11 @@ pub struct Transcript {
     pub scarcities: u64,
     /// Act-now (shortage) alerts raised — every scarcity the *feed* saw (§19).
     pub act_now_raised: u64,
+    /// Ticks with an open act-now alert pending — attention is demanded (§19).
+    pub busy_ticks: u64,
+    /// Longest run of ticks with nothing pending and no action — the dead time a
+    /// player fast-forwards (time-compression + auto-pause-on-exception, §28).
+    pub longest_idle_run: u64,
     /// `(tick, new tier name)` for each ascent, observed from campaign state so
     /// it's robust to player-verb events being dropped (see below).
     pub ascents: Vec<(u64, &'static str)>,
@@ -131,6 +136,8 @@ impl Transcript {
             haulers_interdicted: 0,
             scarcities: 0,
             act_now_raised: 0,
+            busy_ticks: 0,
+            longest_idle_run: 0,
             ascents: Vec::new(),
             first_tier_up: None,
             gate_reached: None,
@@ -228,6 +235,7 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
     t.max_credits = t.start_credits;
 
     let mut last_events: Vec<Event> = Vec::new();
+    let mut idle_run = 0u64;
     for _ in 0..ticks {
         let actions = strat.act(&mut sim, &last_events);
         t.actions += actions as u64;
@@ -236,6 +244,20 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
         }
 
         last_events = sim.step().to_vec();
+
+        // Is anything demanding attention this tick? A pending act-now alert means
+        // a player would be stopped here; otherwise it's fast-forwardable dead time.
+        let pending = sim.feed().surfaced().iter().any(|a| a.is_act_now());
+        if pending {
+            t.busy_ticks += 1;
+        }
+        if actions == 0 && !pending {
+            idle_run += 1;
+            t.longest_idle_run = t.longest_idle_run.max(idle_run);
+        } else {
+            idle_run = 0;
+        }
+
         for e in &last_events {
             match e {
                 Event::HaulerDeparted { .. } => t.haulers_departed += 1,
