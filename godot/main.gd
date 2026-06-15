@@ -132,6 +132,10 @@ func _refresh() -> void:
 		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()]
 	])
 	deck.append("freighters %d    route: %s" % [sim.freighters(), sim.route_status()])
+	var stations := "stations %d" % sim.station_count()
+	if sim.station_count() > 0:
+		stations += "    " + sim.station_desc(0)
+	deck.append(stations)
 	_deck.text = "\n".join(deck)
 
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
@@ -140,7 +144,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict  [N]ew ship  [F]reighter [D]route [G]clear\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
 
 
 func _draw() -> void:
@@ -224,6 +228,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_G:
 			sim.clear_trade_route()
 			status = "Trade route cleared."
+		KEY_M:
+			# Found a refinery for the selected raw commodity at the selected market.
+			if sim.found_refinery(sel_comm, sel_market, sel_market):
+				status = "Refinery founded: %s → refined @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
+			else:
+				status = "Can't found refinery — pick a RAW commodity, or short on capital/slots."
 
 
 func _do_buy() -> void:

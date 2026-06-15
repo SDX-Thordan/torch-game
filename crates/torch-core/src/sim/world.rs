@@ -12,6 +12,7 @@ use super::corp::{Corp, OwnedShip};
 use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::faction::Relations;
+use super::industry::Station;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::logistics::TradeRoute;
 use super::orbit::{default_system, Body};
@@ -26,6 +27,16 @@ const SHIP_PRICE_PER_MASS: i64 = 5;
 const OP_XP: i64 = 200;
 /// Research points earned per completed player operation.
 const OP_RESEARCH_POINTS: i64 = 40;
+/// Credits to found a production station (§3.1).
+const STATION_COST: i64 = 8_000;
+/// Cap on player stations (Tier-1 scope).
+const MAX_STATIONS: usize = 4;
+/// A refinery's per-tick throughput, sell-surplus floor, and production ceiling.
+const REFINERY_RATE: i64 = 5;
+const REFINERY_SELL_ABOVE: i64 = 80;
+const REFINERY_TARGET: i64 = 160;
+/// Number of raw commodities (raw `i` refines to refined `i + RAW_COUNT`).
+const RAW_COUNT: usize = 3;
 
 /// Why a market order could not be filled (§5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +51,14 @@ pub enum TradeError {
 pub enum CommissionError {
     CantAfford,
     NotEnoughCrew,
+}
+
+/// Why a station could not be founded (§3.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoundError {
+    CantAfford,
+    NotARawCommodity,
+    TooManyStations,
 }
 
 /// Ticks between hauler spawn attempts (≈ one per day at 1 tick/hour).
@@ -113,6 +132,7 @@ pub struct Sim {
     campaign: Campaign,
     corp: Corp,
     route: Option<TradeRoute>,
+    stations: Vec<Station>,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -147,6 +167,7 @@ impl Sim {
             campaign: Campaign::new(),
             corp: Corp::new(commodity_count),
             route: None,
+            stations: Vec::new(),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -334,6 +355,78 @@ impl Sim {
         self.route = Some(rt);
     }
 
+    /// The player's production stations (§3.1).
+    pub fn stations(&self) -> &[Station] {
+        &self.stations
+    }
+
+    /// Found a refinery that turns a raw commodity into its refined product:
+    /// source `raw` at `buy_market`, refine, and auto-sell the surplus at
+    /// `sell_market` (§3.1 Produce + sell-surplus). Costs capital.
+    pub fn found_refinery(
+        &mut self,
+        raw: usize,
+        buy_market: usize,
+        sell_market: usize,
+    ) -> Result<(), FoundError> {
+        if raw >= RAW_COUNT {
+            return Err(FoundError::NotARawCommodity);
+        }
+        if self.stations.len() >= MAX_STATIONS {
+            return Err(FoundError::TooManyStations);
+        }
+        if self.corp.credits() < STATION_COST {
+            return Err(FoundError::CantAfford);
+        }
+        self.corp.debit(STATION_COST);
+        self.stations.push(Station {
+            body: self.markets[buy_market].body(),
+            input: raw,
+            output: raw + RAW_COUNT,
+            rate: REFINERY_RATE,
+            buy_market,
+            sell_market,
+            sell_above: REFINERY_SELL_ABOVE,
+            output_target: REFINERY_TARGET,
+        });
+        Ok(())
+    }
+
+    /// Run every station's Produce standing order this tick (§3.1/§4): source
+    /// input from a market, transform raw → refined, and dump the surplus output
+    /// for credits. Hands-off; the player only set the recipe.
+    fn run_industry(&mut self) {
+        for i in 0..self.stations.len() {
+            let st = self.stations[i];
+            let producing = self.corp.cargo(st.output) < st.output_target;
+            // Source the input recipe from its market when short.
+            if producing && self.corp.cargo(st.input) < st.rate {
+                let price = self.markets[st.buy_market].price(st.input);
+                let cost = price * st.rate;
+                if self.markets[st.buy_market].stock(st.input) > st.rate
+                    && self.corp.credits() >= cost
+                {
+                    self.markets[st.buy_market].remove_stock(st.input, st.rate);
+                    self.corp.debit(cost);
+                    self.corp.store(st.input, st.rate);
+                }
+            }
+            // Transform input → output (the value-add).
+            if producing && self.corp.cargo(st.input) >= st.rate {
+                self.corp.unstore(st.input, st.rate);
+                self.corp.store(st.output, st.rate);
+            }
+            // Sell-surplus rule: dump output held above the threshold.
+            let surplus = self.corp.cargo(st.output) - st.sell_above;
+            if surplus > 0 {
+                let price = self.markets[st.sell_market].price(st.output);
+                self.corp.unstore(st.output, surplus);
+                self.markets[st.sell_market].add_stock(st.output, surplus);
+                self.corp.credit(price * surplus);
+            }
+        }
+    }
+
     /// Standings, mutable — for diplomacy/contracts that move reputation (§10).
     pub fn relations_mut(&mut self) -> &mut Relations {
         &mut self.relations
@@ -386,6 +479,7 @@ impl Sim {
         self.pirate_raid();
         self.run_automation();
         self.run_logistics();
+        self.run_industry();
         self.events.push(Event::Tick { tick: self.tick });
         // The alert feed (§19) consumes this tick's events (§29).
         let tick = self.tick;
@@ -731,6 +825,44 @@ mod tests {
         assert_eq!(
             sim.commission_ship(ShipClass::Battleship),
             Err(CommissionError::NotEnoughCrew)
+        );
+    }
+
+    #[test]
+    fn a_refinery_runs_the_value_add_chain_for_profit() {
+        // Found a refinery (Ore → Metals): it sources cheap raw, refines it into a
+        // dearer good, and auto-sells the surplus — hands-off (§3.1, Example A).
+        let mut sim = Sim::new(0);
+        let before = sim.corp().credits();
+        sim.found_refinery(1, 0, 0).unwrap(); // Ore, buy+sell at Ceres
+        assert_eq!(sim.stations().len(), 1);
+        assert!(sim.corp().credits() < before, "founding costs capital");
+        let after_found = sim.corp().credits();
+        for _ in 0..1_500 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().credits() > after_found,
+            "the refinery should net profit"
+        );
+    }
+
+    #[test]
+    fn refineries_are_guarded() {
+        let mut sim = Sim::new(0);
+        // A refined commodity is not a valid input recipe.
+        assert_eq!(
+            sim.found_refinery(5, 0, 0),
+            Err(FoundError::NotARawCommodity)
+        );
+        // The Tier-1 station cap.
+        for raw in [0, 1, 2, 0] {
+            sim.found_refinery(raw, 0, 0).unwrap();
+        }
+        assert_eq!(sim.stations().len(), 4);
+        assert_eq!(
+            sim.found_refinery(1, 0, 0),
+            Err(FoundError::TooManyStations)
         );
     }
 
