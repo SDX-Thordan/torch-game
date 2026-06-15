@@ -1,29 +1,31 @@
-extends Node2D
+extends Node3D
 
 ## TORCH — the playable shell (§18–§21). A real-time-with-pause game loop over the
-## deterministic Rust core: the orrery owns the screen, panels read the snapshot,
-## the alert feed carries the voice, and the player presses the verbs (§0.4).
+## deterministic Rust core, now with a **3D orrery**: lit bodies orbit the sun on
+## the ecliptic, haulers run the lanes between them, and an always-visible ring
+## marks the gate (§0.1). The HUD (panels + alert feed + the voice) rides on a 2D
+## CanvasLayer over the 3D world; the player presses the verbs (§0.4).
 ##
-## All game logic lives in the Rust `sim`; this scene only drives `step()` on a
-## clock, renders the snapshot, and turns input into sim verbs.
+## All game logic lives in the Rust `sim`; this scene drives `step()` on a clock,
+## mirrors the snapshot into 3D nodes, and turns input into sim verbs.
 
 const TICKS_PER_SECOND := 6.0           # sim ticks per real second at 1× (§28)
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]   # pause / 1× / 6× / 24× (§6)
-const ORRERY_CENTRE := Vector2(910, 360)
-const ORRERY_RADIUS := 300.0            # px for the outermost body
 const THRESHOLD_NAMES := ["info", "notice", "warning", "critical"]
 const BRANCH_NAMES := ["Industrialist", "Trader", "Warlord", "Diplomat"]
 const INTENSITY_NAMES := ["Calm", "Normal", "Harsh"]   # §13 pressure difficulty
-const AU := 1_000_000.0
-const MAX_AU := 2.9                     # Ceres orbit, for scaling
 const QTY_STEP := 5
 const QTY_MAX := 500
 const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (§30)
 
-# Panel backdrops for legibility over the orrery (§20 console chrome). Each is a
-# rect drawn behind the corresponding Label so text never fights the starfield.
-const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)
-const PANEL_EDGE := Color(0.20, 0.45, 0.55, 0.55)
+# 3D orrery framing (§21). Sim distances are in ~10^6 units; scale to a few dozen
+# world units and look down at an angle so the ecliptic reads as a plane.
+const SCALE3D := 1.0 / 320000.0         # sim units → world units (Ceres ≈ 9 units)
+const CAM_POS := Vector3(0, 16, 13)
+const SPACE_BG := Color(0.02, 0.03, 0.06)
+const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)   # left info-column backdrop (§20)
+const HAULER_COL := Color(0.95, 0.7, 0.35)
+const SELECT_COL := Color(1.0, 0.4, 0.2)
 
 var sim: TorchSim
 var speed_idx := 1
@@ -42,32 +44,208 @@ var ceo_pick := 2                       # CEO branch under consideration (Warlor
 
 var status := "Welcome, CEO."
 
+# HUD (2D overlay).
 var _top: Label
 var _assets: Label
 var _deck: Label
 var _feed: Label
 var _help: Label
-var _font: Font
+var _paused: Label
+var _flash_rect: ColorRect
+var _ascend_rect: ColorRect
+
+# 3D world.
+var _cam: Camera3D
+var _body_nodes: Array[Node3D] = []      # one per sim body (index-aligned; sun at 0)
+var _hauler_pool: Array[MeshInstance3D] = []
+var _gate_ring: MeshInstance3D
+var _hauler_mat: StandardMaterial3D
+var _select_mat: StandardMaterial3D
+var _gate_mat: StandardMaterial3D
 
 
 func _ready() -> void:
-	_font = ThemeDB.fallback_font
 	sim = TorchSim.new()
 	sim.reset(7)
-	_top = _make_label(Vector2(12, 8), 18)
-	_assets = _make_label(Vector2(12, 44), 15)
-	_deck = _make_label(Vector2(12, 318), 14)
-	_feed = _make_label(Vector2(12, 560), 14)
-	_help = _make_label(Vector2(12, 678), 12)
+	_build_world()
+	_build_hud()
 
 
-func _make_label(pos: Vector2, size: int) -> Label:
+# ---- scene construction -----------------------------------------------------
+
+func _build_world() -> void:
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = SPACE_BG
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.35, 0.4, 0.5)
+	e.ambient_light_energy = 0.35
+	env.environment = e
+	add_child(env)
+
+	_cam = Camera3D.new()
+	_cam.look_at_from_position(CAM_POS, Vector3.ZERO, Vector3.UP)
+	_cam.current = true
+	add_child(_cam)
+
+	# The sun lights the system from the centre.
+	var sun_light := OmniLight3D.new()
+	sun_light.omni_range = 200.0
+	sun_light.light_energy = 1.6
+	add_child(sun_light)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-60, -30, 0)
+	key.light_energy = 0.4
+	add_child(key)
+
+	# Shared hauler materials (created once; reused across the pool).
+	_hauler_mat = _emissive_mat(HAULER_COL)
+	_select_mat = _emissive_mat(SELECT_COL)
+
+	var max_r := 1.0
+	for b in sim.body_count():
+		var pos := _world3d(sim.body_x(b), sim.body_y(b))
+		if b == 0:
+			# The sun: a bright emissive core at the centre.
+			var sun := _sphere(0.9, _emissive_mat(Color(1.0, 0.85, 0.3)))
+			sun.position = pos
+			add_child(sun)
+			_body_nodes.append(sun)
+			continue
+		var r := pos.length()
+		max_r = maxf(max_r, r)
+		# Orbit ring on the ecliptic.
+		add_child(_ring(r, Color(0.25, 0.35, 0.45)))
+		# The planet/station body, lit by the sun.
+		var body := _sphere(0.35, _lit_mat(_body_colour(b)))
+		body.position = pos
+		add_child(body)
+		# A billboarded name tag floating above it (§21 legibility).
+		var tag := Label3D.new()
+		tag.text = sim.body_name(b)
+		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		tag.modulate = Color(0.75, 0.85, 0.95)
+		tag.pixel_size = 0.006
+		tag.position = Vector3(0, 0.6, 0)
+		body.add_child(tag)
+		_body_nodes.append(body)
+
+	# The always-visible ring-gate (§0.1): a faint outer ring that brightens as you
+	# approach. Updated each frame from gate_progress_pct.
+	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
+	_gate_ring = _ring_mat(max_r + 1.8, _gate_mat, 0.05)
+	add_child(_gate_ring)
+
+
+func _build_hud() -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+
+	# Left info-column backdrop so panels stay legible over the orrery (§20).
+	var bg := ColorRect.new()
+	bg.color = PANEL_BG
+	bg.position = Vector2(0, 0)
+	bg.size = Vector2(720, 720)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(bg)
+
+	# Full-screen flash washes (juice). Kept transparent until an event fires.
+	_flash_rect = _make_wash(Color(1.0, 0.3, 0.22, 0.0))
+	_ascend_rect = _make_wash(Color(1.0, 0.82, 0.3, 0.0))
+	layer.add_child(_flash_rect)
+	layer.add_child(_ascend_rect)
+
+	_top = _make_label(layer, Vector2(12, 8), 18)
+	_assets = _make_label(layer, Vector2(12, 44), 15)
+	_deck = _make_label(layer, Vector2(12, 318), 14)
+	_feed = _make_label(layer, Vector2(12, 560), 14)
+	_help = _make_label(layer, Vector2(12, 690), 12)
+	_paused = _make_label(layer, Vector2(560, 24), 20)
+	_paused.modulate = Color(1.0, 0.8, 0.3)
+
+
+func _make_label(parent: CanvasLayer, pos: Vector2, size: int) -> Label:
 	var l := Label.new()
 	l.position = pos
 	l.add_theme_font_size_override("font_size", size)
-	add_child(l)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE   # clicks fall through to picking
+	parent.add_child(l)
 	return l
 
+
+func _make_wash(col: Color) -> ColorRect:
+	var cr := ColorRect.new()
+	cr.color = col
+	cr.position = Vector2.ZERO
+	cr.size = Vector2(1280, 720)
+	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return cr
+
+
+func _emissive_mat(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return m
+
+
+func _lit_mat(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	return m
+
+
+func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = radius
+	sm.height = radius * 2.0
+	mi.mesh = sm
+	mi.material_override = mat
+	return mi
+
+
+func _ring(radius: float, col: Color) -> MeshInstance3D:
+	return _ring_mat(radius, _emissive_mat(col), 0.02)
+
+
+func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var tm := TorusMesh.new()             # lies flat on the XZ plane (hole up Y)
+	tm.inner_radius = maxf(0.01, radius - tube)
+	tm.outer_radius = radius + tube
+	mi.mesh = tm
+	mi.material_override = mat
+	return mi
+
+
+func _body_colour(b: int) -> Color:
+	var palette := [
+		Color(0.55, 0.75, 1.0),   # cool
+		Color(0.8, 0.85, 0.9),    # pale
+		Color(0.9, 0.6, 0.45),    # rust
+		Color(0.6, 0.85, 0.7),    # green
+	]
+	return palette[(b - 1) % palette.size()]
+
+
+# ---- world → screen ---------------------------------------------------------
+
+## Sim coords (orbital plane) → 3D world position on the ecliptic.
+func _world3d(wx: float, wy: float) -> Vector3:
+	return Vector3(wx * SCALE3D, 0.0, -wy * SCALE3D)
+
+
+## A 3D position projected to a screen point (for mouse picking).
+func _screen(p: Vector3) -> Vector2:
+	return _cam.unproject_position(p)
+
+
+# ---- frame loop -------------------------------------------------------------
 
 func _process(delta: float) -> void:
 	var mult: float = SPEEDS[speed_idx]
@@ -76,7 +254,7 @@ func _process(delta: float) -> void:
 		while accum >= 1.0:
 			sim.step()
 			accum -= 1.0
-			# An act-now exception flashes the screen edge (§23 juice) so it's never
+			# An act-now exception flashes the screen (§23 juice) so it's never
 			# missed, and — if auto-pause is on (§28/§0.4) — stops the clock the
 			# instant it fires so you never idle through a decision.
 			if sim.just_alerted():
@@ -94,8 +272,40 @@ func _process(delta: float) -> void:
 	last_tier = tier
 	flash = maxf(0.0, flash - delta * 2.0)           # ~0.5 s fade
 	ascend_flash = maxf(0.0, ascend_flash - delta)   # ~1 s celebratory fade
+	_update_world()
 	_refresh()
-	queue_redraw()
+
+
+## Mirror the sim snapshot into the 3D scene each frame.
+func _update_world() -> void:
+	for b in sim.body_count():
+		if b < _body_nodes.size():
+			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
+	# Haulers: grow the pool to the current count, place them, hide the rest.
+	var n := sim.hauler_count()
+	while _hauler_pool.size() < n:
+		var mi := _sphere(0.16, _hauler_mat)
+		add_child(mi)
+		_hauler_pool.append(mi)
+	for i in _hauler_pool.size():
+		var node := _hauler_pool[i]
+		if i < n:
+			node.visible = true
+			node.position = _world3d(sim.hauler_x(i), sim.hauler_y(i))
+			# The targeted hauler glows red and swells — the one you'd interdict.
+			var sel := i == selected
+			node.material_override = _select_mat if sel else _hauler_mat
+			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
+		else:
+			node.visible = false
+	# The gate ring brightens with approach (§0.1).
+	var g: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
+	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
+	# Flash washes track the fading juice values.
+	_flash_rect.color.a = flash * 0.5
+	_ascend_rect.color.a = ascend_flash * 0.5
+	_paused.visible = speed_idx == 0
+	_paused.text = "‖ PAUSED"
 
 
 ## Backgrounding pauses the clock (§6/§28).
@@ -199,20 +409,15 @@ func _refresh() -> void:
 	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
 
 
-## World-space (sim units) → screen position in the orrery. Shared by the
-## renderer and mouse picking so they always agree (§21).
-func _orrery_pos(wx: float, wy: float) -> Vector2:
-	var ppu := ORRERY_RADIUS / (MAX_AU * AU)
-	return ORRERY_CENTRE + Vector2(wx, -wy) * ppu
-
+# ---- input ------------------------------------------------------------------
 
 ## Select the in-flight hauler nearest a screen point, if one is within reach.
 ## Returns whether a hauler was picked.
 func _pick_hauler(pos: Vector2) -> bool:
 	var best := -1
-	var best_d := 16.0   # px pick radius
+	var best_d := 22.0   # px pick radius
 	for hi in sim.hauler_count():
-		var d := _orrery_pos(sim.hauler_x(hi), sim.hauler_y(hi)).distance_to(pos)
+		var d := _screen(_world3d(sim.hauler_x(hi), sim.hauler_y(hi))).distance_to(pos)
 		if d < best_d:
 			best_d = d
 			best = hi
@@ -226,12 +431,12 @@ func _pick_hauler(pos: Vector2) -> bool:
 ## Select the market whose body is nearest a screen point (sets the trade cursor).
 func _pick_market(pos: Vector2) -> void:
 	var best := -1
-	var best_d := 20.0   # px pick radius around the body
+	var best_d := 36.0   # px pick radius around the body
 	for m in sim.market_count():
 		var b := sim.market_body(m)
 		if b < 0:
 			continue
-		var d := _orrery_pos(sim.body_x(b), sim.body_y(b)).distance_to(pos)
+		var d := _screen(_world3d(sim.body_x(b), sim.body_y(b))).distance_to(pos)
 		if d < best_d:
 			best_d = d
 			best = m
@@ -240,53 +445,11 @@ func _pick_market(pos: Vector2) -> void:
 		status = "Market: %s — trade cursor here." % sim.market_name(best)
 
 
-func _draw() -> void:
-	var vp := get_viewport_rect().size
-	# A backdrop behind the left info column so the panels stay legible over the
-	# orrery (§20). Drawn first; the Label child nodes paint on top.
-	var h := vp.y
-	draw_rect(Rect2(0, 0, 720, h), PANEL_BG, true)
-	draw_line(Vector2(720, 0), Vector2(720, h), PANEL_EDGE, 1.0)
-
-	var px_per_unit := ORRERY_RADIUS / (MAX_AU * AU)
-	# The always-visible ring-gate goal (§0.1): an arc that fills as you approach.
-	draw_arc(ORRERY_CENTRE, ORRERY_RADIUS + 18.0, 0, TAU, 96, Color(0.15, 0.2, 0.25), 2.0)
-	var gate_frac: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
-	if gate_frac > 0.0:
-		draw_arc(ORRERY_CENTRE, ORRERY_RADIUS + 18.0, -PI / 2.0, -PI / 2.0 + TAU * gate_frac, 96, Color(0.9, 0.75, 0.35), 3.0)
-	for b in sim.body_count():
-		var r := Vector2(sim.body_x(b), sim.body_y(b)).length() * px_per_unit
-		if r > 1.0:
-			draw_arc(ORRERY_CENTRE, r, 0, TAU, 96, Color(0.25, 0.3, 0.35), 1.0)
-	for b in sim.body_count():
-		var p := _orrery_pos(sim.body_x(b), sim.body_y(b))
-		var is_sun := b == 0
-		draw_circle(p, 9.0 if is_sun else 5.0, Color(1, 0.8, 0.3) if is_sun else Color(0.6, 0.8, 1.0))
-		draw_string(_font, p + Vector2(8, -8), sim.body_name(b), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9))
-	for hi in sim.hauler_count():
-		var hp := _orrery_pos(sim.hauler_x(hi), sim.hauler_y(hi))
-		var col := Color(1.0, 0.5, 0.2) if hi == selected else Color(0.9, 0.7, 0.4)
-		draw_circle(hp, 3.0, col)
-		if hi == selected:
-			# A targeting reticle on the hauler you'd interdict (click or [Tab]).
-			draw_arc(hp, 8.0, 0, TAU, 24, Color(1.0, 0.5, 0.2, 0.9), 1.5)
-	# A clear paused indicator so the player always knows time is stopped (§28).
-	if speed_idx == 0:
-		draw_string(_font, ORRERY_CENTRE + Vector2(-34, -ORRERY_RADIUS - 30), "‖ PAUSED", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1.0, 0.8, 0.3))
-	# Act-now juice (§23): a fading red frame pulls the eye to a fresh decision.
-	if flash > 0.0:
-		draw_rect(Rect2(2, 2, vp.x - 4, vp.y - 4), Color(1.0, 0.35, 0.25, flash * 0.85), false, 5.0)
-	# Tier-ascension fanfare (§0.3): a warm gold frame celebrates the climb.
-	if ascend_flash > 0.0:
-		draw_rect(Rect2(3, 3, vp.x - 6, vp.y - 6), Color(1.0, 0.82, 0.3, ascend_flash * 0.9), false, 8.0)
-
-
 func _unhandled_input(event: InputEvent) -> void:
-	# Click an in-flight hauler in the orrery to target it for interdiction (§21) —
-	# a directness the Tab-cycle alone doesn't give.
+	# Click an in-flight hauler in the orrery to target it for interdiction (§21);
+	# failing that, select the market at the clicked body — the orrery is the
+	# control surface.
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		# Target a hauler if one is under the cursor; otherwise select a market by
-		# its body — the orrery is the control surface (§21).
 		if not _pick_hauler(event.position):
 			_pick_market(event.position)
 		return

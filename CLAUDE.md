@@ -145,12 +145,14 @@ Status: [x] done, [~] in progress, [ ] todo.
   **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
   design findings). The §32 counterpart to `cargo test`: tests assert systems
   *work*, this critiques how the game *plays*. Same seed ⇒ same review.
-- [~] **14. Juice & audio pass**, then UX polish. **First playable shell done**
-  (`godot/main.gd`): real-time-with-pause loop (§28), drawn 2D orrery (§21),
-  live panels + alert feed (§18/§19), verbs on input (interdict/trade/build).
-  **Save/load (§30) + a UX/legibility pass now in** (F5/F9, panel backdrops, a
-  gate-progress ring, paused indicator, selection reticle). Audio deferred
-  indefinitely (player choice); 3D-orrery/deeper console-chrome still to come.
+- [~] **14. Juice & audio pass**, then UX polish. **Playable shell + 3D orrery
+  done** (`godot/main.gd`): real-time-with-pause loop (§28), a **3D orrery** (§21:
+  lit bodies orbit the sun on the ecliptic, haulers run the lanes, an
+  always-visible gate ring brightens with approach), live panels + alert feed
+  (§18/§19) on a 2D CanvasLayer overlay, verbs on input + click-to-target/select.
+  **Save/load (§30)** (F5/F9) and the first juice (act-now + ascension flashes).
+  Audio deferred indefinitely (player choice); deeper console-chrome + richer
+  juice still to come.
 - [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
 
 ## 7. Learnings & decisions log (append-only)
@@ -735,6 +737,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   fanfare the feed already voices. Headless-verified. The orrery is becoming the
   map-half of the §-influence-model "map + master-tables" control; the 3D orrery
   and a richer master-table panel are the remaining UX rungs.
+
+- **2026-06-15 — 3D orrery (§17/§21) — the map goes spatial.** Replaced the 2D
+  `_draw` orrery with a real **`Node3D` world**: a `Camera3D` looking down the
+  ecliptic at an angle, an emissive **sun** lighting the system (`OmniLight3D`),
+  **lit sphere bodies** on flat **`TorusMesh` orbit rings** (the torus lies on XZ —
+  exactly the ecliptic plane), billboarded **`Label3D`** name tags, pooled hauler
+  spheres updated from the snapshot each frame (the selected one glows red + swells,
+  replacing the 2D reticle), and the **always-visible ring-gate** as a faint outer
+  torus whose `emission_energy_multiplier` rises with `gate_progress_pct` (§0.1).
+  **Architecture:** the entire HUD moved to a **`CanvasLayer`** overlay — all the
+  `_refresh` label logic is verbatim, and the flashes became full-screen `ColorRect`
+  washes (alpha animated, `MOUSE_FILTER_IGNORE` so clicks fall through to picking).
+  Picking now projects 3D positions to the screen via `Camera3D.unproject_position`
+  (`_world3d` → `_screen`), so render + pick can't disagree. `sim` coords (~10⁶) are
+  scaled by `SCALE3D` to a few dozen world units. **Verified end-to-end headless:**
+  `godot --headless` builds the 3D scene + runs 120 frames with no script errors —
+  every node/material/enum resolves (a property typo errors at runtime even
+  headless), so the rewrite is structurally sound; the *look* (camera/scale/lighting)
+  is the part to tune on a real display next. The 2D drawn orrery is gone; this is
+  the §17 "richer 3D solar-system view" the GDD wanted. No Rust change — pure shell.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
