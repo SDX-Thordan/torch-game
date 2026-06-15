@@ -418,8 +418,9 @@ impl Sim {
         let loadout = ships::reference_loadout(class, &mut self.rng);
         self.corp.debit(price);
         self.corp.assign_crew(hull.crew_required);
-        let name = format!("{} {:02}", hull.name, self.corp.fleet().len() + 1);
-        self.corp.add_ship(OwnedShip { name, loadout });
+        // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14).
+        let name = format!("{} ({})", ships::christen_ship(&mut self.rng), hull.name);
+        self.corp.add_ship(OwnedShip::new(name, loadout, self.tick));
         self.complete_op(); // building the fleet is progress on the climb (§0)
         Ok(())
     }
@@ -859,8 +860,9 @@ impl Sim {
         );
         let survivors = outcome.survivors[0];
         let losses = player_ships.len() - survivors;
-        self.corp.lose_ships_to(survivors);
         let won = outcome.winner == Some(0);
+        // Veterans pull through first and survivors are blooded (§11/§13).
+        self.corp.resolve_engagement(survivors, won);
         if won {
             self.complete_op(); // holding the field is progress on the climb (§0)
         }

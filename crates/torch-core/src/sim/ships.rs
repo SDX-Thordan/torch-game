@@ -253,6 +253,33 @@ const LAST_NAMES: [&str; 8] = [
     "Vega", "Okonkwo", "Reyes", "Tan", "Mwangi", "Sato", "Cole", "Ndiaye",
 ];
 
+/// Evocative call-signs a christened hull draws from (§14 ship naming). A pool of
+/// original names so a few hulls become *beloved hero ships* — the Rocinante
+/// effect — while the procedural fleet stays wallpaper (§25).
+const SHIP_NAMES: [&str; 16] = [
+    "Lodestar",
+    "Ironwake",
+    "Halcyon",
+    "Kestrel",
+    "Saltire",
+    "Cormorant",
+    "Mistral",
+    "Perdido",
+    "Vigil",
+    "Banshee",
+    "Tessellate",
+    "Grawl",
+    "Marrow",
+    "Quiet Riot",
+    "Long Haul",
+    "Last Word",
+];
+
+/// A deterministically chosen call-sign for a new hull (§14, §27).
+pub fn christen_ship(rng: &mut Pcg32) -> &'static str {
+    SHIP_NAMES[rng.below(SHIP_NAMES.len() as u32) as usize]
+}
+
 /// The crew of a ship (§8c): a named captain plus the wider crew as an abstract
 /// quality rating that improves with experience.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -459,6 +486,16 @@ mod tests {
         let mut rng = Pcg32::new(1);
         for h in hull_catalog() {
             let _ = reference_loadout(h.class, &mut rng); // panics if it doesn't fit
+        }
+    }
+
+    #[test]
+    fn christening_is_deterministic_and_from_the_pool() {
+        let (mut a, mut b) = (Pcg32::new(9), Pcg32::new(9));
+        for _ in 0..10 {
+            let name = christen_ship(&mut a);
+            assert_eq!(name, christen_ship(&mut b)); // same seed ⇒ same name (§27)
+            assert!(SHIP_NAMES.contains(&name));
         }
     }
 

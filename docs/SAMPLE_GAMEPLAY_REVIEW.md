@@ -117,14 +117,14 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 | metric | value |
 | --- | --- |
 | treasury | 42000 → 30000 cr (+-12000, ~0×) |
-| actions | 6 over 0% of ticks |
-| pacing | 3641 ticks pending · longest idle 144 ticks |
+| actions | 5 over 0% of ticks |
+| pacing | 3641 ticks pending · longest idle 72 ticks |
 | campaign | The Region · gate 33% · 1 ascent(s) |
 | gate reached | — |
 | CEO level | 2 · techs 0 |
 | traffic | 166 flew, 112 arrived, 51 cut, 51 shortages |
 | act-now alerts | 51 raised, 0 answered |
-| battles | 3 fought, 2 won |
+| battles | 2 fought, 0 won |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
@@ -134,7 +134,7 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 
 - **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
 - **[NOTE]** _Economy_ — Lost money over the run: 42000 → 30000 cr (-12000).
-- **[GOOD]** _Agency_ — Acted on 0% of ticks (6 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 144 ticks (~6 days, ~6 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[GOOD]** _Agency_ — Acted on 0% of ticks (5 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 72 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
 - **[NOTE]** _Alert feed_ — 51 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 
@@ -144,27 +144,27 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 | metric | value |
 | --- | --- |
-| treasury | 33000 → 246753 cr (+213753, ~7×) |
-| actions | 4210 over 100% of ticks |
-| pacing | 107 ticks pending · longest idle 0 ticks |
+| treasury | 33000 → 233645 cr (+200645, ~7×) |
+| actions | 4204 over 100% of ticks |
+| pacing | 105 ticks pending · longest idle 0 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 1393 (~58 days) |
+| gate reached | tick 1489 (~62 days) |
 | CEO level | 22 · techs 6 |
-| traffic | 166 flew, 37 arrived, 127 cut, 127 shortages |
-| act-now alerts | 127 raised, 127 answered |
-| standings (E/M/B/I) | -1000 / 72 / 0 / 0 |
+| traffic | 166 flew, 44 arrived, 121 cut, 121 shortages |
+| act-now alerts | 121 raised, 121 answered |
+| standings (E/M/B/I) | -802 / 16 / -122 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 49 → Sol & the Cold War @ 433 → The Gate @ 1393
+**Ascents:** The Region @ 49 → Sol & the Cold War @ 433 → The Gate @ 1489
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1393 (~58 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 246753 cr (+213753, ~7×).
-- **[INFO]** _Agency_ — Issued 4210 actions across 100% of ticks.
-- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 127 of 127 act-now shortages.
+- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1489 (~62 days).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 233645 cr (+200645, ~7×).
+- **[INFO]** _Agency_ — Issued 4204 actions across 100% of ticks.
+- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 121 of 121 act-now shortages.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
-- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-1000). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
+- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-802). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
 - **[INFO]** _Fleet_ — Fielded 1 warship(s) and 1 freighter(s); trained-crew pool at 40 (the §8c bottleneck that caps capital ships).
 
 ## Design review — cross-cutting
@@ -172,7 +172,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 What the comparison of play styles reveals about the design as it stands:
 
 - **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
-- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 3 fleet engagements fought (2 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
+- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 2 fleet engagements fought (0 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
 - **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (242226 cr by hand vs 103220 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
 - **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~4× (≈242226 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
 - **[GOOD]** _Logistics_ — The standing-order layer is a *table* now (Sim::routes): many routes run concurrently against a shared freighter pool, each with its own params and idle/in-transit exception — the spreadsheet-sim master-table the influence model wants, not a single Option.

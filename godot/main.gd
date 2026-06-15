@@ -146,6 +146,11 @@ func _refresh() -> void:
 		"ON" if auto_pause else "off"
 	])
 	deck.append("freighters %d    route: %s" % [sim.freighters(), sim.route_status()])
+	# Fleet roster (§14): size, and the flagship — the hero ship you come to care about.
+	var fleet_line := "fleet %d" % sim.fleet_size()
+	if sim.fleet_size() > 0:
+		fleet_line += "    flagship: %s" % sim.flagship_name()
+	deck.append(fleet_line)
 	var stations := "stations %d" % sim.station_count()
 	if sim.station_count() > 0:
 		stations += "    " + sim.station_desc(0)
