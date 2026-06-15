@@ -15,6 +15,15 @@ func _ready() -> void:
 	var lines: Array[String] = []
 	lines.append(core.greeting())
 	lines.append("sim tick=%d   haulers in flight=%d" % [sim.tick(), sim.hauler_count()])
+
+	# §0: the destination always ahead — tier, the now goal, and the ring-gate.
+	lines.append("── DESTINATION ──")
+	lines.append("  Tier: %s" % sim.tier_name())
+	lines.append("  Now:  %s (%d/%d)" % [
+		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()
+	])
+	lines.append("  Gate: %d%% — the journey's end" % sim.gate_progress_pct())
+
 	lines.append("orrery:")
 	for b in sim.body_count():
 		var ax := sim.body_x(b) / 1_000_000.0

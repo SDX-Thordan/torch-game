@@ -81,8 +81,9 @@ Status: [x] done, [~] in progress, [ ] todo.
   - [x] Rust core crate + gdext binding + Godot hello-world scene + native CI.
   - [x] Android APK pipeline (cargo-ndk cross-compile + Godot 4.6 gradle export →
     signed debug APK, green in CI via `android.yml`).
-- [ ] **2. Lock the §0 spine on paper** — destination pull, tier transitions,
-  three-horizon goal stack (design note in repo).
+- [x] **2. Lock the §0 spine** — built it in code instead of paper (`sim::campaign`):
+  tiers (Station→Region→Sol→Gate), the now/tier/far goal stack, and the
+  always-visible ring-gate. Player operations climb it; ascents are voiced.
 - [x] **3. Deterministic core sim** — fixed-tick `Sim`, snapshot + typed event
   contract (§29), stub deterministic orbital model + integer fixed-point trig.
 - [~] **4. Economy & industry** (data-driven) **+ headless stability test**.
@@ -119,7 +120,8 @@ Status: [x] done, [~] in progress, [ ] todo.
   auto-research run autonomously in `step()`; the alert feed (§19) surfaces the
   consequences. Policy set by the player, executed by managers.
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
-- [ ] **12. Tier-1→2 ascent + gate foreshadowing**.
+- [~] **12. Tier ascent + gate foreshadowing** — model + always-visible gate done
+  (`sim::campaign`, voiced ascents); per-tier content/"new kind of game" later.
 - [ ] **13. Pressure systems** + forecasting + pacing governor.
 - [ ] **14. Juice & audio pass**, then UX polish.
 - [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
@@ -283,6 +285,20 @@ Status: [x] done, [~] in progress, [ ] todo.
   Default policy is all-off, so existing tests (relations stay neutral) are
   unaffected. Demo: a company auto-hunting Earth drove Earth to −900 hands-off.
   Lesson: an all-default `Default` impl trips `clippy::derivable_impls` — derive it.
+
+- **2026-06-15 — Retention spine in code (§0), per the first review.** The review
+  flagged the GDD's #1 priority (the destination pull) as entirely absent while the
+  engine was over-built. `sim::campaign` fixes that: `Tier`
+  (Station→Region→Sol→Gate), a three-horizon `now_goal` (text + progress + target)
+  and an always-visible `gate_progress_bp` (the far goal, foreshadowed from minute
+  one). Player operations (`ripple_reputation`, i.e. every player/managed
+  interdiction) call `record_op`; crossing a tier threshold emits
+  `Event::TierAscended`, which the alert feed voices as a **Critical** "The Board"
+  milestone (the §0.3 arrival fanfare). Bound to Godot as a DESTINATION panel.
+  Ops-per-tier 3/10/25 is a placeholder ladder; richer per-tier objectives + the
+  "different kind of game" per tier come later. Lesson: keep the metric that drives
+  the spine attributable to the *player* (reuse the player-interdiction path), not
+  ambient events, so pirates don't advance your climb.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
