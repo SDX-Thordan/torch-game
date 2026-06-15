@@ -4,6 +4,15 @@ Durable memory for building **TORCH** (see `TORCH_Unified_Design_Document2.md`,
 the authoritative GDD). Read at the start of every session; update whenever a
 decision is made or a lesson is learned.
 
+**Companion authorities (in `docs/`):**
+- `docs/PLAYABLE_STATE_REVIEW.md` — the playable-state review (gaps + sequenced path).
+- `docs/TORCH_Player_Influence_and_Interaction_Model.md` — *what* the player can
+  influence, *how*, and *where it's pressable*. Identity: a **spreadsheet sim in
+  space** (Aurora 4X / EVE); depth of decision is the fun. The heart is
+  **parameterized standing orders** (Behavior Preset + tunable params → sim
+  executes → exceptions to the feed) and **map + master-tables** hybrid control.
+  This drives all UI/agency work.
+
 ---
 
 ## 1. Goal
