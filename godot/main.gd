@@ -178,13 +178,13 @@ func _build_hud() -> void:
 	# rendered captures so the dense market board never runs into the deck).
 	_top = _make_label(layer, Vector2(12, 8), 17)
 	_assets = _make_label(layer, Vector2(12, 38), 12)
-	_deck = _make_label(layer, Vector2(12, 372), 11)
-	_help = _make_label(layer, Vector2(12, 690), 10)
+	_deck = _make_label(layer, Vector2(12, 366), 10)
+	_help = _make_label(layer, Vector2(12, 700), 10)
 	# The alert feed is a bbcode RichTextLabel so each line can colour by priority.
 	_feed = RichTextLabel.new()
 	_feed.bbcode_enabled = true
 	_feed.scroll_active = false
-	_feed.position = Vector2(12, 602)
+	_feed.position = Vector2(12, 636)
 	_feed.size = Vector2(700, 110)
 	_feed.add_theme_font_size_override("normal_font_size", 12)
 	_feed.add_theme_font_size_override("bold_font_size", 12)
@@ -427,20 +427,19 @@ func _refresh() -> void:
 		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()],
 		"ON" if auto_pause else "off"
 	])
-	deck.append("freighters %d    route: %s" % [sim.freighters(), sim.route_status()])
 	# Fleet roster (§14): size, and the flagship — the hero ship you come to care about.
 	var fleet_line := "fleet %d" % sim.fleet_size()
 	if sim.fleet_size() > 0:
 		fleet_line += "    flagship: %s" % sim.flagship_name()
 	deck.append(fleet_line)
-	var stations := "stations %d" % sim.station_count()
-	if sim.station_count() > 0:
-		stations += "    " + sim.station_desc(0)
-	deck.append(stations)
-	var contracts := "contracts %d open" % sim.open_contract_count()
-	if sim.contract_count() > 0:
-		contracts += "    " + sim.contract_desc(0)
-	deck.append(contracts)
+	# Standing-order master-tables (§4): every route/station/contract on its own
+	# row (the "master-tables" half of the map+tables control model), each capped
+	# so the panel stays bounded.
+	deck.append("ROUTES %d/%d   freighters %d" % [sim.route_count(), sim.route_cap(), sim.freighters()])
+	_append_table(deck, sim.route_count(), 3, func(i): return sim.route_desc(i), "(none — [D] sets one)")
+	deck.append("STATIONS %d/%d    CONTRACTS %d open" % [sim.station_count(), sim.station_cap(), sim.open_contract_count()])
+	_append_table(deck, sim.station_count(), 2, func(i): return sim.station_desc(i), "")
+	_append_table(deck, sim.contract_count(), 1, func(i): return sim.contract_desc(i), "")
 	# §13 pressure: the three gauges, the next-raid telegraph, and the difficulty.
 	deck.append("pressure  war %d  piracy %d  scarcity %d    raid ETA ~%dt    intensity: %s" % [
 		sim.pressure_level(0), sim.pressure_level(1), sim.pressure_level(2),
@@ -456,7 +455,7 @@ func _refresh() -> void:
 	# Alert feed, coloured by priority (§19): act-now shortages glow warm and
 	# carry a [!], FYI notices stay cool and quiet.
 	var feed := "[b]── ALERT FEED ──[/b]\n"
-	for a in mini(sim.alert_count(), 3):
+	for a in mini(sim.alert_count(), 2):
 		var msg := sim.alert_message(a)
 		if sim.alert_is_act_now(a):
 			feed += "[color=#ff6a4d][!] %s[/color]\n" % msg
@@ -465,6 +464,19 @@ func _refresh() -> void:
 	_feed.text = feed
 
 	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
+
+
+## Append up to `cap` rows of a standing-order table to the deck, with an overflow
+## tally and an optional empty-state line (the §4 master-tables).
+func _append_table(rows: Array, count: int, cap: int, getter: Callable, empty: String) -> void:
+	if count == 0:
+		if empty != "":
+			rows.append("   " + empty)
+		return
+	for i in mini(count, cap):
+		rows.append("   • " + str(getter.call(i)))
+	if count > cap:
+		rows.append("   …(+%d more)" % (count - cap))
 
 
 # ---- input ------------------------------------------------------------------
