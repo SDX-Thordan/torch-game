@@ -420,6 +420,12 @@ impl Loadout {
 /// A sensible reference fit for a class: every weapon mount filled, full tanks,
 /// a green crew. Used for catalog comparisons and the shipyard demo.
 pub fn reference_loadout(class: ShipClass, rng: &mut Pcg32) -> Loadout {
+    reference_loadout_quality(class, 50, rng)
+}
+
+/// A reference fit crewed at `quality` (0..=100) — lets callers field veteran
+/// hulls or low-quality "rabble" (e.g. raider packs) off the same template (§8c).
+pub fn reference_loadout_quality(class: ShipClass, quality: i64, rng: &mut Pcg32) -> Loadout {
     let h = hull(class);
     let mut weapons = Vec::new();
     for _ in 0..h.pdc_mounts {
@@ -431,7 +437,7 @@ pub fn reference_loadout(class: ShipClass, rng: &mut Pcg32) -> Loadout {
     for _ in 0..h.railgun_mounts {
         weapons.push(weapon(WeaponKind::Railgun));
     }
-    let crew = Crew::recruit(rng, h.crew_required, 50);
+    let crew = Crew::recruit(rng, h.crew_required, quality);
     let remass = h.remass_capacity;
     Loadout::fit(h, weapons, remass, crew).expect("reference loadout must fit")
 }

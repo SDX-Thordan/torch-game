@@ -16,6 +16,10 @@ use super::ships::{Loadout, WeaponKind};
 const BP: i64 = 10_000;
 /// Hard cap on battle length; reaching it is a stalemate (draw).
 const MAX_TICKS: u64 = 4_000;
+/// Opening-exchange bonus to the side that wins initiative, in basis points (§9):
+/// enough to decide an otherwise-even fight, far too little to overturn a real
+/// force advantage.
+const INITIATIVE_BONUS_BP: i64 = 6_000;
 /// Structure granted per unit of hull dry mass (armor adds on top).
 const MASS_TO_HP: i64 = 10;
 /// Torpedo shots stored per tube.
@@ -305,6 +309,12 @@ pub fn resolve(a: &Fleet, b: &Fleet, rng: &mut Pcg32) -> BattleOutcome {
 
     let alive_on = |ships: &[Ship], side: usize| ships.iter().any(|s| s.alive && s.side == side);
 
+    // Initiative: one side wins the opening exchange (the ambush / better firing
+    // solution, §9). Without it the resolver is a deterministic force-ratio
+    // curbstomp — matched fleets always mutually annihilate; with it, an evenly
+    // matched fight is a real coin-flip while a force advantage still decides.
+    let initiative = rng.below(2) as usize;
+
     let mut ticks = 0;
     while ticks < MAX_TICKS && alive_on(&ships, 0) && alive_on(&ships, 1) {
         ticks += 1;
@@ -319,6 +329,9 @@ pub fn resolve(a: &Fleet, b: &Fleet, rng: &mut Pcg32) -> BattleOutcome {
             } else {
                 reload[side] -= 1;
             }
+        }
+        if ticks == 1 {
+            dealt[initiative] += dealt[initiative] * INITIATIVE_BONUS_BP / BP;
         }
         for side in 0..2 {
             if dealt[side] > 0 {

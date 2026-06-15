@@ -260,18 +260,25 @@ impl Strategy for Warlord {
         "Stands up warships and fights raider packs — is the combat resolver reachable, and does attrition bite? (§7/§9)"
     }
     fn setup(&mut self, sim: &mut Sim) {
-        // Stand up an initial squadron from the starting treasury + crew pool.
-        while sim.commission_ship(ShipClass::Frigate).is_ok() {}
+        // Stand up a small initial squadron — keep crew in reserve to rebuild
+        // after a costly fight, rather than blowing the whole §8c pool at once.
+        for _ in 0..2 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
     }
     fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
         let mut actions = 0;
-        // Reinforce when credits and the crew pool allow.
-        if sim.tick().is_multiple_of(24) && sim.commission_ship(ShipClass::Frigate).is_ok() {
+        // Reinforce whenever the treasury and the crew pool allow (rebuilding the
+        // squadron between battles, until the §8c bottleneck runs dry).
+        if sim.tick().is_multiple_of(18) && sim.commission_ship(ShipClass::Frigate).is_ok() {
             actions += 1;
         }
-        // Pick a fight on a cadence whenever there's a fleet to send.
-        if sim.tick().is_multiple_of(60) && !sim.corp().fleet().is_empty() {
-            sim.engage_raiders(Band::Medium);
+        // Pick a fight on a cadence whenever there's a fleet to send. Frigates
+        // carry no railgun — they knife-fight Close, where the PDC brawl resolves
+        // (at range a screened salvo-only mirror just stalemates). Combat is
+        // decisive and crew-capped, so these are a few pivotal battles, not a grind.
+        if sim.tick().is_multiple_of(40) && !sim.corp().fleet().is_empty() {
+            sim.engage_raiders(Band::Close);
             actions += 1;
         }
         actions

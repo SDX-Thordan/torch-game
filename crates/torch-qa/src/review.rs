@@ -323,9 +323,12 @@ pub fn design_review(runs: &[Transcript]) -> Vec<Finding> {
             ),
         ));
         // A matched mirror that the player almost always loses (or wins) is a
-        // balance signal worth surfacing once the mechanism is reachable.
+        // balance signal — but only judge it off a meaningful sample. Combat is
+        // crew-capped and decisive (§8c/§13), so a persona may fight only a
+        // handful of pivotal battles; the resolver's coin-flip balance is proven
+        // separately by `matched_raider_fights_are_a_competitive_coin_flip`.
         let win_pct = won * 100 / battles;
-        if win_pct <= 10 || win_pct >= 90 {
+        if battles >= 12 && (win_pct <= 10 || win_pct >= 90) {
             f.push(Finding::new(
                 Severity::Note,
                 "Combat",
