@@ -178,6 +178,17 @@ impl Market {
     }
 
     /// Damp the price of commodity `c` one notch toward its stock-based target.
+    /// Overwrite live stock + price per commodity from a loaded save (§30),
+    /// clamped into each commodity's walls. Setpoints/defs are rebuilt from code,
+    /// so only the dynamic stock/price pair is restored. Touches no RNG.
+    pub fn restore_stocks(&mut self, stocks: &[i64], prices: &[i64]) {
+        for c in 0..self.stocks.len().min(stocks.len()).min(prices.len()) {
+            let def = &self.defs[c];
+            self.stocks[c].stock = stocks[c].clamp(0, def.max_stock);
+            self.stocks[c].price = prices[c].clamp(def.floor, def.ceiling);
+        }
+    }
+
     fn reprice(&mut self, c: usize) {
         let def = &self.defs[c];
         let s = &mut self.stocks[c];

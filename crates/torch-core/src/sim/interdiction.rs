@@ -22,7 +22,7 @@ const MARGIN_GAIN_DEN: i64 = 4;
 
 /// A unit attempting an interception: where it starts, how fast it burns, and a
 /// crew-quality bonus to the hit roll (basis points).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Interceptor {
     pub pos: (i64, i64),
     pub speed: i64,

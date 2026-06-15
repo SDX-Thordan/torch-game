@@ -44,7 +44,7 @@ scale (§0).
 | Determinism | Integer / fixed-point math; **PCG32** RNG with integer basis-point probabilities; no floats in probability paths | §27 |
 | Engine / shell | **Godot 4.6** (`godot/`), loads the Rust core via **gdext** (`torch.gdextension`) | §26 |
 | Sim ↔ view | Snapshot + typed event stream (BattleLog-style) — *to build* | §29 |
-| Persistence | serde + bincode (binary), JSON dev export — *to build* | §30 |
+| Persistence | serde JSON snapshot save/load (`sim::persist`); seed + tick rebuild content, overlay player/economy state | §30 |
 | Tuning data | Hot-reloadable JSON/RON; logic in Rust, numbers in data — *to build* | §31 |
 | Testing | Native `cargo test` for sim acceptance; GUT for Godot/view later | §32 |
 | Platform / build | **Android-first**; de-risk Rust-on-Android early; APK via GitHub Actions | §33, §35.1 |
@@ -148,7 +148,9 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [~] **14. Juice & audio pass**, then UX polish. **First playable shell done**
   (`godot/main.gd`): real-time-with-pause loop (§28), drawn 2D orrery (§21),
   live panels + alert feed (§18/§19), verbs on input (interdict/trade/build).
-  Juice/audio/3D-orrery/console-chrome still to come.
+  **Save/load (§30) + a UX/legibility pass now in** (F5/F9, panel backdrops, a
+  gate-progress ring, paused indicator, selection reticle). Audio deferred
+  indefinitely (player choice); 3D-orrery/deeper console-chrome still to come.
 - [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
 
 ## 7. Learnings & decisions log (append-only)
@@ -678,6 +680,42 @@ Status: [x] done, [~] in progress, [ ] todo.
   notification anxiety). Bounded menu (`MAX_WRECKS` = 3, `SPAWN_INTERVAL` = 96t).
   Bound to the shell: a wrecks HUD line + **H** to salvage the nearest. The full
   §15 (boarding, anomalies/lore, outer-frontier excursions) is the post-MVP arc.
+
+- **2026-06-15 — Persistence (§30) — `sim::persist`, a determinism-native save.**
+  Save/load that leans on §27/§31: the sim is deterministic from a **seed**, and
+  *content* lives in code (catalogs/orbits), so a save stores only **seed + tick +
+  mutable run state** — never the static catalogs (which dodge the `&'static str`
+  serde wall entirely). `SaveState` (serde→JSON) captures the corp (treasury,
+  warehouse, fleet *by class + crew quality + service history*, crew, freighters),
+  standings, campaign, progression (dynamic flag-vectors + CEO), standing orders
+  (routes/stations), automation policy, difficulty/alert-threshold, and every
+  market's stock+price pair. **Load** = `Sim::new(seed)` → re-sim the ambient layer
+  to the saved tick (so traffic/pressure/salvage *phase* lines up; player
+  automation is off in a fresh sim, so these steps add no player state) → overlay
+  the saved state. The fleet's loadout is rebuilt from class via
+  `reference_loadout_quality` (content is code). **Key fidelity move:** prices are
+  *damped* (not a pure function of stock), so the save stores both stock *and*
+  price and `Market::restore_stocks` overwrites both — otherwise a reload would
+  snap prices and drift. The round-trip is proven exact by comparing
+  `a.to_save() == b.to_save()` over a full save↔load (the `SaveState` *is* the
+  contract), plus a version-mismatch/bad-JSON rejection test. Added small
+  `restore`/`flags`/`warehouse` accessors to Corp/Research/Blueprints/Ceo/Market
+  and serde derives to the plain data types (Campaign/Relations/AutomationPolicy/
+  TradeRoute/Station/Intensity/Priority/Branch/ShipClass/Faction/Interceptor) — no
+  serde on content types. Bound: `save_game(path)`/`load_game(path)` → ""|error
+  (file I/O in the binding, not the core). QA review byte-identical (personas don't
+  save). **Headless-verified the shell end-to-end:** `godot --headless` loads the
+  gdext lib + runs 90 frames with no script errors (the §35 headless-first gate now
+  covers the Godot layer too, not just `cargo test`).
+
+- **2026-06-15 — UX/legibility pass (§18–§20).** Shell polish alongside §30: panel
+  **backdrops** (a dim rect + edge behind the left info column so text never fights
+  the orrery), an always-visible **ring-gate arc** that fills with
+  `gate_progress_pct` (the §0.1 destination, now drawn not just printed), a **PAUSED**
+  banner (§28 clarity), a **selection reticle** on the hauler you'd interdict, and
+  **F5/F9** save/load with status feedback. Audio is **deferred indefinitely** (the
+  player plays without sound) — the only roadmap item we're consciously dropping
+  from the §23 "juice & audio" pass; the juice/3D-orrery half remains open.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

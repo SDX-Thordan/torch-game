@@ -103,7 +103,7 @@ const BP: i64 = 10_000;
 const ASCENTS: i64 = 3;
 
 /// The player's position on the climb (§0). Cheap, legible, always-visible.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Campaign {
     tier_index: usize,
     ops_in_tier: i64,

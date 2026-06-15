@@ -18,6 +18,12 @@ const AU := 1_000_000.0
 const MAX_AU := 2.9                     # Ceres orbit, for scaling
 const QTY_STEP := 5
 const QTY_MAX := 500
+const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (§30)
+
+# Panel backdrops for legibility over the orrery (§20 console chrome). Each is a
+# rect drawn behind the corresponding Label so text never fights the starfield.
+const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)
+const PANEL_EDGE := Color(0.20, 0.45, 0.55, 0.55)
 
 var sim: TorchSim
 var speed_idx := 1
@@ -177,11 +183,22 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
 
 
 func _draw() -> void:
+	# A backdrop behind the left info column so the panels stay legible over the
+	# orrery (§20). Drawn first; the Label child nodes paint on top.
+	var h := get_viewport_rect().size.y
+	draw_rect(Rect2(0, 0, 720, h), PANEL_BG, true)
+	draw_line(Vector2(720, 0), Vector2(720, h), PANEL_EDGE, 1.0)
+
 	var px_per_unit := ORRERY_RADIUS / (MAX_AU * AU)
+	# The always-visible ring-gate goal (§0.1): an arc that fills as you approach.
+	draw_arc(ORRERY_CENTRE, ORRERY_RADIUS + 18.0, 0, TAU, 96, Color(0.15, 0.2, 0.25), 2.0)
+	var gate_frac: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
+	if gate_frac > 0.0:
+		draw_arc(ORRERY_CENTRE, ORRERY_RADIUS + 18.0, -PI / 2.0, -PI / 2.0 + TAU * gate_frac, 96, Color(0.9, 0.75, 0.35), 3.0)
 	for b in sim.body_count():
 		var r := Vector2(sim.body_x(b), sim.body_y(b)).length() * px_per_unit
 		if r > 1.0:
@@ -191,10 +208,16 @@ func _draw() -> void:
 		var is_sun := b == 0
 		draw_circle(p, 9.0 if is_sun else 5.0, Color(1, 0.8, 0.3) if is_sun else Color(0.6, 0.8, 1.0))
 		draw_string(_font, p + Vector2(8, -8), sim.body_name(b), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9))
-	for h in sim.hauler_count():
-		var hp := ORRERY_CENTRE + Vector2(sim.hauler_x(h), -sim.hauler_y(h)) * px_per_unit
-		var col := Color(1.0, 0.5, 0.2) if h == selected else Color(0.9, 0.7, 0.4)
+	for hi in sim.hauler_count():
+		var hp := ORRERY_CENTRE + Vector2(sim.hauler_x(hi), -sim.hauler_y(hi)) * px_per_unit
+		var col := Color(1.0, 0.5, 0.2) if hi == selected else Color(0.9, 0.7, 0.4)
 		draw_circle(hp, 3.0, col)
+		if hi == selected:
+			# A targeting reticle on the hauler you'd interdict.
+			draw_arc(hp, 8.0, 0, TAU, 24, Color(1.0, 0.5, 0.2, 0.9), 1.5)
+	# A clear paused indicator so the player always knows time is stopped (§28).
+	if speed_idx == 0:
+		draw_string(_font, ORRERY_CENTRE + Vector2(-34, -ORRERY_RADIUS - 30), "‖ PAUSED", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1.0, 0.8, 0.3))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -288,6 +311,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_H:
 			# Salvage a sighted derelict (§15 discovery & wonder).
 			status = "Wreck stripped — haul aboard." if sim.salvage_wreck() else "No derelict in range to salvage."
+		KEY_F5:
+			# Save the run to disk (§30).
+			var serr := sim.save_game(ProjectSettings.globalize_path(SAVE_PATH))
+			status = "Game saved." if serr == "" else "Save failed: %s" % serr
+		KEY_F9:
+			# Load the run from disk (§30); resets selection cursors into range.
+			var lerr := sim.load_game(ProjectSettings.globalize_path(SAVE_PATH))
+			if lerr == "":
+				speed_idx = 0
+				selected = 0
+				status = "Game loaded — paused. Press [1] to resume."
+			else:
+				status = "Load failed: %s" % lerr
 
 
 func _do_buy() -> void:

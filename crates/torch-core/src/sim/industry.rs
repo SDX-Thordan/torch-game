@@ -8,7 +8,7 @@
 //! `Sim` (which owns the markets and treasury). Integer/deterministic (§27).
 
 /// A player-owned production station running a Produce standing order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Station {
     /// Body it sits at (for the orrery).
     pub body: usize,

@@ -9,7 +9,7 @@ use super::faction::Faction;
 use super::interdiction::Interceptor;
 
 /// Standing orders for the automated interdiction patrol (§7b under automation).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InterdictionPolicy {
     /// Whether the patrol is hunting at all.
     pub enabled: bool,
@@ -20,7 +20,7 @@ pub struct InterdictionPolicy {
 }
 
 /// The full policy a CEO leaves their managers (§12).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AutomationPolicy {
     pub interdiction: InterdictionPolicy,
     /// Auto-invest research points in the cheapest available tech (§10).

@@ -6,7 +6,7 @@
 //! and quietly pleases their rival. Integer/deterministic (§27).
 
 /// The powers of the inner system (§4). Pirates are handled separately (§13).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Faction {
     Earth,
     Mars,
@@ -70,7 +70,7 @@ const RIVAL_BONUS: i64 = 20;
 const STANDING_CAP: i64 = 1_000;
 
 /// The player's standing with every faction.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Relations {
     standing: [i64; 4],
 }
