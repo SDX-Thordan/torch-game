@@ -158,14 +158,14 @@ impl Strategy for Logistician {
         "Logistician"
     }
     fn intent(&self) -> &'static str {
-        "Sets one standing trade route, then leaves — does the policy→execute→exception loop pay off hands-off? (§4)"
+        "Fills a small route table, then leaves — does the policy→execute→exception loop pay off hands-off across many routes? (§4)"
     }
     fn setup(&mut self, sim: &mut Sim) {
-        if sim.commission_freighter().is_ok() {
-            // ReactorFuel (5): cheap at Earth (1), dear at Ceres (0) — the
-            // structural spread the NPC haulers also work.
-            sim.set_trade_route(5, 1, 0, 20, 1);
-        }
+        // A two-freighter pool running a table of routes (the §4 master-table).
+        let _ = sim.commission_freighter();
+        let _ = sim.commission_freighter();
+        sim.set_trade_route(5, 1, 0, 20, 1); // ReactorFuel, Earth → Ceres
+        sim.set_trade_route(4, 0, 1, 20, 1); // Metals, Ceres → Earth
     }
     fn act(&mut self, _sim: &mut Sim, _last_events: &[Event]) -> u32 {
         0

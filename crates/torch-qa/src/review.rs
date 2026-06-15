@@ -386,11 +386,11 @@ pub fn design_review(runs: &[Transcript]) -> Vec<Finding> {
         }
     }
 
-    // 5. Single standing route.
+    // 5. A table of routes, not a single Option.
     f.push(Finding::new(
-        Severity::Note,
+        Severity::Good,
         "Logistics",
-        "Only one standing trade route exists at a time (Sim::route is a single Option). A 'spreadsheet sim in space' wants a *table* of routes and presets, each with its own params and exception line."
+        "The standing-order layer is a *table* now (Sim::routes): many routes run concurrently against a shared freighter pool, each with its own params and idle/in-transit exception — the spreadsheet-sim master-table the influence model wants, not a single Option."
             .to_string(),
     ));
 

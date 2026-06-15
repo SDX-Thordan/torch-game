@@ -51,29 +51,29 @@ _Hand-trades the spread every tick — does the economy stay a decision, or beco
 
 ## Logistician
 
-_Sets one standing trade route, then leaves — does the policy→execute→exception loop pay off hands-off? (§4)_
+_Fills a small route table, then leaves — does the policy→execute→exception loop pay off hands-off across many routes? (§4)_
 
 | metric | value |
 | --- | --- |
-| treasury | 37000 → 104030 cr (+67030, ~2×) |
+| treasury | 24000 → 103220 cr (+79220, ~4×) |
 | actions | 0 over 0% of ticks |
 | campaign | Sol & the Cold War · gate 66% · 2 ascent(s) |
 | gate reached | — |
-| CEO level | 5 · techs 0 |
-| traffic | 166 flew, 110 arrived, 52 cut, 52 shortages |
+| CEO level | 6 · techs 0 |
+| traffic | 166 flew, 111 arrived, 52 cut, 52 shortages |
 | act-now alerts | 52 raised, 0 answered |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 375 → Sol & the Cold War @ 2225
+**Ascents:** The Region @ 187 → Sol & the Cold War @ 2038
 
 **Findings:**
 
 - **[INFO]** _Pacing_ — Climbed to Sol & the Cold War (2 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 37000 → 104030 cr (+67030, ~2×).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 24000 → 103220 cr (+79220, ~4×).
 - **[GOOD]** _Watchability_ — Hands fully off, the world stayed alive: 166 convoys flew, 52 cut on the lanes, 52 shortages voiced. There is something to watch before there is something to do.
 - **[NOTE]** _Alert feed_ — 52 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[INFO]** _Fleet_ — Fielded 0 warship(s) and 1 freighter(s); trained-crew pool at 52 (the §8c bottleneck that caps capital ships).
+- **[INFO]** _Fleet_ — Fielded 0 warship(s) and 2 freighter(s); trained-crew pool at 44 (the §8c bottleneck that caps capital ships).
 
 ## Privateer
 
@@ -135,14 +135,14 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 | metric | value |
 | --- | --- |
-| treasury | 33000 → 246033 cr (+213033, ~7×) |
+| treasury | 33000 → 242390 cr (+209390, ~7×) |
 | actions | 4083 over 100% of ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 1393 (~58 days) |
 | CEO level | 22 · techs 6 |
-| traffic | 166 flew, 33 arrived, 132 cut, 132 shortages |
-| act-now alerts | 132 raised, 0 answered |
-| standings (E/M/B/I) | -964 / 92 / -50 / 0 |
+| traffic | 166 flew, 35 arrived, 129 cut, 129 shortages |
+| act-now alerts | 129 raised, 0 answered |
+| standings (E/M/B/I) | -942 / 20 / -104 / 0 |
 | market wall hits | 0 |
 
 **Ascents:** The Region @ 49 → Sol & the Cold War @ 433 → The Gate @ 1393
@@ -150,10 +150,10 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1393 (~58 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 246033 cr (+213033, ~7×).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 242390 cr (+209390, ~7×).
 - **[INFO]** _Agency_ — Issued 4083 actions across 100% of ticks.
-- **[NOTE]** _Alert feed_ — 132 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-964). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
+- **[NOTE]** _Alert feed_ — 129 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-942). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
 - **[INFO]** _Fleet_ — Fielded 1 warship(s) and 1 freighter(s); trained-crew pool at 40 (the §8c bottleneck that caps capital ships).
 
 ## Design review — cross-cutting
@@ -163,6 +163,6 @@ What the comparison of play styles reveals about the design as it stands:
 - **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
 - **[GOOD]** _Combat_ — Combat is reachable from the live loop: 67 fleet engagements fought (0 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
 - **[NOTE]** _Combat_ — Lopsided outcomes: the player held the field in 0% of matched engagements. A symmetric raider pack should be closer to a coin-flip — initiative/doctrine in the resolver, or pack sizing, needs a balance pass.
-- **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (242226 cr by hand vs 104030 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
+- **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (242226 cr by hand vs 103220 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
 - **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~4× (≈242226 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
-- **[NOTE]** _Logistics_ — Only one standing trade route exists at a time (Sim::route is a single Option). A 'spreadsheet sim in space' wants a *table* of routes and presets, each with its own params and exception line.
+- **[GOOD]** _Logistics_ — The standing-order layer is a *table* now (Sim::routes): many routes run concurrently against a shared freighter pool, each with its own params and idle/in-transit exception — the spreadsheet-sim master-table the influence model wants, not a single Option.
