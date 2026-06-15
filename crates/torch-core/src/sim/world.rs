@@ -21,6 +21,10 @@ use super::traffic::Hauler;
 
 /// Credits charged per unit of a commissioned hull's dry mass (§5 sink).
 const SHIP_PRICE_PER_MASS: i64 = 5;
+/// CEO experience earned per completed player operation (§10 earned through play).
+const OP_XP: i64 = 200;
+/// Research points earned per completed player operation.
+const OP_RESEARCH_POINTS: i64 = 40;
 
 /// Why a market order could not be filled (§5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -340,6 +344,10 @@ impl Sim {
     fn ripple_reputation(&mut self, h: &Hauler) {
         let faction = self.markets[h.origin].faction();
         self.relations.on_player_interdict(faction);
+        // Operations build the company's expertise — progression earned through
+        // play (§10), not handed out.
+        self.progression.ceo.gain_xp(OP_XP);
+        self.progression.research.add_points(OP_RESEARCH_POINTS);
         if let Some(tier) = self.campaign.record_op() {
             self.events.push(Event::TierAscended { tier });
         }
