@@ -581,6 +581,35 @@ impl TorchSim {
         GString::from(format!("{commodity} {origin}→{dest} ×{} [{state}]", r.qty))
     }
 
+    /// Found a refinery turning raw commodity `raw` (0..2) into its refined
+    /// product, sourcing at `buy_market` and selling surplus at `sell_market`
+    /// (§3.1). Returns whether it was built.
+    #[func]
+    fn found_refinery(&mut self, raw: i64, buy_market: i64, sell_market: i64) -> bool {
+        self.sim
+            .found_refinery(raw as usize, buy_market as usize, sell_market as usize)
+            .is_ok()
+    }
+
+    /// Number of production stations the player owns (§3.1).
+    #[func]
+    fn station_count(&self) -> i64 {
+        self.sim.stations().len() as i64
+    }
+
+    /// A one-line description of station `i` (§3.1).
+    #[func]
+    fn station_desc(&self, index: i64) -> GString {
+        let Some(st) = self.sim.stations().get(index as usize) else {
+            return GString::default();
+        };
+        let names = self.sim.markets()[0].defs();
+        let input = names.get(st.input).map(|d| d.name).unwrap_or("?");
+        let output = names.get(st.output).map(|d| d.name).unwrap_or("?");
+        let at = self.sim.markets()[st.buy_market].name();
+        GString::from(format!("Refinery {input}→{output} @ {at}"))
+    }
+
     // ---- The command deck: standing policy a CEO sets (§12) ----
 
     /// Whether the standing interdiction patrol is hunting.

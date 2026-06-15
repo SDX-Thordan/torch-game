@@ -353,6 +353,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   commission freighter, D set route from the trade cursor, G clear. Replaces
   instant teleport-arbitrage with real logistics over time.
 
+- **2026-06-15 — Player stations + Produce standing order (§3.1, Example A).**
+  `sim::industry::Station` is a `Copy` Produce preset (input recipe, output, rate,
+  buy/sell markets, sell-surplus threshold, production ceiling). `Sim::run_industry`
+  runs each station hands-off: source the raw input from a market when short →
+  transform raw→refined (output = input + RAW_COUNT) → dump output above the
+  sell-surplus floor for credits. `found_refinery(raw, buy, sell)` costs capital
+  (8k), capped at 4 stations (Tier-1). The value-add is real: buy Ore cheap (~22),
+  refine to Metals, sell dear (~220) — a refinery nets profit with no input, the
+  mine→refine→sell chain. Bound: M founds a refinery for the selected raw commodity
+  at the selected market. Same Copy-out-of-self pattern as routes so the per-tick
+  loop doesn't fight the `markets`/`corp` borrows. The default Sim has no stations,
+  so the §7c stability gate is untouched.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
