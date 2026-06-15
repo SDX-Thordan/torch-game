@@ -300,6 +300,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   the spine attributable to the *player* (reuse the player-interdiction path), not
   ambient events, so pirates don't advance your climb.
 
+- **2026-06-15 — Player corporation (§1/§5) — the review's #1 gap closed.** The
+  pushed review (`docs/PLAYABLE_STATE_REVIEW.md`, Phase A.1) named player-agent
+  state the foundational missing piece: the sim had a convincing NPC world but no
+  player economic actor. `sim::corp::Corp` is now that actor — a treasury, a
+  per-commodity warehouse, an owned fleet, and the trained-crew pool (§8c). The
+  verbs live on `Sim` (it owns the markets + rng): `buy`/`sell` move cargo against
+  a `Market` at its live price (and nudge it), `commission_ship` pays a hull's
+  build cost and **draws crew from the pool** — so the §8c bottleneck (not the
+  treasury) caps capital ships (starting credits 50k afford a battleship, but its
+  120 crew exceed the 60-pool). First real agency: a manual arbitrage round-trip
+  (buy ReactorFuel cheap at Earth, sell dear at Ceres) profits, the same spread the
+  NPC haulers work. Verified live: +3560 cr arbitrage, then a frigate commissioned.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

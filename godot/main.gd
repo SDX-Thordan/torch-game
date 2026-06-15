@@ -24,6 +24,17 @@ func _ready() -> void:
 	])
 	lines.append("  Gate: %d%% — the journey's end" % sim.gate_progress_pct())
 
+	# §5: the player corporation — work the spread, then commission a hull.
+	lines.append("── CORPORATION ──")
+	var credits0 := sim.credits()
+	var cost := sim.buy(1, 5, 20) # buy ReactorFuel cheap at Earth
+	var revenue := sim.sell(0, 5, 20) # sell it dear at Ceres
+	sim.commission_ship(0) # build a frigate
+	lines.append("  arbitrage: spent %d, earned %d (net %+d)" % [cost, revenue, revenue - cost])
+	lines.append("  treasury: %d cr (from %d)   crew: %d   fleet: %d" % [
+		sim.credits(), credits0, sim.trained_crew(), sim.fleet_size()
+	])
+
 	lines.append("orrery:")
 	for b in sim.body_count():
 		var ax := sim.body_x(b) / 1_000_000.0
