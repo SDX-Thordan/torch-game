@@ -436,6 +436,63 @@ impl TorchSim {
     fn gate_progress_pct(&self) -> i64 {
         self.sim.campaign().gate_progress_bp() / 100
     }
+
+    // ---- The player corporation (§1/§5) ----
+
+    /// Treasury balance in credits.
+    #[func]
+    fn credits(&self) -> i64 {
+        self.sim.corp().credits()
+    }
+
+    /// Untasked trained crew available for new warships (§8c).
+    #[func]
+    fn trained_crew(&self) -> i64 {
+        self.sim.corp().trained_crew()
+    }
+
+    /// Number of ships in the player fleet.
+    #[func]
+    fn fleet_size(&self) -> i64 {
+        self.sim.corp().fleet().len() as i64
+    }
+
+    /// Warehouse cargo held of commodity `c`.
+    #[func]
+    fn cargo(&self, commodity: i64) -> i64 {
+        self.sim.corp().cargo(commodity as usize)
+    }
+
+    /// Buy `qty` of commodity `c` at market `m`; returns the credits spent, or
+    /// −1 if the order could not be filled (§5).
+    #[func]
+    fn buy(&mut self, market: i64, commodity: i64, qty: i64) -> i64 {
+        self.sim
+            .buy(market as usize, commodity as usize, qty)
+            .unwrap_or(-1)
+    }
+
+    /// Sell `qty` of commodity `c` into market `m`; returns the revenue, or −1 if
+    /// it could not be filled (§5).
+    #[func]
+    fn sell(&mut self, market: i64, commodity: i64, qty: i64) -> i64 {
+        self.sim
+            .sell(market as usize, commodity as usize, qty)
+            .unwrap_or(-1)
+    }
+
+    /// Commission a warship (0 frigate, 1 destroyer, 2 cruiser, 3 battleship)
+    /// into the fleet; returns whether it was built (§5/§8c).
+    #[func]
+    fn commission_ship(&mut self, class: i64) -> bool {
+        let class = match class {
+            1 => sim::ShipClass::Destroyer,
+            2 => sim::ShipClass::Cruiser,
+            3 => sim::ShipClass::Battleship,
+            _ => sim::ShipClass::Frigate,
+        };
+        self.sim.commission_ship(class).is_ok()
+    }
 }
 
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the

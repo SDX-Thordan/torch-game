@@ -8,6 +8,7 @@
 use super::alerts::{AlertFeed, Priority};
 use super::automation::AutomationPolicy;
 use super::campaign::Campaign;
+use super::corp::{Corp, OwnedShip};
 use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::faction::Relations;
@@ -15,7 +16,26 @@ use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::orbit::{default_system, Body};
 use super::progression::Progression;
 use super::rng::Pcg32;
+use super::ships::{self, ShipClass};
 use super::traffic::Hauler;
+
+/// Credits charged per unit of a commissioned hull's dry mass (§5 sink).
+const SHIP_PRICE_PER_MASS: i64 = 5;
+
+/// Why a market order could not be filled (§5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TradeError {
+    InsufficientCredits,
+    InsufficientStock,
+    InsufficientCargo,
+}
+
+/// Why a ship could not be commissioned (§5/§8c).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommissionError {
+    CantAfford,
+    NotEnoughCrew,
+}
 
 /// Ticks between hauler spawn attempts (≈ one per day at 1 tick/hour).
 const SPAWN_INTERVAL: u64 = 24;
@@ -86,6 +106,7 @@ pub struct Sim {
     progression: Progression,
     policy: AutomationPolicy,
     campaign: Campaign,
+    corp: Corp,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -100,6 +121,7 @@ impl Sim {
             .iter()
             .map(|d| d.name.to_string())
             .collect();
+        let commodity_count = markets[0].defs().len();
         Self {
             tick: 0,
             bodies: default_system(),
@@ -117,6 +139,7 @@ impl Sim {
             progression: Progression::new(),
             policy: AutomationPolicy::default(),
             campaign: Campaign::new(),
+            corp: Corp::new(commodity_count),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -161,6 +184,67 @@ impl Sim {
     /// The retention spine — tier, goals, and the gate's approach (§0).
     pub fn campaign(&self) -> &Campaign {
         &self.campaign
+    }
+
+    /// The player corporation — treasury, cargo, fleet, crew (§1/§5).
+    pub fn corp(&self) -> &Corp {
+        &self.corp
+    }
+
+    /// Buy `qty` of commodity `c` at market `m` (§5): debits credits at the
+    /// current price, lifts the goods into the warehouse, and nudges the price up.
+    pub fn buy(&mut self, m: usize, c: usize, qty: i64) -> Result<i64, TradeError> {
+        if qty <= 0 {
+            return Ok(0);
+        }
+        let price = self.markets[m].price(c);
+        let cost = price * qty;
+        if self.markets[m].stock(c) < qty {
+            return Err(TradeError::InsufficientStock);
+        }
+        if self.corp.credits() < cost {
+            return Err(TradeError::InsufficientCredits);
+        }
+        self.markets[m].remove_stock(c, qty);
+        self.corp.debit(cost);
+        self.corp.store(c, qty);
+        Ok(cost)
+    }
+
+    /// Sell `qty` of commodity `c` into market `m` (§5): lands warehouse cargo at
+    /// the current price for credits, nudging the price down.
+    pub fn sell(&mut self, m: usize, c: usize, qty: i64) -> Result<i64, TradeError> {
+        if qty <= 0 {
+            return Ok(0);
+        }
+        if self.corp.cargo(c) < qty {
+            return Err(TradeError::InsufficientCargo);
+        }
+        let price = self.markets[m].price(c);
+        let revenue = price * qty;
+        self.corp.unstore(c, qty);
+        self.markets[m].add_stock(c, qty);
+        self.corp.credit(revenue);
+        Ok(revenue)
+    }
+
+    /// Commission a warship of `class` into the fleet (§5/§8c): pays its build
+    /// cost and draws its crew from the trained-crew pool.
+    pub fn commission_ship(&mut self, class: ShipClass) -> Result<(), CommissionError> {
+        let hull = ships::hull(class);
+        let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
+        if self.corp.credits() < price {
+            return Err(CommissionError::CantAfford);
+        }
+        if self.corp.trained_crew() < hull.crew_required {
+            return Err(CommissionError::NotEnoughCrew);
+        }
+        let loadout = ships::reference_loadout(class, &mut self.rng);
+        self.corp.debit(price);
+        self.corp.assign_crew(hull.crew_required);
+        let name = format!("{} {:02}", hull.name, self.corp.fleet().len() + 1);
+        self.corp.add_ship(OwnedShip { name, loadout });
+        Ok(())
     }
 
     /// Standings, mutable — for diplomacy/contracts that move reputation (§10).
@@ -504,6 +588,58 @@ mod tests {
             skill_bp: 0,
         };
         assert_ne!(sim.interdict_with(id, frigate), Interdiction::NoSolution);
+    }
+
+    #[test]
+    fn the_corp_starts_solvent_and_crewed() {
+        let sim = Sim::new(0);
+        assert!(sim.corp().credits() > 0);
+        assert!(sim.corp().trained_crew() > 0);
+        assert!(sim.corp().fleet().is_empty());
+    }
+
+    #[test]
+    fn arbitrage_round_trip_turns_a_profit() {
+        // Buy ReactorFuel cheap at Earth (refined producer) and sell it dear at
+        // Ceres (refined consumer): the player works the same spread as the NPC
+        // haulers, for real credits (§5).
+        let mut sim = Sim::new(0);
+        let (earth, ceres, rf) = (1usize, 0usize, 5usize);
+        assert!(sim.markets()[earth].price(rf) < sim.markets()[ceres].price(rf));
+        let start = sim.corp().credits();
+        let cost = sim.buy(earth, rf, 10).unwrap();
+        assert_eq!(sim.corp().credits(), start - cost);
+        assert_eq!(sim.corp().cargo(rf), 10);
+        let revenue = sim.sell(ceres, rf, 10).unwrap();
+        assert!(revenue > cost, "selling dear should beat buying cheap");
+        assert!(sim.corp().credits() > start, "the round trip should profit");
+        assert_eq!(sim.corp().cargo(rf), 0);
+    }
+
+    #[test]
+    fn trades_are_guarded() {
+        let mut sim = Sim::new(0);
+        // Nothing in the warehouse to sell.
+        assert_eq!(sim.sell(0, 0, 5), Err(TradeError::InsufficientCargo));
+        // More than the market holds.
+        assert_eq!(sim.buy(0, 0, 1_000_000), Err(TradeError::InsufficientStock));
+        // Affordable stock-wise, but beyond the treasury (200 dear ReactorFuel).
+        assert_eq!(sim.buy(0, 5, 200), Err(TradeError::InsufficientCredits));
+    }
+
+    #[test]
+    fn commissioning_spends_credits_and_crew_with_the_pool_as_the_cap() {
+        let mut sim = Sim::new(0);
+        let (credits0, crew0) = (sim.corp().credits(), sim.corp().trained_crew());
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        assert_eq!(sim.corp().fleet().len(), 1);
+        assert!(sim.corp().credits() < credits0);
+        assert!(sim.corp().trained_crew() < crew0);
+        // A battleship needs more crew than the starting pool can field (§8c).
+        assert_eq!(
+            sim.commission_ship(ShipClass::Battleship),
+            Err(CommissionError::NotEnoughCrew)
+        );
     }
 
     #[test]
