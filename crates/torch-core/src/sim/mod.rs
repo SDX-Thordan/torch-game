@@ -6,6 +6,7 @@
 
 pub mod alerts;
 pub mod automation;
+pub mod campaign;
 pub mod combat;
 pub mod economy;
 pub mod event;
@@ -21,6 +22,7 @@ pub mod world;
 
 pub use alerts::{Alert, AlertFeed, Priority, Urgency, Verb};
 pub use automation::{AutomationPolicy, InterdictionPolicy};
+pub use campaign::{Campaign, Tier};
 pub use combat::{Band, BattleOutcome, CombatEvent, Doctrine, Fleet, TargetPriority};
 pub use economy::{CommodityDef, Market, Stock};
 pub use event::Event;

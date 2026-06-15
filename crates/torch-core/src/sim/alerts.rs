@@ -124,6 +124,7 @@ impl AlertFeed {
         let alert = match event {
             Event::Scarcity { market, commodity } => Some(self.scarcity(*market, *commodity, tick)),
             Event::HaulerInterdicted { .. } => Some(self.raid(tick)),
+            Event::TierAscended { tier } => Some(Self::milestone(tier, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -159,6 +160,18 @@ impl AlertFeed {
             voice: mgr.name.clone(),
             message,
             verb: Some(Verb::ExploitShortage { market, commodity }),
+        }
+    }
+
+    /// A tier ascent — the loudest, most welcome line in the feed (§0.3).
+    fn milestone(tier: &str, tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: format!("The Board: We've reached {tier}. The ring-gate draws closer."),
+            verb: None,
         }
     }
 

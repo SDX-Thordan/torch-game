@@ -404,6 +404,38 @@ impl TorchSim {
     fn set_auto_research(&mut self, enabled: bool) {
         self.sim.policy_mut().auto_research = enabled;
     }
+
+    // ---- The retention spine (§0) ----
+
+    /// Current tier name (§0.3).
+    #[func]
+    fn tier_name(&self) -> GString {
+        GString::from(self.sim.campaign().tier().name())
+    }
+
+    /// The *now* goal text — the current tier objective (§0.4).
+    #[func]
+    fn now_goal(&self) -> GString {
+        GString::from(self.sim.campaign().now_goal().0)
+    }
+
+    /// Progress toward the next tier, in operations completed.
+    #[func]
+    fn now_goal_progress(&self) -> i64 {
+        self.sim.campaign().now_goal().1
+    }
+
+    /// Operations needed to reach the next tier (0 = summit reached).
+    #[func]
+    fn now_goal_target(&self) -> i64 {
+        self.sim.campaign().now_goal().2
+    }
+
+    /// How close the ring-gate is to opening, in percent (the far goal, §0.1).
+    #[func]
+    fn gate_progress_pct(&self) -> i64 {
+        self.sim.campaign().gate_progress_bp() / 100
+    }
 }
 
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the

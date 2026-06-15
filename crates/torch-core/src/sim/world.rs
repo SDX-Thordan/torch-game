@@ -7,6 +7,7 @@
 
 use super::alerts::{AlertFeed, Priority};
 use super::automation::AutomationPolicy;
+use super::campaign::Campaign;
 use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::faction::Relations;
@@ -84,6 +85,7 @@ pub struct Sim {
     relations: Relations,
     progression: Progression,
     policy: AutomationPolicy,
+    campaign: Campaign,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -114,6 +116,7 @@ impl Sim {
             relations: Relations::new(),
             progression: Progression::new(),
             policy: AutomationPolicy::default(),
+            campaign: Campaign::new(),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -153,6 +156,11 @@ impl Sim {
     /// The player's standing with each faction (§10).
     pub fn relations(&self) -> &Relations {
         &self.relations
+    }
+
+    /// The retention spine — tier, goals, and the gate's approach (§0).
+    pub fn campaign(&self) -> &Campaign {
+        &self.campaign
     }
 
     /// Standings, mutable — for diplomacy/contracts that move reputation (§10).
@@ -243,11 +251,14 @@ impl Sim {
         outcome
     }
 
-    /// A *player* cut sours relations with the hauler's owner faction (§7b/§10);
-    /// pirate raids do not (the player isn't blamed).
+    /// A *player* cut sours relations with the hauler's owner faction (§7b/§10)
+    /// and counts as an operation on the climb (§0); pirate raids do neither.
     fn ripple_reputation(&mut self, h: &Hauler) {
         let faction = self.markets[h.origin].faction();
         self.relations.on_player_interdict(faction);
+        if let Some(tier) = self.campaign.record_op() {
+            self.events.push(Event::TierAscended { tier });
+        }
     }
 
     /// Remove the hauler at `index`, denying its delivery and tagging the
@@ -493,6 +504,38 @@ mod tests {
             skill_bp: 0,
         };
         assert_ne!(sim.interdict_with(id, frigate), Interdiction::NoSolution);
+    }
+
+    #[test]
+    fn operations_climb_the_retention_spine() {
+        // Each player interdiction is an operation on the climb; three of them
+        // ascend past the Station and draw the gate closer (§0.3).
+        use crate::sim::campaign::Tier;
+        let mut sim = Sim::new(0);
+        assert_eq!(sim.campaign().tier(), Tier::Station);
+        let mut ops = 0;
+        for _ in 0..400 {
+            if let Some(h) = sim.haulers().first() {
+                let id = h.id;
+                if sim.interdict(id) {
+                    ops += 1;
+                }
+            }
+            sim.step();
+            if sim.campaign().tier() != Tier::Station {
+                break;
+            }
+        }
+        assert!(ops >= 3, "should have completed operations, got {ops}");
+        assert_ne!(
+            sim.campaign().tier(),
+            Tier::Station,
+            "should climb past the Station"
+        );
+        assert!(
+            sim.campaign().gate_progress_bp() > 0,
+            "the gate should draw closer"
+        );
     }
 
     #[test]

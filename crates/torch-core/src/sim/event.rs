@@ -24,4 +24,6 @@ pub enum Event {
     HaulerInterdicted { id: u64 },
     /// A denied delivery left a market short of a commodity (§7b consequence).
     Scarcity { market: usize, commodity: usize },
+    /// The company climbed to a new tier (§0.3 arrival fanfare).
+    TierAscended { tier: &'static str },
 }
