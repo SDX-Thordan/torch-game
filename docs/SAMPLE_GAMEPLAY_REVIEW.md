@@ -12,7 +12,7 @@ _Touches nothing — is the world alive and worth watching with hands off the co
 | --- | --- |
 | treasury | 50000 → 50000 cr (+0, ~1×) |
 | actions | 0 over 0% of ticks |
-| pacing | 3929 ticks pending · longest idle 71 ticks |
+| pacing | 3816 ticks pending · longest idle 113 ticks |
 | campaign | The Station · gate 0% · 0 ascent(s) |
 | gate reached | — |
 | CEO level | 1 · techs 0 |
@@ -35,7 +35,7 @@ _Hand-trades the spread every tick — does the economy stay a decision, or beco
 | --- | --- |
 | treasury | 50000 → 242226 cr (+192226, ~4×) |
 | actions | 4000 over 100% of ticks |
-| pacing | 3929 ticks pending · longest idle 0 ticks |
+| pacing | 3353 ticks pending · longest idle 0 ticks |
 | campaign | The Station · gate 0% · 0 ascent(s) |
 | gate reached | — |
 | CEO level | 1 · techs 0 |
@@ -59,7 +59,7 @@ _Fills a small route table, then leaves — does the policy→execute→exceptio
 | --- | --- |
 | treasury | 24000 → 103220 cr (+79220, ~4×) |
 | actions | 0 over 0% of ticks |
-| pacing | 3929 ticks pending · longest idle 71 ticks |
+| pacing | 3713 ticks pending · longest idle 72 ticks |
 | campaign | Sol & the Cold War · gate 66% · 2 ascent(s) |
 | gate reached | — |
 | CEO level | 6 · techs 0 |
@@ -101,7 +101,7 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1273 (~53 days).
 - **[NOTE]** _Economy_ — Active all run but treasury never moved — the loop found no work (e.g. a standing order idle below its margin). That idle state is the exception the feed should surface.
-- **[GOOD]** _Agency_ — Acted on 2% of ticks (119 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 24 ticks (~1 days). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[GOOD]** _Agency_ — Acted on 2% of ticks (119 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 24 ticks (~1 days, ~1 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
 - **[NOTE]** _Alert feed_ — 166 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-1000). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
 - **[INFO]** _Reputation_ — Mars warmed to 960 over the run.
@@ -114,7 +114,7 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 | --- | --- |
 | treasury | 42000 → 30000 cr (+-12000, ~0×) |
 | actions | 6 over 0% of ticks |
-| pacing | 3929 ticks pending · longest idle 30 ticks |
+| pacing | 3641 ticks pending · longest idle 144 ticks |
 | campaign | The Region · gate 33% · 1 ascent(s) |
 | gate reached | — |
 | CEO level | 2 · techs 0 |
@@ -130,7 +130,7 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 
 - **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
 - **[NOTE]** _Economy_ — Lost money over the run: 42000 → 30000 cr (-12000).
-- **[GOOD]** _Agency_ — Acted on 0% of ticks (6 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 30 ticks (~1 days). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[GOOD]** _Agency_ — Acted on 0% of ticks (6 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 144 ticks (~6 days, ~6 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
 - **[NOTE]** _Alert feed_ — 51 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 
 ## Tycoon

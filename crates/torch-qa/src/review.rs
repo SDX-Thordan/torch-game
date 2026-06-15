@@ -178,13 +178,16 @@ fn review_agency(t: &Transcript, active: bool, f: &mut Vec<Finding>) {
                 "Agency",
                 format!("Issued {} actions across {density}% of ticks.", t.actions),
             ));
-        } else if idle <= 120 {
+        } else if idle <= 240 {
+            // ≤ ~10 days ⇒ ~10 s at 24× — fast-forwardable, and the §21 "felt
+            // vastness" of a quiet burn rather than a pacing dead-zone.
             f.push(Finding::new(
                 Severity::Good,
                 "Agency",
                 format!(
-                    "Acted on {density}% of ticks ({} actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was {idle} ticks (~{} days). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.",
+                    "Acted on {density}% of ticks ({} actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was {idle} ticks (~{} days, ~{} s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.",
                     t.actions,
+                    idle / 24,
                     idle / 24
                 ),
             ));
