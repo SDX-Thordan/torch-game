@@ -155,6 +155,38 @@ func _build_world() -> void:
 	lanes.material_override = lane_mat
 	add_child(lanes)
 
+	_build_starfield()
+
+
+## A deterministic starfield shell behind the system — the §21 "felt vastness",
+## so the dark space reads as depth rather than emptiness. A single MultiMesh of
+## billboarded points (cheap, static).
+func _build_starfield() -> void:
+	var n := 600
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_color = Color(0.85, 0.88, 1.0)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.18, 0.18)
+	quad.material = mat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = quad
+	mm.instance_count = n
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7              # deterministic placement (§27 in spirit)
+	for i in n:
+		var dir := Vector3(rng.randfn(), rng.randfn(), rng.randfn())
+		if dir.length() < 0.001:
+			dir = Vector3.UP
+		var pos := dir.normalized() * rng.randf_range(55.0, 80.0)
+		var s := rng.randf_range(0.5, 1.6)   # varied star sizes
+		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * s), pos))
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	add_child(mmi)
+
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
