@@ -828,6 +828,11 @@ Status: [x] done, [~] in progress, [ ] todo.
   instance appears. Mars's *profile* (balanced vs. a designed specialist) is now a
   free tuning knob on top of correct routing.
 
+- **2026-06-15 — Starfield backdrop (§21 felt vastness).** A single static
+  `MultiMeshInstance3D` of 600 billboarded unshaded quads on a deterministic shell
+  (radius 55–80, seeded RNG) behind the system, so the dark space reads as depth,
+  not emptiness. Cheap (one draw), pure shell, render-verified under xvfb.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
