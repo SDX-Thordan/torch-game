@@ -137,22 +137,40 @@ pub fn default_system() -> Vec<Body> {
             phase_mdeg: 24_000,
             kind: Gate,
         },
-        // 12+: moons (exaggerated radii for legibility).
-        moon("Luna", 3, 200_000, 655, 0),           // 12  Earth
-        moon("Phobos", 4, 90_000, 8, 0),            // 13  Mars
-        moon("Deimos", 4, 150_000, 30, 180_000),    // 14
-        moon("Io", 6, 180_000, 42, 0),              // 15  Jupiter
-        moon("Europa", 6, 280_000, 85, 70_000),     // 16
-        moon("Ganymede", 6, 400_000, 171, 160_000), // 17
-        moon("Callisto", 6, 600_000, 400, 250_000), // 18
-        moon("Titan", 7, 520_000, 383, 0),          // 19  Saturn
-        moon("Rhea", 7, 320_000, 108, 110_000),     // 20
-        moon("Enceladus", 7, 200_000, 33, 200_000), // 21
-        moon("Mimas", 7, 130_000, 22, 300_000),     // 22
-        moon("Titania", 8, 240_000, 209, 0),        // 23  Uranus
-        moon("Oberon", 8, 360_000, 323, 150_000),   // 24
-        moon("Triton", 9, 260_000, 141, 0),         // 25  Neptune
-        moon("Charon", 10, 90_000, 153, 0),         // 26  Pluto
+        // 12+: moons (exaggerated radii for legibility, each on its own orbit).
+        moon("Luna", 3, 220_000, 655, 0), // Earth
+        moon("Phobos", 4, 110_000, 8, 0), // Mars
+        moon("Deimos", 4, 175_000, 30, 180_000),
+        moon("Io", 6, 230_000, 42, 0), // Jupiter
+        moon("Europa", 6, 330_000, 85, 70_000),
+        moon("Ganymede", 6, 460_000, 171, 160_000),
+        moon("Callisto", 6, 640_000, 400, 250_000),
+        // Saturn — the bustling system (§17): ~20 named moons on distinct orbits.
+        moon("Pan", 7, 110_000, 14, 20_000),
+        moon("Daphnis", 7, 125_000, 17, 250_000),
+        moon("Atlas", 7, 140_000, 20, 130_000),
+        moon("Prometheus", 7, 158_000, 24, 300_000),
+        moon("Pandora", 7, 175_000, 27, 80_000),
+        moon("Mimas", 7, 195_000, 33, 210_000),
+        moon("Janus", 7, 212_000, 38, 340_000),
+        moon("Epimetheus", 7, 228_000, 42, 160_000),
+        moon("Enceladus", 7, 250_000, 49, 60_000),
+        moon("Tethys", 7, 290_000, 63, 290_000),
+        moon("Telesto", 7, 305_000, 67, 100_000),
+        moon("Calypso", 7, 320_000, 71, 240_000),
+        moon("Polydeuces", 7, 345_000, 80, 30_000),
+        moon("Dione", 7, 365_000, 87, 200_000),
+        moon("Helene", 7, 385_000, 92, 320_000),
+        moon("Rhea", 7, 430_000, 120, 110_000),
+        moon("Titan", 7, 560_000, 230, 0),
+        moon("Hyperion", 7, 650_000, 290, 150_000),
+        moon("Iapetus", 7, 820_000, 470, 250_000),
+        moon("Phoebe", 7, 980_000, 590, 70_000),
+        // Uranus / Neptune / Pluto.
+        moon("Titania", 8, 260_000, 209, 0),
+        moon("Oberon", 8, 380_000, 323, 150_000),
+        moon("Triton", 9, 280_000, 141, 0),
+        moon("Charon", 10, 110_000, 153, 0),
     ]
 }
 

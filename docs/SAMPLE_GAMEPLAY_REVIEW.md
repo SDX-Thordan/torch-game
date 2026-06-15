@@ -175,7 +175,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | persona | overall | Direction | Flow | Agency | Reward | Stakes | Variety |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Spectator | **26** | 0 | 99 | 0 | 0 | 22 | 49 |
-| Arbitrageur | **27** | 0 | 100 | 0 | 0 | 27 | 49 |
+| Arbitrageur | **28** | 0 | 100 | 0 | 0 | 30 | 49 |
 | Logistician | **62** | 66 | 99 | 39 | 66 | 25 | 76 |
 | Privateer | **90** | 100 | 100 | 60 | 100 | 100 | 79 |
 | Warlord | **52** | 33 | 95 | 19 | 23 | 92 | 72 |
@@ -184,7 +184,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 **Per-style read (overall + weakest link):**
 
 - **Spectator** ███······· 26/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
-- **Arbitrageur** ███······· 27/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
+- **Arbitrageur** ███······· 28/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
 - **Logistician** ███████··· 62/100 — weakest is _Stakes_ (25/100): treasury dip 1%, 0 ships lost, rep low 0, pressure peak 29
 - **Privateer** █████████· 90/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/166 act-now shortages
 - **Warlord** ██████···· 52/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/48 act-now shortages
