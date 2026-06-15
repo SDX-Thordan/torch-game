@@ -380,6 +380,17 @@ impl TorchSim {
         )
     }
 
+    /// The orrery body sighted wreck `i` drifts near (§15/§21), for placing its
+    /// marker on the map. `-1` if no such wreck.
+    #[func]
+    fn wreck_body(&self, i: i64) -> i64 {
+        self.sim
+            .wrecks()
+            .get(i as usize)
+            .map(|w| w.body as i64)
+            .unwrap_or(-1)
+    }
+
     /// Strip the first sighted wreck (§15); returns whether one was salvaged.
     #[func]
     fn salvage_wreck(&mut self) -> bool {

@@ -51,7 +51,7 @@ var status := "Welcome, CEO."
 var _top: Label
 var _assets: Label
 var _deck: Label
-var _feed: Label
+var _feed: RichTextLabel              # bbcode so alerts colour by priority (§19)
 var _help: Label
 var _paused: Label
 var _flash_rect: ColorRect
@@ -61,9 +61,11 @@ var _ascend_rect: ColorRect
 var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []      # one per sim body (index-aligned; sun at 0)
 var _hauler_pool: Array[MeshInstance3D] = []
+var _wreck_pool: Array[MeshInstance3D] = []   # §15 derelict markers on the map
 var _gate_ring: MeshInstance3D
 var _hauler_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
+var _wreck_mat: StandardMaterial3D
 var _gate_mat: StandardMaterial3D
 
 
@@ -102,9 +104,10 @@ func _build_world() -> void:
 	key.light_energy = 0.4
 	add_child(key)
 
-	# Shared hauler materials (created once; reused across the pool).
+	# Shared hauler/wreck materials (created once; reused across the pools).
 	_hauler_mat = _emissive_mat(HAULER_COL)
 	_select_mat = _emissive_mat(SELECT_COL)
+	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))   # teal: a derelict to strip
 
 	var max_r := 1.0
 	for b in sim.body_count():
@@ -164,8 +167,17 @@ func _build_hud() -> void:
 	_top = _make_label(layer, Vector2(12, 8), 17)
 	_assets = _make_label(layer, Vector2(12, 38), 12)
 	_deck = _make_label(layer, Vector2(12, 372), 11)
-	_feed = _make_label(layer, Vector2(12, 602), 12)
 	_help = _make_label(layer, Vector2(12, 690), 10)
+	# The alert feed is a bbcode RichTextLabel so each line can colour by priority.
+	_feed = RichTextLabel.new()
+	_feed.bbcode_enabled = true
+	_feed.scroll_active = false
+	_feed.position = Vector2(12, 602)
+	_feed.size = Vector2(700, 110)
+	_feed.add_theme_font_size_override("normal_font_size", 12)
+	_feed.add_theme_font_size_override("bold_font_size", 12)
+	_feed.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_feed)
 	# The paused banner sits over the orrery (right side), clear of the top bar.
 	_paused = _make_label(layer, Vector2(900, 70), 22)
 	_paused.modulate = Color(1.0, 0.8, 0.3)
@@ -304,6 +316,21 @@ func _update_world() -> void:
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
 		else:
 			node.visible = false
+	# Sighted derelicts (§15): a teal marker floating above the body each drifts
+	# near, so discovery is visible on the map, not just in the HUD line.
+	var wn := sim.wreck_count()
+	while _wreck_pool.size() < wn:
+		var wm := _sphere(0.18, _wreck_mat)
+		add_child(wm)
+		_wreck_pool.append(wm)
+	for wi in _wreck_pool.size():
+		var wnode := _wreck_pool[wi]
+		var wb := sim.wreck_body(wi) if wi < wn else -1
+		if wb >= 0:
+			wnode.visible = true
+			wnode.position = _world3d(sim.body_x(wb), sim.body_y(wb)) + Vector3(0.5 + 0.35 * wi, 0.7, 0)
+		else:
+			wnode.visible = false
 	# The gate ring brightens with approach (§0.1).
 	var g: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
 	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
@@ -406,11 +433,16 @@ func _refresh() -> void:
 	deck.append(wrecks)
 	_deck.text = "\n".join(deck)
 
-	var feed_lines: Array[String] = ["── ALERT FEED ──"]
+	# Alert feed, coloured by priority (§19): act-now shortages glow warm and
+	# carry a [!], FYI notices stay cool and quiet.
+	var feed := "[b]── ALERT FEED ──[/b]\n"
 	for a in mini(sim.alert_count(), 3):
-		var tag := "[!]" if sim.alert_is_act_now(a) else "   "
-		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
-	_feed.text = "\n".join(feed_lines)
+		var msg := sim.alert_message(a)
+		if sim.alert_is_act_now(a):
+			feed += "[color=#ff6a4d][!] %s[/color]\n" % msg
+		else:
+			feed += "[color=#9fb0c0]    %s[/color]\n" % msg
+	_feed.text = feed
 
 	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
 
