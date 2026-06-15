@@ -94,6 +94,9 @@ func _refresh() -> void:
 
 	var lines: Array[String] = []
 	lines.append("NOW: %s (%d/%d)" % [sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()])
+	# The §0.3 tier briefing + the scope it unlocks (stations/routes widen as you climb).
+	lines.append("   %s" % sim.tier_briefing())
+	lines.append("   scope: up to %d stations, %d routes" % [sim.station_cap(), sim.route_cap()])
 	lines.append("")
 	# Market board: a marker on the selected market column + selected commodity row.
 	var head := "   %-12s" % "MARKET"

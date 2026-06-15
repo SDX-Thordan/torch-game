@@ -544,6 +544,25 @@ impl TorchSim {
         self.sim.campaign().gate_progress_bp() / 100
     }
 
+    /// The current tier's "different kind of game" briefing (§0.3).
+    #[func]
+    fn tier_briefing(&self) -> GString {
+        GString::from(self.sim.campaign().briefing())
+    }
+
+    /// How many stations the player may run at the current tier (scope widens as
+    /// the company climbs, §0.3).
+    #[func]
+    fn station_cap(&self) -> i64 {
+        self.sim.campaign().station_cap() as i64
+    }
+
+    /// How many standing trade routes the player may run at the current tier.
+    #[func]
+    fn route_cap(&self) -> i64 {
+        self.sim.campaign().route_cap() as i64
+    }
+
     // ---- The player corporation (§1/§5) ----
 
     /// Treasury balance in credits.

@@ -43,8 +43,6 @@ const UPKEEP_FREE_FLOAT: i64 = 100_000;
 const UPKEEP_DEN: i64 = 150;
 /// Credits to found a production station (§3.1).
 const STATION_COST: i64 = 8_000;
-/// Cap on player stations (Tier-1 scope).
-const MAX_STATIONS: usize = 4;
 /// A refinery's per-tick throughput, sell-surplus floor, and production ceiling.
 const REFINERY_RATE: i64 = 5;
 const REFINERY_SELL_ABOVE: i64 = 80;
@@ -117,8 +115,6 @@ const CRUISE_SPEED: i64 = 20_000;
 const MIN_TRAVEL: u64 = 24;
 /// Ticks between automated interdiction sorties (§12 patrol cadence).
 const AUTOMATION_INTERVAL: u64 = 12;
-/// How many standing trade routes the player can run at once (§4 master-table).
-const MAX_ROUTES: usize = 4;
 /// Ticks between reputation-decay ticks (§10): grudges fade slowly toward
 /// neutral, so a Hostile standing is recoverable if you stop antagonizing.
 const REP_RECOVERY_INTERVAL: u64 = 24;
@@ -459,7 +455,7 @@ impl Sim {
     /// Add a parameterized Trade Route standing order to the table — buy
     /// `commodity` at `origin`, sell at `dest`, `qty` per trip, only while the
     /// spread clears `min_margin` (§4). Many routes run concurrently against the
-    /// shared freighter pool; exceptions go idle. Capped at [`MAX_ROUTES`].
+    /// shared freighter pool; exceptions go idle. Capped at the tier's route cap.
     pub fn set_trade_route(
         &mut self,
         commodity: usize,
@@ -468,7 +464,7 @@ impl Sim {
         qty: i64,
         min_margin: i64,
     ) {
-        if self.routes.len() < MAX_ROUTES {
+        if self.routes.len() < self.campaign.tier().route_cap() {
             self.routes
                 .push(TradeRoute::new(commodity, origin, dest, qty, min_margin));
         }
@@ -557,7 +553,7 @@ impl Sim {
         if raw >= RAW_COUNT {
             return Err(FoundError::NotARawCommodity);
         }
-        if self.stations.len() >= MAX_STATIONS {
+        if self.stations.len() >= self.campaign.tier().station_cap() {
             return Err(FoundError::TooManyStations);
         }
         if self.corp.credits() < STATION_COST {
@@ -1450,14 +1446,29 @@ mod tests {
             sim.found_refinery(5, 0, 0),
             Err(FoundError::NotARawCommodity)
         );
-        // The Tier-1 station cap.
-        for raw in [0, 1, 2, 0] {
-            sim.found_refinery(raw, 0, 0).unwrap();
+        // Found stations until a guard fires. Founding is an op that climbs the
+        // spine, and the cap *widens* with the tier (§0.3), so the count is never
+        // allowed to exceed the *current* tier's cap, and a guard (cap or capital)
+        // eventually stops the spree.
+        let mut last_err = None;
+        for _ in 0..20 {
+            match sim.found_refinery(1, 0, 0) {
+                Ok(()) => assert!(
+                    sim.stations().len() <= sim.campaign().station_cap(),
+                    "must never exceed the tier station cap"
+                ),
+                Err(e) => {
+                    last_err = Some(e);
+                    break;
+                }
+            }
         }
-        assert_eq!(sim.stations().len(), 4);
-        assert_eq!(
-            sim.found_refinery(1, 0, 0),
-            Err(FoundError::TooManyStations)
+        assert!(
+            matches!(
+                last_err,
+                Some(FoundError::TooManyStations) | Some(FoundError::CantAfford)
+            ),
+            "founding is bounded by the tier cap or capital, got {last_err:?}"
         );
     }
 
@@ -1540,7 +1551,11 @@ mod tests {
         for _ in 0..10 {
             sim.set_trade_route(5, 1, 0, 20, 1);
         }
-        assert_eq!(sim.routes().len(), 4, "the table is capped at MAX_ROUTES");
+        assert_eq!(
+            sim.routes().len(),
+            4,
+            "the table is capped at the tier route cap"
+        );
         sim.clear_trade_route();
         assert!(sim.routes().is_empty(), "clearing empties the whole table");
     }

@@ -54,6 +54,47 @@ impl Tier {
             Tier::Gate => "The ring-gate is open — seize the frontier.",
         }
     }
+
+    /// The "this is now a different *kind* of game" briefing voiced on arrival
+    /// (§0.3): names the new signature activity so the player can reframe.
+    pub fn briefing(self) -> &'static str {
+        match self {
+            Tier::Station => {
+                "Tier 1 — The Station. One operation to keep alive and profitable. Learn the verbs."
+            }
+            Tier::Region => {
+                "Tier 2 — The Region. Build out a logistics network across the Belt — and meet your first predators."
+            }
+            Tier::Sol => {
+                "Tier 3 — Sol & the Cold War. The whole system and its politics. Play the powers against each other and earn dominance."
+            }
+            Tier::Gate => {
+                "Tier 4 — The Gate. The ring opens onto a larger, deadlier game. Seize the frontier."
+            }
+        }
+    }
+
+    /// How many production stations the player may run at this tier (§0.3:
+    /// infrastructure *grows* as you climb — Tier 1 stays the baseline, higher
+    /// tiers unlock a wider network). Monotonically non-decreasing.
+    pub fn station_cap(self) -> usize {
+        match self {
+            Tier::Station => 4,
+            Tier::Region => 6,
+            Tier::Sol => 8,
+            Tier::Gate => 12,
+        }
+    }
+
+    /// How many standing trade routes the player may run at this tier (the
+    /// master-table widens with scale, §4/§0.3). Monotonically non-decreasing.
+    pub fn route_cap(self) -> usize {
+        match self {
+            Tier::Station => 4,
+            Tier::Region => 6,
+            Tier::Sol | Tier::Gate => 8,
+        }
+    }
 }
 
 /// Basis-point denominator.
@@ -99,6 +140,21 @@ impl Campaign {
         self.tier() == Tier::Gate
     }
 
+    /// The current tier's briefing (the "different kind of game" framing, §0.3).
+    pub fn briefing(&self) -> &'static str {
+        self.tier().briefing()
+    }
+
+    /// How many stations / routes the player may run at the current tier — scope
+    /// that widens as the company climbs (§0.3).
+    pub fn station_cap(&self) -> usize {
+        self.tier().station_cap()
+    }
+
+    pub fn route_cap(&self) -> usize {
+        self.tier().route_cap()
+    }
+
     /// Record a completed player operation. Returns the new tier's name if this
     /// op triggered an ascent (the arrival fanfare, §0.3).
     pub fn record_op(&mut self) -> Option<&'static str> {
@@ -139,6 +195,40 @@ mod tests {
         assert!(c.gate_progress_bp() > 0);
         // Progress resets within the new tier.
         assert_eq!(c.now_goal().1, 0);
+    }
+
+    #[test]
+    fn infrastructure_scope_widens_as_you_climb() {
+        // Tier 1 keeps the baseline (4 stations / 4 routes); each ascent unlocks
+        // a wider network — "Region = extended infrastructure" made mechanical.
+        let mut c = Campaign::new();
+        assert_eq!((c.station_cap(), c.route_cap()), (4, 4));
+        let caps = |c: &Campaign| (c.station_cap(), c.route_cap());
+        let mut prev = caps(&c);
+        for _ in 0..(3 + 10 + 25) {
+            c.record_op();
+            let now = caps(&c);
+            assert!(now.0 >= prev.0 && now.1 >= prev.1, "caps must never shrink");
+            prev = now;
+        }
+        // At the summit the network is at its widest.
+        assert_eq!(c.tier(), Tier::Gate);
+        assert_eq!((c.station_cap(), c.route_cap()), (12, 8));
+    }
+
+    #[test]
+    fn every_tier_has_a_distinct_briefing() {
+        let briefings: Vec<&str> = [Tier::Station, Tier::Region, Tier::Sol, Tier::Gate]
+            .iter()
+            .map(|t| t.briefing())
+            .collect();
+        // All four are present, non-empty, and distinct (a real per-tier reframe).
+        assert!(briefings.iter().all(|b| !b.is_empty()));
+        for i in 0..briefings.len() {
+            for j in (i + 1)..briefings.len() {
+                assert_ne!(briefings[i], briefings[j]);
+            }
+        }
     }
 
     #[test]

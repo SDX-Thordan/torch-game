@@ -130,8 +130,11 @@ Status: [x] done, [~] in progress, [ ] todo.
   auto-research run autonomously in `step()`; the alert feed (§19) surfaces the
   consequences. Policy set by the player, executed by managers.
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
-- [~] **12. Tier ascent + gate foreshadowing** — model + always-visible gate done
-  (`sim::campaign`, voiced ascents); per-tier content/"new kind of game" later.
+- [x] **12. Tier ascent + gate foreshadowing** — model + always-visible gate +
+  voiced ascents (`sim::campaign`); per-tier MVP content now in: each tier has a
+  distinct **briefing** (the "different kind of game" reframe, §0.3) and **scope
+  that widens as you climb** (station/route caps grow Station→Gate). The post-gate
+  "bigger game" (Tier-4 procedural frontier) is tracked under #15 (§17, post-MVP).
 - [x] **13. Pressure systems** (`sim::pressure`) — three decaying gauges (faction
   war / piracy / scarcity), **forecasting** (raids telegraphed ahead), a **pacing
   governor** (no two spikes dogpile), biting-but-recoverable decay, and an
@@ -618,6 +621,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   forecasts-vs-cuts comparison falsely flagged the Privateer — the finding reports
   the telegraph count, not a ratio. Sample review regenerated (raid timing shifts
   slightly under the governor; all findings still Good).
+
+- **2026-06-15 — Per-tier content (§0.3) — tiers play differently, not just
+  bigger.** Closed the open half of #12. Two mechanical per-tier differences on top
+  of the existing spine model: (1) `Tier::briefing()` — a distinct "this is now a
+  different *kind* of game" reframe voiced on each ascent (Station = survival puzzle
+  → Region = logistics network + first predators → Sol = geopolitics/earn dominance
+  → Gate = the larger game), shown persistently in the destination panel; (2)
+  **scope that widens as you climb** — `Tier::station_cap()`/`route_cap()` grow
+  Station(4/4)→Region(6/6)→Sol(8/8)→Gate(12/8), so "Region = extended
+  infrastructure" (§0.3) is mechanical, not flavor. **Key call:** caps only ever
+  *increase* at higher tiers, so Tier-1 behavior (and the §7c gate) is unchanged —
+  no regression. Nice emergent interaction the test surfaced: founding a station is
+  itself a spine op, so building infrastructure *climbs* you and unlocks *more*
+  infrastructure — `refineries_are_guarded` was rewritten from a fixed cap-of-4
+  assertion to a robust invariant (`len <= tier cap`, a guard always eventually
+  fires) since founding now ascends mid-loop. Caps read off `self.campaign.tier()`
+  in `found_refinery`/`set_trade_route` (the old `MAX_STATIONS`/`MAX_ROUTES` consts
+  removed). Bound to the shell (`tier_briefing`/`station_cap`/`route_cap` + HUD
+  lines). QA review byte-identical (personas don't reach the old caps). The full
+  "each tier a wholly new game" (Tier-4 procedural systems) stays post-MVP (#15).
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
