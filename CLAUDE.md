@@ -340,6 +340,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   the first playable state**: open it, watch the world, control time, press verbs.
   Next: the §17 3D orrery, the diegetic console chrome (§20), and juice/audio (§23).
 
+- **2026-06-15 — Trade-route standing orders (§4 of the influence model).** First
+  parameterized standing order, per the new `docs/TORCH_Player_Influence...` model:
+  `sim::logistics::TradeRoute` (commodity, origin→dest, qty, min_margin) is set by
+  the player; `Sim::run_logistics` flies an owned **freighter** on the loop each
+  tick — buy at origin when the spread clears the margin, travel (orrery distance ÷
+  cruise), sell at dest, bank the profit, repeat — all hands-off. Below the margin
+  or with no freighter it goes **idle** (the exception the shell surfaces). This is
+  the spreadsheet-sim's policy→execute→exception loop: the player tunes params, the
+  sim runs them. `route` is `Copy`, so `run_logistics` copies it out, mutates, and
+  writes it back — no borrow fight with `self.markets`/`self.corp`. Bound: F
+  commission freighter, D set route from the trade cursor, G clear. Replaces
+  instant teleport-arbitrage with real logistics over time.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

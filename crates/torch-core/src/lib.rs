@@ -519,6 +519,68 @@ impl TorchSim {
         self.sim.commission_ship(class).is_ok()
     }
 
+    /// Freighters owned, for running trade-route standing orders (§4).
+    #[func]
+    fn freighters(&self) -> i64 {
+        self.sim.corp().freighters()
+    }
+
+    /// Commission a civilian freighter; returns whether it was built (§5/§4).
+    #[func]
+    fn commission_freighter(&mut self) -> bool {
+        self.sim.commission_freighter().is_ok()
+    }
+
+    /// Set a Trade Route standing order: buy `commodity` at `origin`, sell at
+    /// `dest`, `qty`/trip, while the spread clears `min_margin` (§4).
+    #[func]
+    fn set_trade_route(
+        &mut self,
+        commodity: i64,
+        origin: i64,
+        dest: i64,
+        qty: i64,
+        min_margin: i64,
+    ) {
+        self.sim.set_trade_route(
+            commodity as usize,
+            origin as usize,
+            dest as usize,
+            qty,
+            min_margin,
+        );
+    }
+
+    /// Cancel the standing trade route.
+    #[func]
+    fn clear_trade_route(&mut self) {
+        self.sim.clear_trade_route();
+    }
+
+    /// A one-line description of the current trade route and its state (§4).
+    #[func]
+    fn route_status(&self) -> GString {
+        let Some(r) = self.sim.route() else {
+            return GString::from("none — set one with [D]");
+        };
+        let names = self.sim.markets()[0].defs();
+        let commodity = names.get(r.commodity).map(|d| d.name).unwrap_or("?");
+        let origin = self.sim.markets()[r.origin].name();
+        let dest = self.sim.markets()[r.dest].name();
+        let state = if r.in_transit {
+            "in transit"
+        } else {
+            let spread = self.sim.markets()[r.dest].price(r.commodity)
+                - self.sim.markets()[r.origin].price(r.commodity);
+            if spread >= r.min_margin {
+                "loading"
+            } else {
+                "idle — spread below margin"
+            }
+        };
+        GString::from(format!("{commodity} {origin}→{dest} ×{} [{state}]", r.qty))
+    }
+
     // ---- The command deck: standing policy a CEO sets (§12) ----
 
     /// Whether the standing interdiction patrol is hunting.

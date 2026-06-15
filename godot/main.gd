@@ -131,6 +131,7 @@ func _refresh() -> void:
 		"ON" if sim.patrol_enabled() else "off", sim.patrol_target_name(),
 		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()]
 	])
+	deck.append("freighters %d    route: %s" % [sim.freighters(), sim.route_status()])
 	_deck.text = "\n".join(deck)
 
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
@@ -139,7 +140,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict  [N]ew ship\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict  [N]ew ship  [F]reighter [D]route [G]clear\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit"
 
 
 func _draw() -> void:
@@ -211,6 +212,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			ceo_pick = (ceo_pick + 1) % BRANCH_NAMES.size()
 		KEY_X:
 			status = "CEO committed to %s." % BRANCH_NAMES[ceo_pick] if sim.ceo_choose_branch(ceo_pick) else "Branch already chosen."
+		KEY_F:
+			status = "Freighter commissioned." if sim.commission_freighter() else "Can't afford a freighter / no crew."
+		KEY_D:
+			# A standing Trade Route from the cursor: buy here, sell at the other market.
+			var dest := (sel_market + 1) % sim.market_count()
+			sim.set_trade_route(sel_comm, sel_market, dest, trade_qty, 1)
+			status = "Trade route set: %s %s→%s ×%d." % [
+				sim.commodity_name(sel_comm), sim.market_name(sel_market), sim.market_name(dest), trade_qty
+			]
+		KEY_G:
+			sim.clear_trade_route()
+			status = "Trade route cleared."
 
 
 func _do_buy() -> void:

@@ -30,6 +30,8 @@ pub struct Corp {
     fleet: Vec<OwnedShip>,
     /// Untasked trained crew available to stand up new warships (§8c).
     trained_crew: i64,
+    /// Freighters owned, for running trade-route standing orders (§4).
+    freighters: i64,
 }
 
 impl Corp {
@@ -40,7 +42,17 @@ impl Corp {
             warehouse: vec![0; commodity_count],
             fleet: Vec::new(),
             trained_crew: STARTING_CREW,
+            freighters: 0,
         }
+    }
+
+    pub fn freighters(&self) -> i64 {
+        self.freighters
+    }
+
+    /// Add a freighter to the books (a commissioned civilian hauler).
+    pub fn add_freighter(&mut self) {
+        self.freighters += 1;
     }
 
     pub fn credits(&self) -> i64 {
