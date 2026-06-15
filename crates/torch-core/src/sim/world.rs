@@ -6,6 +6,7 @@
 //! the Godot shell binds to and that keeps the core headless and testable.
 
 use super::alerts::{AlertFeed, Priority};
+use super::automation::AutomationPolicy;
 use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::faction::Relations;
@@ -27,6 +28,8 @@ const CRUISE_SPEED: i64 = 20_000;
 const MIN_TRAVEL: u64 = 24;
 /// Ticks between NPC pirate raid attempts (§13 ambient predation).
 const PIRATE_INTERVAL: u64 = 72;
+/// Ticks between automated interdiction sorties (§12 patrol cadence).
+const AUTOMATION_INTERVAL: u64 = 12;
 
 /// A renderable view of one body at a single tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,6 +83,7 @@ pub struct Sim {
     feed: AlertFeed,
     relations: Relations,
     progression: Progression,
+    policy: AutomationPolicy,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -109,6 +113,7 @@ impl Sim {
             feed: AlertFeed::new(seed, market_names, commodity_names),
             relations: Relations::new(),
             progression: Progression::new(),
+            policy: AutomationPolicy::default(),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -165,6 +170,16 @@ impl Sim {
         &mut self.progression
     }
 
+    /// The standing automation policy the managers execute (§12).
+    pub fn policy(&self) -> &AutomationPolicy {
+        &self.policy
+    }
+
+    /// Set the automation policy the managers execute (§12).
+    pub fn policy_mut(&mut self) -> &mut AutomationPolicy {
+        &mut self.policy
+    }
+
     /// Discover blueprint `i`, honoring its reputation gate against the player's
     /// current standings (§10/§25). Returns whether it was learned.
     pub fn discover_blueprint(&mut self, i: usize) -> bool {
@@ -190,6 +205,7 @@ impl Sim {
         self.deliver_arrivals();
         self.spawn_traffic();
         self.pirate_raid();
+        self.run_automation();
         self.events.push(Event::Tick { tick: self.tick });
         // The alert feed (§19) consumes this tick's events (§29).
         let tick = self.tick;
@@ -244,6 +260,38 @@ impl Sim {
             commodity: h.commodity,
         });
         h
+    }
+
+    /// Run the standing automation policy this tick (§12 run-by-exception): the
+    /// interdiction patrol cuts matching shipping on its cadence, and research is
+    /// auto-invested. The player set the policy; the managers do the work.
+    fn run_automation(&mut self) {
+        let pol = self.policy; // Copy — no borrow held over the mutations below
+        if pol.interdiction.enabled && self.tick.is_multiple_of(AUTOMATION_INTERVAL) {
+            let target = self
+                .haulers
+                .iter()
+                .enumerate()
+                .filter(|(_, h)| h.qty >= pol.interdiction.min_cargo)
+                .filter(|(_, h)| match pol.interdiction.target {
+                    Some(f) => self.markets[h.origin].faction() == f,
+                    None => true,
+                })
+                .max_by_key(|(_, h)| h.qty)
+                .map(|(i, _)| i);
+            if let Some(i) = target {
+                let outcome = resolve(&self.haulers[i], &pol.patrol, self.tick, &mut self.rng);
+                if outcome == Interdiction::Interdicted {
+                    let h = self.cut_hauler(i);
+                    self.ripple_reputation(&h); // the player's managed asset → their tab
+                }
+            }
+        }
+        if pol.auto_research {
+            if let Some(i) = self.progression.research.cheapest_researchable() {
+                let _ = self.progression.research.research(i);
+            }
+        }
     }
 
     /// NPC pirates periodically strike at the fattest cargo in flight (§13).
@@ -462,6 +510,51 @@ mod tests {
         sim.relations_mut()
             .adjust(crate::sim::faction::Faction::Mars, 500);
         assert!(sim.discover_blueprint(2));
+    }
+
+    #[test]
+    fn automation_interdicts_only_targeted_shipping() {
+        // Set a standing order to hunt Earth shipping; the manager runs it for
+        // us, souring Earth while leaving off-target factions alone (§12).
+        let mut sim = Sim::new(0);
+        sim.policy_mut().interdiction.enabled = true;
+        sim.policy_mut().interdiction.target = Some(crate::sim::faction::Faction::Earth);
+        for _ in 0..1_000 {
+            sim.step();
+        }
+        assert!(
+            sim.relations()
+                .standing(crate::sim::faction::Faction::Earth)
+                < 0,
+            "the patrol should have cut Earth shipping"
+        );
+        assert_eq!(
+            sim.relations().standing(crate::sim::faction::Faction::Belt),
+            0,
+            "Belt shipping was off-target and untouched"
+        );
+    }
+
+    #[test]
+    fn automation_min_cargo_spares_small_fry() {
+        let mut sim = Sim::new(0);
+        sim.policy_mut().interdiction.enabled = true;
+        sim.policy_mut().interdiction.min_cargo = 1_000_000; // nothing is this big
+        for _ in 0..1_000 {
+            sim.step();
+        }
+        for m in sim.markets() {
+            assert_eq!(sim.relations().standing(m.faction()), 0);
+        }
+    }
+
+    #[test]
+    fn automation_auto_researches_when_funded() {
+        let mut sim = Sim::new(0);
+        sim.policy_mut().auto_research = true;
+        sim.progression_mut().research.add_points(1_000);
+        sim.step();
+        assert!(sim.progression().research.unlocked_count() > 0);
     }
 
     #[test]

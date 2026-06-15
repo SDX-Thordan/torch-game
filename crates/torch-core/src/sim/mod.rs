@@ -5,6 +5,7 @@
 //! thin binding over this.
 
 pub mod alerts;
+pub mod automation;
 pub mod combat;
 pub mod economy;
 pub mod event;
@@ -19,6 +20,7 @@ pub mod traffic;
 pub mod world;
 
 pub use alerts::{Alert, AlertFeed, Priority, Urgency, Verb};
+pub use automation::{AutomationPolicy, InterdictionPolicy};
 pub use combat::{Band, BattleOutcome, CombatEvent, Doctrine, Fleet, TargetPriority};
 pub use economy::{CommodityDef, Market, Stock};
 pub use event::Event;

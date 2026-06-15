@@ -70,6 +70,20 @@ func _ready() -> void:
 	])
 	lines.append("  blueprints known: %d" % sim.blueprint_known_count())
 
+	# §12: run by exception — a separate company set to auto-hunt Earth shipping
+	# and auto-invest research, executed by managers with no further input.
+	var auto := TorchSim.new()
+	auto.reset(1)
+	auto.set_interdiction_policy(true, 0, 0) # target Earth
+	auto.set_auto_research(true)
+	auto.research_add_points(2000)
+	for _j in 600:
+		auto.step()
+	lines.append("automation (managed company):")
+	lines.append("  Earth standing %+d, %d techs auto-researched" % [
+		auto.faction_standing(0), auto.research_unlocked_count()
+	])
+
 	# §8: the warship catalog — railgun count is the escalation axis.
 	var yard := TorchShipyard.new()
 	lines.append("warships:")
