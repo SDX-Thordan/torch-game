@@ -382,8 +382,14 @@ pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
     };
     let ceres = setpoints(true, &defs); // cheap raw, dear refined
     let earth = setpoints(false, &defs); // dear raw, cheap refined
+                                         // Mars: a frontier colony at base-price equilibrium (every commodity at its
+                                         // anchor). With all-pairs arbitrage it sits between the Belt producer and the
+                                         // Earth consumer — a third trading node and Mars-faction market (§4) that joins
+                                         // the spreads on its merits rather than dominating them.
+    let mars: Vec<i64> = defs.iter().map(|d| d.target_stock).collect();
     vec![
         Market::with_setpoints("Ceres Yards", 3, Faction::Belt, defs.clone(), ceres),
+        Market::with_setpoints("Mars Colony", 2, Faction::Mars, defs.clone(), mars),
         Market::with_setpoints("Earth Hub", 1, Faction::Earth, defs, earth),
     ]
 }
