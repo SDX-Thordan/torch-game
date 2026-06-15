@@ -662,6 +662,23 @@ Status: [x] done, [~] in progress, [ ] todo.
   benign variance (the 64-seed combat-balance test holds, no new CONCERNs);
   regenerated `SAMPLE_GAMEPLAY_REVIEW.md`.
 
+- **2026-06-15 — Wreck-salvage discovery seed (§15) — `sim::salvage`.** The MVP
+  "Discovery & Wonder" pillar (§35.1): derelicts drift in, the player strips them
+  for **scrap → credits**, **data → research points**, or the prize — a
+  **reverse-engineered blueprint** (`Blueprints::reverse_engineer`, *no* rep gate,
+  since you recovered it rather than bought it). So discovery feeds both wallet and
+  curiosity, and a salvage counts as an op on the §0 climb. `SalvageField` carries
+  its **own** `Pcg32` (`seed ^ SALT`, the contract-board pattern), so sighting
+  wrecks never advances the world economy RNG — proven by
+  `salvage_discovers_wrecks_without_perturbing_the_economy` (a world that strips
+  every wreck keeps bit-identical *markets* to a control) and by the QA
+  `SAMPLE_GAMEPLAY_REVIEW.md` regenerating **byte-identical** (personas don't
+  salvage). Events `WreckSighted`/`WreckSalvaged` are voiced **FYI** (a discovery
+  to pursue when you choose, not an act-now demand — so they add no §19
+  notification anxiety). Bounded menu (`MAX_WRECKS` = 3, `SPAWN_INTERVAL` = 96t).
+  Bound to the shell: a wrecks HUD line + **H** to salvage the nearest. The full
+  §15 (boarding, anomalies/lore, outer-frontier excursions) is the post-MVP arc.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

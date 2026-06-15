@@ -164,6 +164,11 @@ func _refresh() -> void:
 		sim.pressure_level(0), sim.pressure_level(1), sim.pressure_level(2),
 		sim.raid_eta(), INTENSITY_NAMES[sim.intensity()]
 	])
+	# §15 discovery: derelicts sighted, ripe to strip ([H] to salvage the nearest).
+	var wrecks := "wrecks %d sighted" % sim.wreck_count()
+	if sim.wreck_count() > 0:
+		wrecks += "    nearest: %s  [H] salvage" % sim.wreck_name(0)
+	deck.append(wrecks)
 	_deck.text = "\n".join(deck)
 
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
@@ -172,7 +177,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage"
 
 
 func _draw() -> void:
@@ -280,6 +285,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			var next := (sim.intensity() + 1) % 3
 			sim.set_intensity(next)
 			status = "Pressure intensity: %s." % INTENSITY_NAMES[next]
+		KEY_H:
+			# Salvage a sighted derelict (§15 discovery & wonder).
+			status = "Wreck stripped — haul aboard." if sim.salvage_wreck() else "No derelict in range to salvage."
 
 
 func _do_buy() -> void:

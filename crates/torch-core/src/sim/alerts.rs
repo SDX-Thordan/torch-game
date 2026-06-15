@@ -148,6 +148,8 @@ impl AlertFeed {
             Event::TierAscended { tier } => Some(Self::milestone(tier, tick)),
             Event::BattleResolved { won, losses } => Some(self.battle(*won, *losses, tick)),
             Event::ThreatForecast { eta, .. } => Some(self.forecast(*eta, tick)),
+            Event::WreckSighted { .. } => Some(self.wreck_sighted(tick)),
+            Event::WreckSalvaged { .. } => Some(self.wreck_salvaged(tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -238,6 +240,40 @@ impl AlertFeed {
             urgency: Urgency::Fyi,
             voice: mgr.name.clone(),
             message,
+            verb: None,
+        }
+    }
+
+    /// A sighted derelict (§15) — a discovery worth knowing, FYI (an opportunity
+    /// to pursue when you choose, not a demand, so it adds no act-now pressure).
+    fn wreck_sighted(&self, tick: u64) -> Alert {
+        let mgr = &self.markets_mgr;
+        let message = match mgr.tone {
+            Tone::Terse => format!("{}: Derelict sighted — salvage available.", mgr.name),
+            Tone::Wry => format!(
+                "{}: Something's drifting out there. Could be worth a look.",
+                mgr.name
+            ),
+        };
+        Alert {
+            tick,
+            priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message,
+            verb: None,
+        }
+    }
+
+    /// A stripped wreck (§15) — quiet good news.
+    fn wreck_salvaged(&self, tick: u64) -> Alert {
+        let mgr = &self.markets_mgr;
+        Alert {
+            tick,
+            priority: Priority::Info,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!("{}: Wreck stripped — the haul's aboard.", mgr.name),
             verb: None,
         }
     }

@@ -295,6 +295,18 @@ impl Blueprints {
         self.known.iter().filter(|k| **k).count()
     }
 
+    /// Reverse-engineer design `i` from a salvaged wreck (§15) — no reputation
+    /// gate (you recovered it, you didn't buy it). Returns whether it was new.
+    pub fn reverse_engineer(&mut self, i: usize) -> bool {
+        match self.known.get_mut(i) {
+            Some(k) if !*k => {
+                *k = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Discover design `i` (purchase / salvage / reverse-engineer). A faction
     /// design needs enough standing with its owner (§10).
     pub fn discover(&mut self, i: usize, relations: &Relations) -> Result<(), BlueprintError> {
