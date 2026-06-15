@@ -13,12 +13,20 @@ const ORRERY_CENTRE := Vector2(840, 384)
 const ORRERY_RADIUS := 320.0            # px for the outermost body
 const AU := 1_000_000.0
 const MAX_AU := 2.9                     # Ceres orbit, for scaling
+const QTY_STEP := 5
+const QTY_MAX := 500
 
 var sim: TorchSim
 var speed_idx := 1
 var accum := 0.0
 var selected := 0                       # index of the selected in-flight hauler
-var status := "Welcome, CEO. [Space] pause · [1/2/3] speed · [Tab] select · [I]nterdict · [T]rade · [B]uild"
+
+# The trade cursor — granular control over what/where/how much you deal (§5).
+var sel_comm := 5                       # commodity (ReactorFuel by default)
+var sel_market := 0                     # market (Ceres)
+var trade_qty := 20
+
+var status := "Welcome, CEO."
 
 var _top: Label
 var _assets: Label
@@ -33,9 +41,8 @@ func _ready() -> void:
 	sim.reset(7)
 	_top = _make_label(Vector2(12, 8), 18)
 	_assets = _make_label(Vector2(12, 44), 15)
-	_feed = _make_label(Vector2(12, 612), 15)
-	_help = _make_label(Vector2(12, 700), 13)
-	_help.text = status
+	_feed = _make_label(Vector2(12, 596), 15)
+	_help = _make_label(Vector2(12, 690), 12)
 
 
 func _make_label(pos: Vector2, size: int) -> Label:
@@ -73,13 +80,30 @@ func _refresh() -> void:
 	var lines: Array[String] = []
 	lines.append("NOW: %s (%d/%d)" % [sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()])
 	lines.append("")
-	lines.append("%-12s %8s %8s   you" % ["MARKET", sim.market_name(0), sim.market_name(1)])
+	# Market board: a marker on the selected market column + selected commodity row.
+	var head := "   %-12s" % "MARKET"
+	for m in sim.market_count():
+		var nm := sim.market_name(m)
+		head += ("[%-8s]" % nm) if m == sel_market else (" %-8s  " % nm)
+	head += "   you"
+	lines.append(head)
 	for c in sim.commodity_count():
-		lines.append("%-12s %8d %8d   %d" % [
-			sim.commodity_name(c), sim.price(0, c), sim.price(1, c), sim.cargo(c)
-		])
+		var cursor := ">" if c == sel_comm else " "
+		var row := "%s  %-12s" % [cursor, sim.commodity_name(c)]
+		for m in sim.market_count():
+			row += " %9d " % sim.price(m, c)
+		row += "  %d" % sim.cargo(c)
+		lines.append(row)
+	lines.append("")
+	# The live trade preview — what this deal would cost / earn right now.
+	var price := sim.price(sel_market, sel_comm)
+	lines.append("TRADE  %s @ %s  ×%d   →  buy %d cr / sell %d cr" % [
+		sim.commodity_name(sel_comm), sim.market_name(sel_market),
+		trade_qty, price * trade_qty, price * trade_qty,
+	])
 	lines.append("")
 	lines.append("haulers in flight: %d   (selected %d)" % [sim.hauler_count(), selected])
+	lines.append("» " + status)
 	_assets.text = "\n".join(lines)
 
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
@@ -87,23 +111,21 @@ func _refresh() -> void:
 		var tag := "[!]" if sim.alert_is_act_now(a) else "   "
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
-	_help.text = status
+
+	_help.text = "[Space]pause [1/2/3]speed  ·  [↑↓]commodity [←→]market [ [ ] ]qty  ·  [B]uy [S]ell  ·  [Tab]select [I]nterdict  ·  [N]ew frigate"
 
 
 func _draw() -> void:
 	var px_per_unit := ORRERY_RADIUS / (MAX_AU * AU)
-	# Orbit rings.
 	for b in sim.body_count():
 		var r := Vector2(sim.body_x(b), sim.body_y(b)).length() * px_per_unit
 		if r > 1.0:
 			draw_arc(ORRERY_CENTRE, r, 0, TAU, 96, Color(0.25, 0.3, 0.35), 1.0)
-	# Bodies (Sol at the centre).
 	for b in sim.body_count():
 		var p := ORRERY_CENTRE + Vector2(sim.body_x(b), -sim.body_y(b)) * px_per_unit
 		var is_sun := b == 0
 		draw_circle(p, 9.0 if is_sun else 5.0, Color(1, 0.8, 0.3) if is_sun else Color(0.6, 0.8, 1.0))
 		draw_string(_font, p + Vector2(8, -8), sim.body_name(b), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9))
-	# Haulers — the §7b traffic, the thing you hunt.
 	for h in sim.hauler_count():
 		var hp := ORRERY_CENTRE + Vector2(sim.hauler_x(h), -sim.hauler_y(h)) * px_per_unit
 		var col := Color(1.0, 0.5, 0.2) if h == selected else Color(0.9, 0.7, 0.4)
@@ -122,15 +144,43 @@ func _unhandled_input(event: InputEvent) -> void:
 			speed_idx = 2
 		KEY_3:
 			speed_idx = 3
+		KEY_UP:
+			sel_comm = (sel_comm - 1 + sim.commodity_count()) % sim.commodity_count()
+		KEY_DOWN:
+			sel_comm = (sel_comm + 1) % sim.commodity_count()
+		KEY_LEFT, KEY_RIGHT:
+			sel_market = (sel_market + 1) % sim.market_count()
+		KEY_BRACKETLEFT:
+			trade_qty = maxi(QTY_STEP, trade_qty - QTY_STEP)
+		KEY_BRACKETRIGHT:
+			trade_qty = mini(QTY_MAX, trade_qty + QTY_STEP)
+		KEY_B:
+			_do_buy()
+		KEY_S:
+			_do_sell()
 		KEY_TAB:
 			if sim.hauler_count() > 0:
 				selected = (selected + 1) % sim.hauler_count()
 		KEY_I:
 			_do_interdict()
-		KEY_T:
-			_do_trade()
-		KEY_B:
+		KEY_N:
 			status = "Frigate commissioned." if sim.commission_ship(0) else "Can't build: short on crew or credits."
+
+
+func _do_buy() -> void:
+	var cost := sim.buy(sel_market, sel_comm, trade_qty)
+	if cost < 0:
+		status = "Buy failed — short on credits, or the market's tapped out."
+	else:
+		status = "Bought %d %s at %s for %d cr." % [trade_qty, sim.commodity_name(sel_comm), sim.market_name(sel_market), cost]
+
+
+func _do_sell() -> void:
+	var revenue := sim.sell(sel_market, sel_comm, trade_qty)
+	if revenue < 0:
+		status = "Sell failed — you don't hold that much %s." % sim.commodity_name(sel_comm)
+	else:
+		status = "Sold %d %s at %s for %d cr." % [trade_qty, sim.commodity_name(sel_comm), sim.market_name(sel_market), revenue]
 
 
 ## The featured verb (§7b): send a frigate from Earth to cut the selected hauler.
@@ -142,13 +192,3 @@ func _do_interdict() -> void:
 	var id := sim.hauler_id(selected)
 	var outcome := sim.attempt_interdict(id, sim.body_x(1), sim.body_y(1), 120_000, 1500)
 	status = ["No firing solution — reposition.", "The hauler ran the gap (escaped).", "Hauler interdicted — a shortage blooms."][outcome]
-
-
-## A quick arbitrage round trip on ReactorFuel (buy Earth, sell Ceres).
-func _do_trade() -> void:
-	var cost := sim.buy(1, 5, 20)
-	if cost < 0:
-		status = "Trade failed — short on credits or stock."
-		return
-	var revenue := sim.sell(0, 5, 20)
-	status = "Arbitrage: spent %d, earned %d (net %+d)." % [cost, revenue, revenue - cost]
