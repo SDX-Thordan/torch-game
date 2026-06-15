@@ -291,6 +291,25 @@ impl TorchSim {
             .unwrap_or(0)
     }
 
+    /// The destination position of hauler `index` (§7b), for drawing its lane.
+    #[func]
+    fn hauler_dest_x(&self, index: i64) -> i64 {
+        self.sim
+            .haulers()
+            .get(index as usize)
+            .map(|h| h.dest_pos.0)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn hauler_dest_y(&self, index: i64) -> i64 {
+        self.sim
+            .haulers()
+            .get(index as usize)
+            .map(|h| h.dest_pos.1)
+            .unwrap_or(0)
+    }
+
     /// Cut the in-flight hauler with `id`; returns whether one was interdicted.
     #[func]
     fn interdict(&mut self, id: i64) -> bool {

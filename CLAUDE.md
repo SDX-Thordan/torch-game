@@ -786,6 +786,14 @@ Status: [x] done, [~] in progress, [ ] todo.
   stay cool grey (§19's hard split, now visual). Both confirmed by an xvfb capture
   (the teal markers + the red act-now line read clearly). Pure shell + one binding.
 
+- **2026-06-15 — Hauler lane trails (§7b/§21).** The orrery now draws a faint
+  orange line from each in-flight hauler to its destination (new
+  `hauler_dest_x/y(i)` bindings + an `ImmediateMesh` rebuilt each frame with one
+  `PRIMITIVE_LINES` segment per hauler), so the core interdiction read — *which*
+  convoy to cut, and where it's headed — is **spatial**, not just a dot. Kept
+  deliberately subtle (alpha 0.4) so it informs without cluttering. Render-verified
+  under xvfb. Pure shell + two read-only bindings; 126 tests green.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
