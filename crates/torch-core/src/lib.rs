@@ -204,6 +204,25 @@ impl TorchSim {
             .unwrap_or(-1)
     }
 
+    /// Position of the in-flight hauler at `index` (for the orrery, §21).
+    #[func]
+    fn hauler_x(&self, index: i64) -> i64 {
+        self.sim
+            .haulers()
+            .get(index as usize)
+            .map(|h| h.position(self.sim.tick()).0)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn hauler_y(&self, index: i64) -> i64 {
+        self.sim
+            .haulers()
+            .get(index as usize)
+            .map(|h| h.position(self.sim.tick()).1)
+            .unwrap_or(0)
+    }
+
     /// Cut the in-flight hauler with `id`; returns whether one was interdicted.
     #[func]
     fn interdict(&mut self, id: i64) -> bool {

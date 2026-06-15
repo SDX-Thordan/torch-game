@@ -123,7 +123,10 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [~] **12. Tier ascent + gate foreshadowing** — model + always-visible gate done
   (`sim::campaign`, voiced ascents); per-tier content/"new kind of game" later.
 - [ ] **13. Pressure systems** + forecasting + pacing governor.
-- [ ] **14. Juice & audio pass**, then UX polish.
+- [~] **14. Juice & audio pass**, then UX polish. **First playable shell done**
+  (`godot/main.gd`): real-time-with-pause loop (§28), drawn 2D orrery (§21),
+  live panels + alert feed (§18/§19), verbs on input (interdict/trade/build).
+  Juice/audio/3D-orrery/console-chrome still to come.
 - [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
 
 ## 7. Learnings & decisions log (append-only)
@@ -312,6 +315,21 @@ Status: [x] done, [~] in progress, [ ] todo.
   120 crew exceed the 60-pool). First real agency: a manual arbitrage round-trip
   (buy ReactorFuel cheap at Earth, sell dear at Ceres) profits, the same spread the
   NPC haulers work. Verified live: +3560 cr arbitrage, then a frigate commissioned.
+
+- **2026-06-15 — First playable shell (§18–§21) — the review's Phase B.** `main.gd`
+  is no longer a hello-world dump: it's a `Node2D` game controller. `_process`
+  drives `sim.step()` on a real clock scaled by a pause/1×/6×/24× `speed_idx`
+  (§28); backgrounding/focus-out forces pause (§6). `_draw` renders the orrery
+  (orbit rings, bodies, the in-flight haulers you hunt) at compressed scale over
+  true sim distances (§21). Labels show the top-bar clock+treasury, the NOW goal +
+  two-market price board + your cargo, and the ranked alert feed (§19).
+  `_unhandled_input` maps keys to the actual sim verbs — Space/1/2/3 time, Tab
+  select, **I interdict**, T trade (arbitrage), B build — so the §7b fun engine is
+  finally *pressable*, the GDD's top risk (§36). Verified headless: the loop
+  advances the clock without script errors (T+0→T+7 over frames). Interactive
+  input + `_draw` only exercise on a device/desktop; CI stays headless. **This is
+  the first playable state**: open it, watch the world, control time, press verbs.
+  Next: the §17 3D orrery, the diegetic console chrome (§20), and juice/audio (§23).
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
