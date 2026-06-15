@@ -17,16 +17,19 @@ pub struct Colony {
     pub body: usize,
     pub faction: Faction,
     pub name: &'static str,
+    /// Whether this outpost is a full **trading market** (a frontier hub) or just
+    /// a settled marker. The major hubs trade; lesser outposts are flavour (§17).
+    pub is_market: bool,
 }
 
 /// The frontier's standing colonies, spread across all four powers so the outer
 /// system reads as contested, lived-in space (§17) — Saturn especially is busy.
 /// Bodies are resolved **by name** so the list survives any re-layout of the
-/// moon indices.
+/// moon indices. The major hubs (`is_market`) are tradeable markets.
 pub fn default_colonies() -> Vec<Colony> {
     use Faction::*;
     let bodies = default_system();
-    let on = |moon: &str, faction: Faction, name: &'static str| -> Colony {
+    let on = |moon: &str, faction: Faction, name: &'static str, is_market: bool| -> Colony {
         let body = bodies
             .iter()
             .position(|b| b.name == moon)
@@ -35,24 +38,35 @@ pub fn default_colonies() -> Vec<Colony> {
             body,
             faction,
             name,
+            is_market,
         }
     };
     vec![
-        on("Luna", Earth, "Luna Dock"),
-        on("Europa", Mars, "Europa Deep"),
-        on("Ganymede", Independents, "Ganymede Free Port"),
-        on("Callisto", Independents, "Callisto Yards"),
+        on("Luna", Earth, "Luna Dock", false),
+        on("Europa", Mars, "Europa Deep", true),
+        on("Ganymede", Independents, "Ganymede Free Port", true),
+        on("Callisto", Independents, "Callisto Yards", false),
         // Saturn's settled moons — the OPA frontier with Earth/Mars footholds.
-        on("Titan", Belt, "Titan Station (OPA)"),
-        on("Rhea", Belt, "Rhea Hold (OPA)"),
-        on("Dione", Mars, "Dione Garrison"),
-        on("Enceladus", Independents, "Enceladus Wells"),
-        on("Iapetus", Belt, "Iapetus Watch (OPA)"),
-        on("Tethys", Earth, "Tethys Relay"),
+        on("Titan", Belt, "Titan Station (OPA)", true),
+        on("Rhea", Belt, "Rhea Hold (OPA)", false),
+        on("Dione", Mars, "Dione Garrison", false),
+        on("Enceladus", Independents, "Enceladus Wells", false),
+        on("Iapetus", Belt, "Iapetus Watch (OPA)", false),
+        on("Tethys", Earth, "Tethys Relay", false),
         // The deep frontier.
-        on("Triton", Independents, "Triton Outpost"),
-        on("Charon", Belt, "Charon Watch (OPA)"),
+        on("Triton", Independents, "Triton Outpost", false),
+        on("Charon", Belt, "Charon Watch (OPA)", false),
     ]
+}
+
+/// The frontier colonies that are full trading markets (§17), each as
+/// `(body, faction, short market name)` — the short name reads cleanly as a
+/// market-board column.
+pub fn market_colonies() -> Vec<Colony> {
+    default_colonies()
+        .into_iter()
+        .filter(|c| c.is_market)
+        .collect()
 }
 
 #[cfg(test)]

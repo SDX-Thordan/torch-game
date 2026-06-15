@@ -107,11 +107,11 @@ pub enum FoundError {
 /// Ticks between hauler spawn attempts (≈ one per day at 1 tick/hour).
 const SPAWN_INTERVAL: u64 = 24;
 /// Cap on concurrent in-flight haulers.
-const MAX_HAULERS: usize = 8;
+const MAX_HAULERS: usize = 16;
 /// Minimum price spread that makes a route worth flying.
 const MIN_SPREAD: i64 = 5;
 /// Hauler cruise speed in distance units per tick.
-const CRUISE_SPEED: i64 = 20_000;
+const CRUISE_SPEED: i64 = 60_000;
 /// Floor on travel time so close markets still take real time (§21).
 const MIN_TRAVEL: u64 = 24;
 /// Ticks between automated interdiction sorties (§12 patrol cadence).
@@ -2016,7 +2016,7 @@ mod tests {
         let snap = sim.snapshot();
         assert_eq!(snap.tick, 50);
         assert_eq!(snap.bodies.len(), default_system().len());
-        assert_eq!(snap.markets.len(), 3);
+        assert_eq!(snap.markets.len(), 6);
         assert_eq!((snap.bodies[0].x, snap.bodies[0].y), (0, 0)); // Sol fixed
     }
 

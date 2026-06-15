@@ -896,6 +896,27 @@ Status: [x] done, [~] in progress, [ ] todo.
   long-haul traffic tuning, the next step); §7c gate holds, QA review regenerated
   (salvage reseeds off the bigger body list; **0 concerns**). 131 tests green.
 
+- **2026-06-15 — Frontier colonies are now tradeable markets (§17/§7b).** Wired the
+  major outer hubs — **Europa (Mars), Ganymede (Independent), Titan (OPA/Belt)** —
+  as full markets (`Colony.is_market` → `frontier::market_colonies()` → appended in
+  `economy::markets_from_defs`), named by their body so they read cleanly as board
+  columns, owned by their colony's faction. They sit a notch into **scarcity**
+  (`target_stock × 0.7` — everything a touch dear) so they *pull* long-haul supply
+  from the inner producers without out-bidding the inner spreads. **Traffic tuning
+  for the outer hauls:** `MAX_HAULERS` 8 → **16** (a 5–9 AU run ties up a slot for
+  hundreds of ticks, so the inner economy needs headroom) and `CRUISE_SPEED`
+  20k → **60k** (Earth→Saturn is a few in-game days, not a dead slot forever). The
+  existing inner markets keep indices 0–2, so all index-based tests/persistence are
+  unaffected; the snapshot test's market count went 3 → 6. **Verified:** §7c
+  stability gate holds with 6 markets, the QA review is **0 concerns** (Arbitrageur
+  still settles at a bounded ~2×), a traffic diagnostic confirms the frontier hubs
+  each take trade (the greedy fattest-spread routing skews NPC *destinations* toward
+  Ceres, but the player trades any market directly, so it's not a player problem),
+  and the 6-column market board still fits the HUD (render-verified). *Lesson:* the
+  fattest-spread router doesn't *balance* trade across many nodes — fine for the
+  player-facing economy, but a distance-aware or round-robin dispatcher would spread
+  NPC traffic more evenly if that ever matters.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

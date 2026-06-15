@@ -387,11 +387,29 @@ pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
                                          // Earth consumer — a third trading node and Mars-faction market (§4) that joins
                                          // the spreads on its merits rather than dominating them.
     let mars: Vec<i64> = defs.iter().map(|d| d.target_stock).collect();
-    vec![
+    let mut markets = vec![
         Market::with_setpoints("Ceres Yards", 5, Faction::Belt, defs.clone(), ceres),
         Market::with_setpoints("Mars Colony", 4, Faction::Mars, defs.clone(), mars),
-        Market::with_setpoints("Earth Hub", 3, Faction::Earth, defs, earth),
-    ]
+        Market::with_setpoints("Earth Hub", 3, Faction::Earth, defs.clone(), earth),
+    ];
+    // Frontier colony markets (§17): far outer hubs that import from the inner
+    // system. They sit a notch into scarcity (everything a touch dear) so they
+    // *pull* long-haul supply without out-bidding the inner producer/consumer
+    // spreads — moderate frontier demand, not a runaway draw. Named by their body
+    // (short, reads cleanly as a board column) and owned by their colony's faction.
+    let bodies = super::orbit::default_system();
+    for c in super::frontier::market_colonies() {
+        let name = bodies[c.body].name;
+        let frontier: Vec<i64> = defs.iter().map(|d| d.target_stock * 7 / 10).collect();
+        markets.push(Market::with_setpoints(
+            name,
+            c.body,
+            c.faction,
+            defs.clone(),
+            frontier,
+        ));
+    }
+    markets
 }
 
 #[cfg(test)]
