@@ -61,19 +61,26 @@ pub fn best_spread(sim: &Sim) -> Option<(usize, usize, usize, i64)> {
 
 /// One round of by-hand arbitrage on the fattest spread, up to `cap` units:
 /// buy cheap, sell dear (the verbs are instant, so this is a teleport trade).
-/// Returns whether a round trip was placed.
+/// Only fires when the spread clears the round-trip brokerage fee — hand-trading
+/// is a decision against the fee, not a free skim. Returns whether it traded.
 fn arbitrage_once(sim: &mut Sim, cap: i64) -> bool {
     let Some((c, cheap, dear, spread)) = best_spread(sim) else {
         return false;
     };
-    if spread < 2 {
-        return false;
-    }
-    let price = sim.markets()[cheap].price(c).max(1);
-    let affordable = sim.corp().credits() / price;
+    let buy_price = sim.markets()[cheap].price(c).max(1);
+    let sell_price = sim.markets()[dear].price(c);
+    let affordable = sim.corp().credits() / buy_price;
     let available = sim.markets()[cheap].stock(c);
     let qty = cap.min(affordable).min(available);
-    if qty <= 0 || sim.buy(cheap, c, qty).is_err() {
+    if qty <= 0 {
+        return false;
+    }
+    // Net of the fee on both legs; skip anything that wouldn't clear a profit.
+    let fee = (buy_price + sell_price) * qty * Sim::TRADE_FEE_BP / 10_000;
+    if spread * qty <= fee {
+        return false;
+    }
+    if sim.buy(cheap, c, qty).is_err() {
         return false;
     }
     sim.sell(dear, c, qty).is_ok()
