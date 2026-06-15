@@ -22,6 +22,9 @@ const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (�
 # world units and look down at an angle so the ecliptic reads as a plane.
 const SCALE3D := 1.0 / 320000.0         # sim units → world units (Ceres ≈ 9 units)
 const CAM_POS := Vector3(0, 16, 13)
+# Look left of the sun so the whole system sits in the clear right half of the
+# screen, not behind the left-hand HUD column (§20).
+const LOOK_TARGET := Vector3(-5.5, 0, 0)
 const SPACE_BG := Color(0.02, 0.03, 0.06)
 const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)   # left info-column backdrop (§20)
 const HAULER_COL := Color(0.95, 0.7, 0.35)
@@ -85,7 +88,7 @@ func _build_world() -> void:
 	add_child(env)
 
 	_cam = Camera3D.new()
-	_cam.look_at_from_position(CAM_POS, Vector3.ZERO, Vector3.UP)
+	_cam.look_at_from_position(CAM_POS, LOOK_TARGET, Vector3.UP)
 	_cam.current = true
 	add_child(_cam)
 
@@ -118,7 +121,7 @@ func _build_world() -> void:
 		# Orbit ring on the ecliptic.
 		add_child(_ring(r, Color(0.25, 0.35, 0.45)))
 		# The planet/station body, lit by the sun.
-		var body := _sphere(0.35, _lit_mat(_body_colour(b)))
+		var body := _sphere(0.5, _lit_mat(_body_colour(b)))
 		body.position = pos
 		add_child(body)
 		# A billboarded name tag floating above it (§21 legibility).
@@ -156,12 +159,15 @@ func _build_hud() -> void:
 	layer.add_child(_flash_rect)
 	layer.add_child(_ascend_rect)
 
-	_top = _make_label(layer, Vector2(12, 8), 18)
-	_assets = _make_label(layer, Vector2(12, 44), 15)
-	_deck = _make_label(layer, Vector2(12, 318), 14)
-	_feed = _make_label(layer, Vector2(12, 560), 14)
-	_help = _make_label(layer, Vector2(12, 690), 12)
-	_paused = _make_label(layer, Vector2(560, 24), 20)
+	# Stacked, non-overlapping panels down the left column (sizes/gaps tuned from
+	# rendered captures so the dense market board never runs into the deck).
+	_top = _make_label(layer, Vector2(12, 8), 17)
+	_assets = _make_label(layer, Vector2(12, 38), 12)
+	_deck = _make_label(layer, Vector2(12, 372), 11)
+	_feed = _make_label(layer, Vector2(12, 602), 12)
+	_help = _make_label(layer, Vector2(12, 690), 10)
+	# The paused banner sits over the orrery (right side), clear of the top bar.
+	_paused = _make_label(layer, Vector2(900, 70), 22)
 	_paused.modulate = Color(1.0, 0.8, 0.3)
 
 
@@ -284,7 +290,7 @@ func _update_world() -> void:
 	# Haulers: grow the pool to the current count, place them, hide the rest.
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
-		var mi := _sphere(0.16, _hauler_mat)
+		var mi := _sphere(0.22, _hauler_mat)
 		add_child(mi)
 		_hauler_pool.append(mi)
 	for i in _hauler_pool.size():
