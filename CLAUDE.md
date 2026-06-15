@@ -776,6 +776,16 @@ Status: [x] done, [~] in progress, [ ] todo.
   over the orrery. Re-rendered to confirm each fix. Lesson: a visual/3D shell change
   isn't "done" at headless-parse — render it and *look*.
 
+- **2026-06-15 — Orrery as complete map + coloured feed (§15/§19/§21).** Two
+  render-verified polish wins: (1) **sighted derelicts now show on the map** — a
+  teal marker floats above the body each wreck drifts near (new `wreck_body(i)`
+  binding + a pooled `_wreck_pool`), so §15 discovery is visible, not just a HUD
+  line; the orrery now distinguishes planets (lit), haulers (orange), wrecks (teal),
+  and the gate (gold ring). (2) The **alert feed colours by priority** — it's now a
+  bbcode `RichTextLabel`: act-now shortages glow warm red with `[!]`, FYI notices
+  stay cool grey (§19's hard split, now visual). Both confirmed by an xvfb capture
+  (the teal markers + the red act-now line read clearly). Pure shell + one binding.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
