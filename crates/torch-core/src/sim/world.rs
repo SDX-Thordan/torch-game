@@ -18,6 +18,7 @@ use super::industry::Station;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::logistics::TradeRoute;
 use super::orbit::{default_system, Body};
+use super::pressure::{Intensity, PressureKind, PressureSystem};
 use super::progression::Progression;
 use super::rng::Pcg32;
 use super::ships::{self, Loadout, ShipClass};
@@ -114,8 +115,6 @@ const MIN_SPREAD: i64 = 5;
 const CRUISE_SPEED: i64 = 20_000;
 /// Floor on travel time so close markets still take real time (§21).
 const MIN_TRAVEL: u64 = 24;
-/// Ticks between NPC pirate raid attempts (§13 ambient predation).
-const PIRATE_INTERVAL: u64 = 72;
 /// Ticks between automated interdiction sorties (§12 patrol cadence).
 const AUTOMATION_INTERVAL: u64 = 12;
 /// How many standing trade routes the player can run at once (§4 master-table).
@@ -185,6 +184,7 @@ pub struct Sim {
     routes: Vec<TradeRoute>,
     stations: Vec<Station>,
     board: ContractBoard,
+    pressure: PressureSystem,
     rng: Pcg32,
     events: Vec<Event>,
     /// How many leading `events` the last `step` already returned and fed to the
@@ -232,6 +232,7 @@ impl Sim {
             routes: Vec::new(),
             stations: Vec::new(),
             board: ContractBoard::new(seed),
+            pressure: PressureSystem::new(Intensity::default()),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -265,6 +266,17 @@ impl Sim {
             m.retune(&defs)?;
         }
         Ok(())
+    }
+
+    /// The §13 pressure layer (gauges, raid schedule, intensity) — read by the
+    /// shell's pressure HUD and the §23c audio state.
+    pub fn pressure(&self) -> &PressureSystem {
+        &self.pressure
+    }
+
+    /// Set the independent pressure-intensity difficulty (§13).
+    pub fn set_intensity(&mut self, intensity: Intensity) {
+        self.pressure.set_intensity(intensity);
     }
 
     /// The haulers currently in flight (§7b).
@@ -738,7 +750,7 @@ impl Sim {
         }
         self.deliver_arrivals();
         self.spawn_traffic();
-        self.pirate_raid();
+        self.run_pressure();
         self.run_automation();
         self.run_logistics();
         self.run_industry();
@@ -753,9 +765,32 @@ impl Sim {
         let tick = self.tick;
         for e in &self.events {
             self.feed.ingest(e, tick);
+            self.pressure.note_event(e, tick);
         }
+        // Gauges ebb each tick — biting-but-recoverable (§13).
+        self.pressure.decay();
         self.returned = self.events.len();
         &self.events
+    }
+
+    /// The §13 pressure layer, run each tick: telegraph an incoming raid ahead of
+    /// time (forecasting), then fire the ambient raider only when the pacing
+    /// governor allows (no dogpiling another flashpoint). Pure scheduling — the
+    /// raid itself still resolves with geometry + odds in [`Sim::pirate_raid`].
+    fn run_pressure(&mut self) {
+        let now = self.tick;
+        if self.pressure.should_forecast(now) {
+            let eta = self.pressure.raid_eta(now);
+            self.events.push(Event::ThreatForecast {
+                kind: PressureKind::Piracy,
+                eta,
+            });
+            self.pressure.mark_forecast_sent();
+        }
+        if self.pressure.raid_ready(now) {
+            let struck = self.pirate_raid();
+            self.pressure.after_raid(now, struck);
+        }
     }
 
     /// Administratively cut the in-flight hauler with `id` (a guaranteed delete,
@@ -906,9 +941,12 @@ impl Sim {
     }
 
     /// NPC pirates periodically strike at the fattest cargo in flight (§13).
-    fn pirate_raid(&mut self) {
-        if !self.tick.is_multiple_of(PIRATE_INTERVAL) || self.haulers.is_empty() {
-            return;
+    /// Resolve one ambient raider strike against the fattest in-flight cargo (§13);
+    /// the *when* is decided by the pressure layer ([`Sim::run_pressure`]), not a
+    /// raw interval. Returns whether a convoy was actually cut (a flashpoint).
+    fn pirate_raid(&mut self) -> bool {
+        if self.haulers.is_empty() {
+            return false;
         }
         let target = self
             .haulers
@@ -920,8 +958,10 @@ impl Sim {
             let outcome = resolve(&self.haulers[i], &self.pirate, self.tick, &mut self.rng);
             if outcome == Interdiction::Interdicted {
                 self.cut_hauler(i); // pirates, not the player → no reputation hit
+                return true;
             }
         }
+        false
     }
 
     /// Land cargo for any hauler arriving this tick, damping the spread.

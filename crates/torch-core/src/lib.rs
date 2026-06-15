@@ -324,6 +324,51 @@ impl TorchSim {
         self.sim.answer_top_shortage(20)
     }
 
+    /// A §13 pressure gauge, `0..=100`: 0 = FactionWar, 1 = Piracy, 2 = Scarcity.
+    #[func]
+    fn pressure_level(&self, kind: i64) -> i64 {
+        let k = match kind {
+            0 => sim::PressureKind::FactionWar,
+            2 => sim::PressureKind::Scarcity,
+            _ => sim::PressureKind::Piracy,
+        };
+        self.sim.pressure().level(k) as i64
+    }
+
+    /// The loudest pressure gauge — the shell's overall threat read + §23c audio.
+    #[func]
+    fn pressure_peak(&self) -> i64 {
+        self.sim.pressure().peak_level() as i64
+    }
+
+    /// Ticks until the next telegraphed raid strikes (§13 forecasting).
+    #[func]
+    fn raid_eta(&self) -> i64 {
+        self.sim.pressure().raid_eta(self.sim.tick()) as i64
+    }
+
+    /// The pressure-intensity difficulty (§13): 0 = Calm, 1 = Normal, 2 = Harsh.
+    #[func]
+    fn intensity(&self) -> i64 {
+        match self.sim.pressure().intensity() {
+            sim::Intensity::Calm => 0,
+            sim::Intensity::Normal => 1,
+            sim::Intensity::Harsh => 2,
+        }
+    }
+
+    /// Set the pressure-intensity difficulty (§13); clamps to 0 = Calm, 1 = Normal,
+    /// 2 = Harsh.
+    #[func]
+    fn set_intensity(&mut self, level: i64) {
+        let i = match level {
+            0 => sim::Intensity::Calm,
+            2 => sim::Intensity::Harsh,
+            _ => sim::Intensity::Normal,
+        };
+        self.sim.set_intensity(i);
+    }
+
     /// Number of factions the player has standings with (§10).
     #[func]
     fn faction_count(&self) -> i64 {

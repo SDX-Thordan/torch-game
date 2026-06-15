@@ -147,6 +147,7 @@ impl AlertFeed {
             Event::HaulerInterdicted { .. } => Some(self.raid(tick)),
             Event::TierAscended { tier } => Some(Self::milestone(tier, tick)),
             Event::BattleResolved { won, losses } => Some(self.battle(*won, *losses, tick)),
+            Event::ThreatForecast { eta, .. } => Some(self.forecast(*eta, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -209,6 +210,31 @@ impl AlertFeed {
         Alert {
             tick,
             priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message,
+            verb: None,
+        }
+    }
+
+    /// A telegraphed incoming raid (§13 forecasting). A Warning heads-up — louder
+    /// than a past raid (Notice) because it's actionable (escort, divert) — but FYI,
+    /// not act-now: there's no one-press verb, the player repositions on the map.
+    fn forecast(&self, eta: u64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        let message = match mgr.tone {
+            Tone::Terse => format!(
+                "{}: Raider activity inbound — convoys at risk in ~{eta}t.",
+                mgr.name
+            ),
+            Tone::Wry => format!(
+                "{}: Picking up raiders on the lanes. ~{eta}t before they bite — mind your cargo.",
+                mgr.name
+            ),
+        };
+        Alert {
+            tick,
+            priority: Priority::Warning,
             urgency: Urgency::Fyi,
             voice: mgr.name.clone(),
             message,

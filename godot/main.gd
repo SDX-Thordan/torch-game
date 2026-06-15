@@ -13,6 +13,7 @@ const ORRERY_CENTRE := Vector2(910, 360)
 const ORRERY_RADIUS := 300.0            # px for the outermost body
 const THRESHOLD_NAMES := ["info", "notice", "warning", "critical"]
 const BRANCH_NAMES := ["Industrialist", "Trader", "Warlord", "Diplomat"]
+const INTENSITY_NAMES := ["Calm", "Normal", "Harsh"]   # §13 pressure difficulty
 const AU := 1_000_000.0
 const MAX_AU := 2.9                     # Ceres orbit, for scaling
 const QTY_STEP := 5
@@ -150,6 +151,11 @@ func _refresh() -> void:
 	if sim.contract_count() > 0:
 		contracts += "    " + sim.contract_desc(0)
 	deck.append(contracts)
+	# §13 pressure: the three gauges, the next-raid telegraph, and the difficulty.
+	deck.append("pressure  war %d  piracy %d  scarcity %d    raid ETA ~%dt    intensity: %s" % [
+		sim.pressure_level(0), sim.pressure_level(1), sim.pressure_level(2),
+		sim.raid_eta(), INTENSITY_NAMES[sim.intensity()]
+	])
 	_deck.text = "\n".join(deck)
 
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
@@ -158,7 +164,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity"
 
 
 func _draw() -> void:
@@ -261,6 +267,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Hot-reload commodity tuning (§31) from a designer-droppable override.
 			var err := sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
 			status = "Commodity data reloaded." if err == "" else "Reload failed: %s" % err
+		KEY_U:
+			# Cycle the §13 pressure-intensity difficulty (Calm/Normal/Harsh).
+			var next := (sim.intensity() + 1) % 3
+			sim.set_intensity(next)
+			status = "Pressure intensity: %s." % INTENSITY_NAMES[next]
 
 
 func _do_buy() -> void:

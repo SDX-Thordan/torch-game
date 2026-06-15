@@ -5,6 +5,8 @@
 //! those systems come online. Keeping it an explicit enum (not stringly-typed)
 //! lets the view and tests match exhaustively.
 
+use super::pressure::PressureKind;
+
 /// One thing that happened during a tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -29,4 +31,7 @@ pub enum Event {
     /// The player fleet fought a raider pack and the battle resolved (§9). `won`
     /// is whether the player held the field; `losses` is player ships destroyed.
     BattleResolved { won: bool, losses: usize },
+    /// An incoming threat is telegraphed `eta` ticks ahead (§13 forecasting), so
+    /// nothing arrives unforeseeable — the player can pre-position or divert.
+    ThreatForecast { kind: PressureKind, eta: u64 },
 }
