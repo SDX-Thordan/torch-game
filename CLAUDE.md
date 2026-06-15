@@ -132,6 +132,11 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [~] **12. Tier ascent + gate foreshadowing** — model + always-visible gate done
   (`sim::campaign`, voiced ascents); per-tier content/"new kind of game" later.
 - [ ] **13. Pressure systems** + forecasting + pacing governor.
+- [x] **QA. Automated gameplay harness** (`crates/torch-qa`) — autoplayer personas
+  drive the deterministic core headless and the run is critiqued into a written
+  **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
+  design findings). The §32 counterpart to `cargo test`: tests assert systems
+  *work*, this critiques how the game *plays*. Same seed ⇒ same review.
 - [~] **14. Juice & audio pass**, then UX polish. **First playable shell done**
   (`godot/main.gd`): real-time-with-pause loop (§28), drawn 2D orrery (§21),
   live panels + alert feed (§18/§19), verbs on input (interdict/trade/build).
@@ -365,6 +370,47 @@ Status: [x] done, [~] in progress, [ ] todo.
   at the selected market. Same Copy-out-of-self pattern as routes so the per-tick
   loop doesn't fight the `markets`/`corp` borrows. The default Sim has no stations,
   so the §7c stability gate is untouched.
+- **2026-06-15 — Player stations + Produce standing order (§3.1, Example A).**
+  `sim::industry::Station` is a `Copy` Produce preset (input recipe, output, rate,
+  buy/sell markets, sell-surplus threshold, production ceiling). `Sim::run_industry`
+  runs each station hands-off: source the raw input from a market when short →
+  transform raw→refined (output = input + RAW_COUNT) → dump output above the
+  sell-surplus floor for credits. `found_refinery(raw, buy, sell)` costs capital
+  (8k), capped at 4 stations (Tier-1). The value-add is real: buy Ore cheap (~22),
+  refine to Metals, sell dear (~220) — a refinery nets profit with no input, the
+  mine→refine→sell chain. Bound: M founds a refinery for the selected raw commodity
+  at the selected market. Same Copy-out-of-self pattern as routes so the per-tick
+  loop doesn't fight the `markets`/`corp` borrows. The default Sim has no stations,
+  so the §7c stability gate is untouched.
+
+- **2026-06-15 — Automated gameplay QA harness (`crates/torch-qa`).** The
+  deterministic core is *playable by a program*, so QA can be a bot, not just unit
+  tests. New native crate: a `Strategy` trait + five autoplayer **personas**
+  (Spectator/Arbitrageur/Logistician/Privateer/Tycoon), a `harness` that drives a
+  persona for thousands of ticks and records a `Transcript` (event tallies +
+  periodic state samples), and a `review` engine that emits ranked `Finding`s plus
+  a cross-cutting `design_review`. `cargo run -p torch-qa` prints a Markdown
+  gameplay review (sample committed at `docs/SAMPLE_GAMEPLAY_REVIEW.md`); same seed
+  ⇒ same review, so feel-regressions diff. The first run already paid for itself —
+  it surfaced real design gaps the unit tests can't see:
+  - **The retention spine is fed by a single verb.** Only player *interdiction*
+    calls `record_op`, so trading/routing/building/researching never advance a
+    tier — the bulk of the influence model doesn't touch the §0 destination pull.
+  - **Combat is unreachable in the live loop.** `sim::combat` has no trigger on
+    `Sim` (no fleet-engagement verb); ships are commissioned but never fight.
+  - **Unbounded arbitrage.** Hand-trading compounded ~100× with no wealth-scaled
+    sink, and the *instant* buy/sell verbs strictly dominate the transit-paying
+    standing route they're meant to motivate.
+  - **Player-verb events are dropped (engine bug).** Verbs called between ticks
+    push onto `Sim::events`, but the next `step()` opens with `events.clear()` —
+    so a player interdiction's `Scarcity`/`TierAscended` are wiped before the feed
+    or the returned stream ever reads them. Player cuts raise *no* act-now alert
+    and ascents go unvoiced; only sim-internal cuts (pirates/automation) are heard.
+    Worth fixing so the §0.3 fanfare + §0.4 "exploit shortage" fire for the player.
+  - **Reputation is a one-way cliff** (raiding → Hostile with no recovery path).
+  Harness lesson: don't trust the event stream for player-caused state changes —
+  observe *campaign state* directly (poll `tier()` each tick) and keep the event
+  tally only to *detect* the dropped-event discrepancy.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

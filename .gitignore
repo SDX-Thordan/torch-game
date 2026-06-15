@@ -18,3 +18,6 @@ godot/bin/
 
 # Generated debug keystore (CI)
 godot/debug.keystore
+
+# Generated gameplay-QA reports (TORCH_QA_OUT)
+qa-reports/
