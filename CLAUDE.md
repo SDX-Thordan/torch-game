@@ -533,6 +533,17 @@ Status: [x] done, [~] in progress, [ ] todo.
   signal: answering shortages keeps the feed clean (Tycoon 130 pending vs ~3929
   for passive styles, since unanswered scarcity alerts linger in the ring buffer).
 
+- **2026-06-15 — Act-now alerts expire (§19 hygiene).** The pacing metric exposed
+  ~3900 "ticks pending" — unanswered scarcity alerts lingered in the ring buffer
+  forever, the exact "notification anxiety" §19 warns against. Since §7b shortages
+  are *temporary*, `AlertFeed::ingest` now prunes act-now alerts older than
+  `ACT_NOW_TTL` (72 ticks) each tick (FYI alerts persist, ring-bounded). The feed is
+  a live list of current exceptions now, not a backlog. (busy_ticks stays high
+  because the world genuinely fires fresh shortages constantly — that's healthy,
+  not stale.) Also loosened the QA agency idle threshold to 240 ticks (~10 s at
+  24×): a quiet stretch that short is fast-forwardable + the §21 "felt vastness" of
+  a burn, not a pacing dead-zone — so the Warlord's 144-tick gap reads Good.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

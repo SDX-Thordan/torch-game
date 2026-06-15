@@ -12,6 +12,11 @@ use super::rng::Pcg32;
 
 /// Most alerts the feed retains (a ring buffer; pacing, not a ledger).
 const MAX_ALERTS: usize = 64;
+/// How long an unanswered act-now shortage stays on the feed before it ages out
+/// (§7b shortages are *temporary* — the market recovers). Keeps the feed a live
+/// list of current exceptions, not a growing backlog that becomes notification
+/// anxiety (§19). FYI alerts are not time-limited (only the ring buffer bounds them).
+const ACT_NOW_TTL: u64 = 72;
 
 /// How loud an alert is. Ordered: `Info < Notice < Warning < Critical`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -134,6 +139,9 @@ impl AlertFeed {
 
     /// Classify a world event into an alert (or nothing, for routine noise).
     pub fn ingest(&mut self, event: &Event, tick: u64) {
+        // Age out unanswered act-now shortages — the shortage has passed (§7b/§19).
+        self.alerts
+            .retain(|a| a.urgency != Urgency::ActNow || tick.saturating_sub(a.tick) < ACT_NOW_TTL);
         let alert = match event {
             Event::Scarcity { market, commodity } => Some(self.scarcity(*market, *commodity, tick)),
             Event::HaulerInterdicted { .. } => Some(self.raid(tick)),
@@ -374,6 +382,29 @@ mod tests {
             );
         }
         assert_eq!(f.all().count(), MAX_ALERTS);
+    }
+
+    #[test]
+    fn act_now_shortages_age_out_but_fyi_persists() {
+        let mut f = feed();
+        f.ingest(
+            &Event::Scarcity {
+                market: 0,
+                commodity: 0,
+            },
+            10,
+        ); // act-now
+        f.ingest(&Event::HaulerInterdicted { id: 1 }, 10); // FYI notice
+        assert_eq!(f.all().count(), 2);
+        // A tick past the TTL ages out the stale shortage but keeps the FYI raid.
+        let later = 10 + ACT_NOW_TTL + 1;
+        f.ingest(&Event::Tick { tick: later }, later);
+        let kept: Vec<&Alert> = f.all().collect();
+        assert_eq!(kept.len(), 1, "the FYI raid notice persists");
+        assert!(
+            !kept[0].is_act_now(),
+            "the temporary shortage aged off the feed"
+        );
     }
 
     #[test]
