@@ -412,6 +412,17 @@ Status: [x] done, [~] in progress, [ ] todo.
   observe *campaign state* directly (poll `tier()` each tick) and keep the event
   tally only to *detect* the dropped-event discrepancy.
 
+- **2026-06-15 — QA finding #1 fixed: player-verb events survive the step (#27).**
+  `step()` opened with `self.events.clear()`, wiping anything a between-tick player
+  verb (`interdict`/`interdict_with`) had pushed before the feed or the returned
+  stream read it. Now `Sim` tracks `returned` (how many leading events the last
+  step surfaced) and `step()` drains *only those*, keeping the player tail, then
+  ingests + returns it. So a player cut now voices its `Scarcity` (act-now
+  "exploit shortage") and a player ascent emits its `TierAscended` (the §0.3
+  fanfare) — previously only pirate/automation cuts were heard. The QA
+  `design_review`'s "Event plumbing" concern self-resolves (regression detection
+  working as intended).
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

@@ -135,6 +135,11 @@ pub struct Sim {
     stations: Vec<Station>,
     rng: Pcg32,
     events: Vec<Event>,
+    /// How many leading `events` the last `step` already returned and fed to the
+    /// alert feed. The next `step` drains exactly these, *keeping* anything the
+    /// player's between-tick verbs pushed after them — so player-caused events
+    /// (a cut's `Scarcity`, an ascent's `TierAscended`) survive to be voiced.
+    returned: usize,
 }
 
 impl Sim {
@@ -171,6 +176,7 @@ impl Sim {
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
+            returned: 0,
         }
     }
 
@@ -469,8 +475,12 @@ impl Sim {
     /// Advance exactly one fixed sim tick (§28) and return the events produced.
     /// The returned slice is valid until the next call to `step`.
     pub fn step(&mut self) -> &[Event] {
+        // Drop only the events the previous `step` already surfaced, retaining
+        // any a player verb pushed since (so player-caused events aren't lost to
+        // a blanket clear — the §0.3 fanfare and §0.4 shortage fire for the
+        // player too, not just for pirate/automation cuts).
+        self.events.drain(0..self.returned);
         self.tick += 1;
-        self.events.clear();
         for m in self.markets.iter_mut() {
             m.step(&mut self.rng);
         }
@@ -481,11 +491,13 @@ impl Sim {
         self.run_logistics();
         self.run_industry();
         self.events.push(Event::Tick { tick: self.tick });
-        // The alert feed (§19) consumes this tick's events (§29).
+        // The alert feed (§19) consumes everything surfacing this tick (§29):
+        // the carried-over player events plus this tick's own.
         let tick = self.tick;
         for e in &self.events {
             self.feed.ingest(e, tick);
         }
+        self.returned = self.events.len();
         &self.events
     }
 
@@ -731,6 +743,62 @@ mod tests {
         let events = sim.step();
         assert!(events.contains(&Event::Tick { tick: 1 }));
         assert_eq!(sim.tick(), 1);
+    }
+
+    #[test]
+    fn player_verb_events_survive_to_the_next_step() {
+        // A player cut between ticks pushes HaulerInterdicted + Scarcity; the
+        // next `step` must *surface* them (not wipe them) so the feed voices the
+        // player's own cut — previously `events.clear()` dropped them.
+        let mut sim = Sim::new(1);
+        let id = fly_a_hauler(&mut sim);
+        let feed_before = sim.feed().surfaced().len();
+        assert!(sim.interdict(id));
+        let events = sim.step().to_vec();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::HaulerInterdicted { .. })),
+            "the player's cut should reach the returned stream"
+        );
+        assert!(events.iter().any(|e| matches!(e, Event::Scarcity { .. })));
+        assert!(
+            sim.feed().surfaced().len() > feed_before,
+            "the player's cut should reach the feed"
+        );
+        // And the carried-over events are not re-surfaced a second time.
+        let next = sim.step().to_vec();
+        assert!(!next
+            .iter()
+            .any(|e| matches!(e, Event::HaulerInterdicted { .. })));
+    }
+
+    #[test]
+    fn a_player_ascent_is_voiced() {
+        // The §0.3 fanfare must fire for the *player's* climb, not just for
+        // sim-internal ops: a player interdiction's TierAscended now reaches the
+        // returned stream.
+        use crate::sim::campaign::Tier;
+        let mut sim = Sim::new(0);
+        let mut saw_ascent = false;
+        for _ in 0..400 {
+            if let Some(h) = sim.haulers().first() {
+                let id = h.id;
+                sim.interdict(id);
+            }
+            for e in sim.step() {
+                if matches!(e, Event::TierAscended { .. }) {
+                    saw_ascent = true;
+                }
+            }
+            if sim.campaign().tier() != Tier::Station {
+                break;
+            }
+        }
+        assert!(
+            saw_ascent,
+            "the player's ascent should emit a TierAscended event"
+        );
     }
 
     /// Step until a hauler is in flight; return its id.
