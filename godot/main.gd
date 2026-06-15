@@ -63,6 +63,7 @@ var _body_nodes: Array[Node3D] = []      # one per sim body (index-aligned; sun 
 var _hauler_pool: Array[MeshInstance3D] = []
 var _wreck_pool: Array[MeshInstance3D] = []   # §15 derelict markers on the map
 var _gate_ring: MeshInstance3D
+var _lane_mesh: ImmediateMesh                 # faint trails: each hauler → its dest (§7b)
 var _hauler_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
 var _wreck_mat: StandardMaterial3D
@@ -142,6 +143,17 @@ func _build_world() -> void:
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
 	_gate_ring = _ring_mat(max_r + 1.8, _gate_mat, 0.05)
 	add_child(_gate_ring)
+
+	# Hauler lane trails (§7b): faint lines from each hauler to its destination,
+	# rebuilt every frame, so the interdiction decision ("which one?") is spatial.
+	_lane_mesh = ImmediateMesh.new()
+	var lanes := MeshInstance3D.new()
+	lanes.mesh = _lane_mesh
+	var lane_mat := _emissive_mat(Color(0.85, 0.6, 0.35))
+	lane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	lane_mat.albedo_color = Color(0.85, 0.6, 0.35, 0.4)
+	lanes.material_override = lane_mat
+	add_child(lanes)
 
 
 func _build_hud() -> void:
@@ -316,6 +328,14 @@ func _update_world() -> void:
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
 		else:
 			node.visible = false
+	# Rebuild the hauler lane trails each frame (§7b).
+	_lane_mesh.clear_surfaces()
+	if n > 0:
+		_lane_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+		for i in n:
+			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_x(i), sim.hauler_y(i)))
+			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_dest_x(i), sim.hauler_dest_y(i)))
+		_lane_mesh.surface_end()
 	# Sighted derelicts (§15): a teal marker floating above the body each drifts
 	# near, so discovery is visible on the map, not just in the HUD line.
 	var wn := sim.wreck_count()
