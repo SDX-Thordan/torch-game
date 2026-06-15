@@ -149,6 +149,17 @@ impl TorchSim {
             .unwrap_or(1)
     }
 
+    /// The orbital radius of body `index` about its parent, in sim units — for
+    /// drawing a moon's orbit ring around its (moving) planet (§17/§21).
+    #[func]
+    fn body_orbit_radius(&self, index: i64) -> i64 {
+        self.sim
+            .bodies()
+            .get(index as usize)
+            .map(|b| b.orbit_radius)
+            .unwrap_or(0)
+    }
+
     /// The parent body `index` orbits (its planet, for a moon; itself for Sol).
     #[func]
     fn body_parent(&self, index: i64) -> i64 {
@@ -157,6 +168,47 @@ impl TorchSim {
             .get(index as usize)
             .map(|b| b.parent as i64)
             .unwrap_or(0)
+    }
+
+    /// Number of settled frontier colonies (§17).
+    #[func]
+    fn colony_count(&self) -> i64 {
+        sim::default_colonies().len() as i64
+    }
+
+    /// The body colony `i` sits on (§17).
+    #[func]
+    fn colony_body(&self, i: i64) -> i64 {
+        sim::default_colonies()
+            .get(i as usize)
+            .map(|c| c.body as i64)
+            .unwrap_or(-1)
+    }
+
+    /// The faction aligning colony `i`: 0 Earth, 1 Mars, 2 Belt (OPA), 3 Independents.
+    #[func]
+    fn colony_faction(&self, i: i64) -> i64 {
+        use sim::Faction::*;
+        sim::default_colonies()
+            .get(i as usize)
+            .map(|c| match c.faction {
+                Earth => 0,
+                Mars => 1,
+                Belt => 2,
+                Independents => 3,
+            })
+            .unwrap_or(3)
+    }
+
+    /// The name of colony `i` (§17).
+    #[func]
+    fn colony_name(&self, i: i64) -> GString {
+        GString::from(
+            sim::default_colonies()
+                .get(i as usize)
+                .map(|c| c.name)
+                .unwrap_or(""),
+        )
     }
 
     #[func]

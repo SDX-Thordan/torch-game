@@ -876,6 +876,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   exact astronomical scale makes moons invisible — exaggerate moon orbits for
   legibility while keeping planetary orbits real (feel over accuracy).
 
+- **2026-06-15 — Bustling Saturn: ~20 moons, ring asteroids, frontier colonies +
+  mobile controls (§17).** Player feedback drove this: (a) **it's a mobile game**, so
+  the mouse-wheel zoom is gone — navigation is now **pinch-to-zoom + tap-to-focus +
+  on-screen [+]/[–]/[◉] buttons** (mouse kept only as a desktop-test fallback); (b)
+  **moons needed their own visible orbits** and **Saturn ~20 moons + asteroid fields
+  in the rings**. Core: `orbit::default_system` now gives Saturn **20 named moons**
+  (Pan→Phoebe) on distinct exaggerated orbits, and `sim::frontier::default_colonies`
+  seeds **faction-aligned outposts** across the outer system (Earth/Mars/Belt-as-OPA/
+  Independents), resolved **by body name** so they survive any moon re-layout. Shell:
+  each **moon now draws its own orbit ring parented to its planet's node** (so it
+  tracks the planet for free — the key trick: parent ring/colony/asteroid nodes to
+  the body node instead of repositioning them per frame); **Saturn's banded rings +
+  a 220-rock asteroid `MultiMesh`** ride on Saturn's node; **faction-coloured colony
+  markers + labels** sit on their moons. New bindings `body_orbit_radius`,
+  `colony_*`. Render-verified: zoom into Saturn shows the gold ringed planet, rocks
+  in the rings, the moon orbits, and OPA/Earth/Mars/Independent colony tags. Economy
+  untouched (colonies aren't markets *yet* — wiring them as tradeable nodes needs the
+  long-haul traffic tuning, the next step); §7c gate holds, QA review regenerated
+  (salvage reseeds off the bigger body list; **0 concerns**). 131 tests green.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

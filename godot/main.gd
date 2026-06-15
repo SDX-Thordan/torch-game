@@ -27,7 +27,14 @@ const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
 # Body render radii by kind (exaggerated for legibility, not to scale):
 # 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf, 4 Moon, 5 Gate.
-const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.045, 0.0]
+const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0]
+# Faction tints (Earth, Mars, Belt/OPA, Independents) for colony markers (§4/§17).
+const FACTION_COL := [
+	Color(0.4, 0.6, 1.0),    # Earth — blue
+	Color(0.95, 0.45, 0.4),  # Mars — red
+	Color(0.95, 0.75, 0.35), # Belt / OPA — amber
+	Color(0.55, 0.85, 0.6),  # Independents — green
+]
 const SPACE_BG := Color(0.02, 0.03, 0.06)
 const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)   # left info-column backdrop (§20)
 const HAULER_COL := Color(0.95, 0.7, 0.35)
@@ -138,18 +145,24 @@ func _build_world() -> void:
 		var body := _sphere(BODY_RADIUS[kind], _lit_mat(_body_colour_kind(b, kind)))
 		add_child(body)
 		_body_nodes.append(body)
-		# Orbit ring only for bodies that circle the Sun (planets/dwarfs); a moon's
-		# ring would have to track its moving parent, deferred.
-		if sim.body_parent(b) == 0:
+		var parent := sim.body_parent(b)
+		if parent == 0:
+			# Planet/dwarf orbit ring about the Sun (static at the origin).
 			var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
 			add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+		else:
+			# A moon's orbit ring is centred on its planet — parent it to the
+			# planet's node so it tracks the planet across the system (§17).
+			var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
+			var mrm := _emissive_mat(Color(0.32, 0.36, 0.42))
+			_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.004, mr * 0.012)))
 		# A billboarded name tag (smaller, dimmer for moons; seen on zoom-in).
 		var tag := Label3D.new()
 		tag.text = sim.body_name(b)
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		tag.modulate = Color(0.6, 0.7, 0.78) if kind == 4 else Color(0.72, 0.84, 0.95)
-		tag.pixel_size = 0.0035 if kind == 4 else 0.006
-		tag.position = Vector3(0, BODY_RADIUS[kind] + 0.1, 0)
+		tag.pixel_size = 0.0026 if kind == 4 else 0.006
+		tag.position = Vector3(0, BODY_RADIUS[kind] + 0.06, 0)
 		body.add_child(tag)
 
 	# The always-visible ring-gate (§0.1) at its true distance beyond Pluto; it
@@ -157,6 +170,31 @@ func _build_world() -> void:
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
 	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
 	add_child(_gate_ring)
+
+	# Settled frontier colonies (§17): a faction-coloured marker + tag on each
+	# colony's body, parented to it so it tracks the moon across the system.
+	for ci in sim.colony_count():
+		var cb := sim.colony_body(ci)
+		if cb < 0 or cb >= _body_nodes.size():
+			continue
+		var fcol: Color = FACTION_COL[clampi(sim.colony_faction(ci), 0, 3)]
+		var marker := _sphere(0.03, _emissive_mat(fcol))
+		marker.position = Vector3(BODY_RADIUS[sim.body_kind(cb)] + 0.03, 0.0, 0.0)
+		_body_nodes[cb].add_child(marker)
+		var clbl := Label3D.new()
+		clbl.text = sim.colony_name(ci)
+		clbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		clbl.modulate = fcol
+		clbl.pixel_size = 0.0026
+		clbl.position = Vector3(0.0, -BODY_RADIUS[sim.body_kind(cb)] - 0.07, 0.0)
+		_body_nodes[cb].add_child(clbl)
+
+	# Saturn's iconic rings + the asteroid fields drifting in them (§17), parented
+	# to Saturn so they orbit the Sun with it.
+	for b in sim.body_count():
+		if sim.body_name(b) == "Saturn":
+			_build_saturn_rings(_body_nodes[b])
+			break
 
 	# Hauler lane trails (§7b): faint lines from each hauler to its destination,
 	# rebuilt every frame, so the interdiction decision ("which one?") is spatial.
@@ -204,6 +242,39 @@ func _build_starfield() -> void:
 	add_child(mmi)
 
 
+## Saturn's banded rings + the asteroid field drifting in them (§17). Parented to
+## Saturn's node so the whole ring system orbits the Sun with the planet.
+func _build_saturn_rings(saturn: Node3D) -> void:
+	# A few concentric thin rings read as the banded ring sheet.
+	for rr in [0.42, 0.48, 0.54, 0.60, 0.66, 0.72]:
+		var rm := _emissive_mat(Color(0.85, 0.78, 0.55, 0.45))
+		rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		saturn.add_child(_ring_mat(rr, rm, 0.018))
+	# The asteroid field: small rocks scattered through the ring annulus.
+	var amat := StandardMaterial3D.new()
+	amat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	amat.albedo_color = Color(0.78, 0.74, 0.66)
+	var rock := BoxMesh.new()
+	rock.size = Vector3(0.012, 0.012, 0.012)
+	rock.material = amat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = rock
+	mm.instance_count = 220
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 17
+	for i in mm.instance_count:
+		var ang := rng.randf() * TAU
+		var rad := rng.randf_range(0.40, 0.74)
+		var pos := Vector3(cos(ang) * rad, rng.randf_range(-0.012, 0.012), sin(ang) * rad)
+		var s := rng.randf_range(0.5, 2.2)
+		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s)
+		mm.set_instance_transform(i, Transform3D(basis, pos))
+	var ast := MultiMeshInstance3D.new()
+	ast.multimesh = mm
+	saturn.add_child(ast)
+
+
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -241,6 +312,34 @@ func _build_hud() -> void:
 	# The paused banner sits over the orrery (right side), clear of the top bar.
 	_paused = _make_label(layer, Vector2(900, 70), 22)
 	_paused.modulate = Color(1.0, 0.8, 0.3)
+
+	# Touch-friendly map controls (§17, mobile): zoom in/out + reset-view, plus
+	# pinch and tap handled in _unhandled_input.
+	_make_map_button(layer, Vector2(1208, 470), "+", func() -> void: _zoom_by(0.8))
+	_make_map_button(layer, Vector2(1208, 530), "–", func() -> void: _zoom_by(1.25))
+	_make_map_button(layer, Vector2(1208, 590), "◉", _reset_view)
+
+
+## A large square touch target for the map controls.
+func _make_map_button(parent: CanvasLayer, pos: Vector2, label: String, cb: Callable) -> void:
+	var btn := Button.new()
+	btn.text = label
+	btn.position = pos
+	btn.size = Vector2(54, 54)
+	btn.add_theme_font_size_override("font_size", 26)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.pressed.connect(cb)
+	parent.add_child(btn)
+
+
+func _zoom_by(factor: float) -> void:
+	_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+
+
+func _reset_view() -> void:
+	_focus_body = 0
+	_zoom = 10.0
+	status = "View: inner system (pinch / +–  to zoom, tap a world to focus)."
 
 
 func _make_label(parent: CanvasLayer, pos: Vector2, size: int) -> Label:
@@ -610,24 +709,30 @@ func _pick_body(pos: Vector2) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Mobile-first map navigation (§17): a tap targets a hauler then focuses a
+	# world; a pinch zooms; the on-screen +/–/◉ buttons are the explicit controls.
+	if event is InputEventScreenTouch and event.pressed:
+		if not _pick_hauler(event.position):
+			_pick_body(event.position)
+		return
+	if event is InputEventMagnifyGesture:
+		_zoom = clampf(_zoom / event.factor, ZOOM_MIN, ZOOM_MAX)
+		return
+	# Mouse fallback for desktop testing (the device build is touch).
 	if event is InputEventMouseButton and event.pressed:
-		# Wheel zooms; left-click targets a hauler then focuses a body; right-click
-		# resets to the full-system view (§17 map navigation).
 		match event.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
-				_zoom = clampf(_zoom * 0.85, ZOOM_MIN, ZOOM_MAX)
+				_zoom_by(0.85)
 				return
 			MOUSE_BUTTON_WHEEL_DOWN:
-				_zoom = clampf(_zoom * 1.18, ZOOM_MIN, ZOOM_MAX)
+				_zoom_by(1.18)
 				return
 			MOUSE_BUTTON_LEFT:
 				if not _pick_hauler(event.position):
 					_pick_body(event.position)
 				return
 			MOUSE_BUTTON_RIGHT:
-				_focus_body = 0
-				_zoom = 10.0
-				status = "View: inner system (scroll to zoom out to the gate)."
+				_reset_view()
 				return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
