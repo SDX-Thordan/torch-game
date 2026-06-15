@@ -30,6 +30,7 @@ var speed_idx := 1
 var accum := 0.0
 var auto_pause := true                   # pause when an act-now alert fires (§28)
 var selected := 0                       # index of the selected in-flight hauler
+var flash := 0.0                         # act-now alert juice: a fading screen tint (§23)
 
 # The trade cursor — granular control over what/where/how much you deal (§5).
 var sel_comm := 5                       # commodity (ReactorFuel by default)
@@ -73,14 +74,17 @@ func _process(delta: float) -> void:
 		while accum >= 1.0:
 			sim.step()
 			accum -= 1.0
-			# Auto-pause on an exception (§28/§0.4): fast-forward dead time, but
-			# stop the instant an act-now shortage fires so you never idle through
-			# nothing — then press [E] to exploit it and resume.
-			if auto_pause and sim.just_alerted():
-				speed_idx = 0
-				accum = 0.0
-				status = "Auto-paused — act-now shortage. [E] exploit, then resume."
-				break
+			# An act-now exception flashes the screen edge (§23 juice) so it's never
+			# missed, and — if auto-pause is on (§28/§0.4) — stops the clock the
+			# instant it fires so you never idle through a decision.
+			if sim.just_alerted():
+				flash = 1.0
+				if auto_pause:
+					speed_idx = 0
+					accum = 0.0
+					status = "Auto-paused — act-now shortage. [E] exploit, then resume."
+					break
+	flash = maxf(0.0, flash - delta * 2.0)   # ~0.5 s fade
 	_refresh()
 	queue_redraw()
 
@@ -183,13 +187,37 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
+
+
+## World-space (sim units) → screen position in the orrery. Shared by the
+## renderer and mouse picking so they always agree (§21).
+func _orrery_pos(wx: float, wy: float) -> Vector2:
+	var ppu := ORRERY_RADIUS / (MAX_AU * AU)
+	return ORRERY_CENTRE + Vector2(wx, -wy) * ppu
+
+
+## Select the in-flight hauler nearest a screen point, if one is within reach.
+func _pick_hauler(pos: Vector2) -> void:
+	var best := -1
+	var best_d := 16.0   # px pick radius
+	for hi in sim.hauler_count():
+		var d := _orrery_pos(sim.hauler_x(hi), sim.hauler_y(hi)).distance_to(pos)
+		if d < best_d:
+			best_d = d
+			best = hi
+	if best >= 0:
+		selected = best
+		status = "Targeted hauler %d — [I] to interdict." % best
+	else:
+		status = "No hauler there to target."
 
 
 func _draw() -> void:
+	var vp := get_viewport_rect().size
 	# A backdrop behind the left info column so the panels stay legible over the
 	# orrery (§20). Drawn first; the Label child nodes paint on top.
-	var h := get_viewport_rect().size.y
+	var h := vp.y
 	draw_rect(Rect2(0, 0, 720, h), PANEL_BG, true)
 	draw_line(Vector2(720, 0), Vector2(720, h), PANEL_EDGE, 1.0)
 
@@ -204,23 +232,31 @@ func _draw() -> void:
 		if r > 1.0:
 			draw_arc(ORRERY_CENTRE, r, 0, TAU, 96, Color(0.25, 0.3, 0.35), 1.0)
 	for b in sim.body_count():
-		var p := ORRERY_CENTRE + Vector2(sim.body_x(b), -sim.body_y(b)) * px_per_unit
+		var p := _orrery_pos(sim.body_x(b), sim.body_y(b))
 		var is_sun := b == 0
 		draw_circle(p, 9.0 if is_sun else 5.0, Color(1, 0.8, 0.3) if is_sun else Color(0.6, 0.8, 1.0))
 		draw_string(_font, p + Vector2(8, -8), sim.body_name(b), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9))
 	for hi in sim.hauler_count():
-		var hp := ORRERY_CENTRE + Vector2(sim.hauler_x(hi), -sim.hauler_y(hi)) * px_per_unit
+		var hp := _orrery_pos(sim.hauler_x(hi), sim.hauler_y(hi))
 		var col := Color(1.0, 0.5, 0.2) if hi == selected else Color(0.9, 0.7, 0.4)
 		draw_circle(hp, 3.0, col)
 		if hi == selected:
-			# A targeting reticle on the hauler you'd interdict.
+			# A targeting reticle on the hauler you'd interdict (click or [Tab]).
 			draw_arc(hp, 8.0, 0, TAU, 24, Color(1.0, 0.5, 0.2, 0.9), 1.5)
 	# A clear paused indicator so the player always knows time is stopped (§28).
 	if speed_idx == 0:
 		draw_string(_font, ORRERY_CENTRE + Vector2(-34, -ORRERY_RADIUS - 30), "‖ PAUSED", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1.0, 0.8, 0.3))
+	# Act-now juice (§23): a fading red frame pulls the eye to a fresh decision.
+	if flash > 0.0:
+		draw_rect(Rect2(2, 2, vp.x - 4, vp.y - 4), Color(1.0, 0.35, 0.25, flash * 0.85), false, 5.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Click an in-flight hauler in the orrery to target it for interdiction (§21) —
+	# a directness the Tab-cycle alone doesn't give.
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_pick_hauler(event.position)
+		return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	match event.keycode:
