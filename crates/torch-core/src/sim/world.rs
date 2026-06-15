@@ -49,6 +49,10 @@ const REFINERY_SELL_ABOVE: i64 = 80;
 const REFINERY_TARGET: i64 = 160;
 /// Number of raw commodities (raw `i` refines to refined `i + RAW_COUNT`).
 const RAW_COUNT: usize = 3;
+/// Crew quality of a raider pack (§13). Matched to the player's reference 50: a
+/// same-count pack is a genuine coin-flip (the gameplay-QA balance target), so
+/// committing warships is a real risk — your fleet can be lost (§13 attrition).
+const RAIDER_QUALITY: i64 = 50;
 
 /// Why a market order could not be filled (§5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -672,10 +676,12 @@ impl Sim {
         if player_ships.is_empty() {
             return None;
         }
-        // A matched pack of raider frigates — quantity the player must answer
-        // with quality and doctrine (§8a/§9 saturation tension).
+        // A matched-count pack of raider frigates at a matched crew quality — a
+        // genuine coin-flip, so committing the fleet is a real risk (§13/§9).
         let pack: Vec<Loadout> = (0..player_ships.len())
-            .map(|_| ships::reference_loadout(ShipClass::Frigate, &mut self.rng))
+            .map(|_| {
+                ships::reference_loadout_quality(ShipClass::Frigate, RAIDER_QUALITY, &mut self.rng)
+            })
             .collect();
         let doctrine = Doctrine {
             band,
@@ -1053,6 +1059,38 @@ mod tests {
         assert!(revenue > cost, "selling dear should beat buying cheap");
         assert!(sim.corp().credits() > start, "the round trip should profit");
         assert_eq!(sim.corp().cargo(rf), 0);
+    }
+
+    #[test]
+    fn matched_raider_fights_are_a_competitive_coin_flip() {
+        // The fix for the old screened stalemate (§9): a matched pack at Close
+        // resolves to decisive outcomes that are neither a guaranteed win nor a
+        // guaranteed loss — committing the fleet is a real, two-sided risk (§13).
+        let trials = 64;
+        let mut wins = 0;
+        let mut decisive = 0;
+        for seed in 0..trials {
+            let mut sim = Sim::new(seed);
+            for _ in 0..3 {
+                sim.commission_ship(ShipClass::Frigate).unwrap();
+            }
+            let out = sim.engage_raiders(Band::Close).unwrap();
+            if out.winner.is_some() {
+                decisive += 1;
+            }
+            if out.winner == Some(0) {
+                wins += 1;
+            }
+        }
+        assert!(
+            decisive > 0,
+            "fights should resolve to a winner, not always stalemate"
+        );
+        let pct = wins * 100 / trials;
+        assert!(
+            (10..=90).contains(&pct),
+            "win rate {pct}% should be competitive, not lopsided"
+        );
     }
 
     #[test]

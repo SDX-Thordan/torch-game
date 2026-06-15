@@ -504,6 +504,22 @@ Status: [x] done, [~] in progress, [ ] todo.
   `docs/SAMPLE_GAMEPLAY_REVIEW.md` after gameplay changes — its first line is a
   hand-added "do not hand-edit" header outside `render_report`, so restore it.
 
+- **2026-06-15 — Combat initiative — the resolver needed variance (QA finding).**
+  The gameplay QA flagged matched fights as lopsided (0% then 100% wins). Root
+  cause: `combat::resolve` was a deterministic **force-ratio curbstomp** — one
+  extra ship or a 1-point crew edge flipped it 100%↔0%, and the ±12% volley jitter
+  never changed a winner (focus-fire + equal hp ⇒ matched fleets mutually
+  annihilate to a *draw*, never a win). The structural bug: frigates have no
+  railgun, so at Medium their 2-tube salvos can't beat a PDC screen and there's no
+  damage path at all → guaranteed stalemate. Fixes: (1) **initiative** — at battle
+  start one side (rng) wins the opening exchange (+60% tick-1 damage); enough to
+  decide an even fight, far too little to overturn a real force advantage, so
+  matched fleets are now a genuine coin-flip (proven: 10–90% wins over 64 seeds).
+  (2) frigate fleets **knife-fight Close** (where the PDC brawl resolves), not
+  Medium. (3) The QA lopsided heuristic only judges off `battles >= 12` — combat is
+  crew-capped (§8c) and decisive (§13), so a persona fights a *few pivotal*
+  battles, not a grind; balance is proven by the unit test, not the small sample.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

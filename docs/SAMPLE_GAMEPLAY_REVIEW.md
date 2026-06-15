@@ -108,26 +108,25 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 
 | metric | value |
 | --- | --- |
-| treasury | 30000 → 30000 cr (+0, ~1×) |
-| actions | 67 over 1% of ticks |
+| treasury | 42000 → 30000 cr (+-12000, ~0×) |
+| actions | 6 over 0% of ticks |
 | campaign | The Region · gate 33% · 1 ascent(s) |
 | gate reached | — |
 | CEO level | 2 · techs 0 |
-| traffic | 166 flew, 114 arrived, 48 cut, 48 shortages |
-| act-now alerts | 48 raised, 0 answered |
-| battles | 67 fought, 0 won |
+| traffic | 166 flew, 112 arrived, 51 cut, 51 shortages |
+| act-now alerts | 51 raised, 0 answered |
+| battles | 3 fought, 2 won |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 0
+**Ascents:** The Region @ 1
 
 **Findings:**
 
 - **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
-- **[NOTE]** _Economy_ — Active all run but treasury never moved — the loop found no work (e.g. a standing order idle below its margin). That idle state is the exception the feed should surface.
-- **[NOTE]** _Agency_ — Acted on only 1% of ticks (67 actions) — long stretches with nothing to press. Real-time-with-pause needs either denser decisions or faster time-compression here.
-- **[NOTE]** _Alert feed_ — 48 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[INFO]** _Fleet_ — Fielded 5 warship(s) and 0 freighter(s); trained-crew pool at 0 (the §8c bottleneck that caps capital ships).
+- **[NOTE]** _Economy_ — Lost money over the run: 42000 → 30000 cr (-12000).
+- **[NOTE]** _Agency_ — Acted on only 0% of ticks (6 actions) — long stretches with nothing to press. Real-time-with-pause needs either denser decisions or faster time-compression here.
+- **[NOTE]** _Alert feed_ — 51 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 
 ## Tycoon
 
@@ -161,8 +160,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 What the comparison of play styles reveals about the design as it stands:
 
 - **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
-- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 67 fleet engagements fought (0 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
-- **[NOTE]** _Combat_ — Lopsided outcomes: the player held the field in 0% of matched engagements. A symmetric raider pack should be closer to a coin-flip — initiative/doctrine in the resolver, or pack sizing, needs a balance pass.
+- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 3 fleet engagements fought (2 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
 - **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (242226 cr by hand vs 103220 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
 - **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~4× (≈242226 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
 - **[GOOD]** _Logistics_ — The standing-order layer is a *table* now (Sim::routes): many routes run concurrently against a shared freighter pool, each with its own params and idle/in-transit exception — the spreadsheet-sim master-table the influence model wants, not a single Option.
