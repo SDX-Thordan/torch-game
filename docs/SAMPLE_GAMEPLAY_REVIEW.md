@@ -34,23 +34,23 @@ _Hand-trades the spread every tick — does the economy stay a decision, or beco
 
 | metric | value |
 | --- | --- |
-| treasury | 50000 → 114155 cr (+64155, ~2×) |
-| actions | 2536 over 63% of ticks |
-| pacing | 2304 ticks pending · longest idle 7 ticks |
+| treasury | 50000 → 113773 cr (+63773, ~2×) |
+| actions | 2570 over 64% of ticks |
+| pacing | 2520 ticks pending · longest idle 6 ticks |
 | campaign | The Station · gate 0% · 0 ascent(s) |
 | gate reached | — |
 | CEO level | 1 · techs 0 |
-| traffic | 166 flew, 129 arrived, 32 cut, 32 shortages |
-| act-now alerts | 32 raised, 0 answered |
+| traffic | 166 flew, 127 arrived, 35 cut, 35 shortages |
+| act-now alerts | 35 raised, 0 answered |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
 **Findings:**
 
 - **[NOTE]** _Pacing_ — Never advanced the campaign — this play style completed no operations (a cut, a commissioned ship, a founded station, or a delivered route), so it never drew the gate closer.
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 114155 cr (+64155, ~2×).
-- **[INFO]** _Agency_ — Issued 2536 actions across 63% of ticks.
-- **[NOTE]** _Alert feed_ — 32 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 113773 cr (+63773, ~2×).
+- **[INFO]** _Agency_ — Issued 2570 actions across 64% of ticks.
+- **[NOTE]** _Alert feed_ — 35 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 
 ## Logistician
@@ -144,8 +144,8 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 | metric | value |
 | --- | --- |
-| treasury | 33000 → 123781 cr (+90781, ~3×) |
-| actions | 3209 over 76% of ticks |
+| treasury | 33000 → 123132 cr (+90132, ~3×) |
+| actions | 3205 over 76% of ticks |
 | pacing | 100 ticks pending · longest idle 6 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 1371 (~57 days) |
@@ -160,8 +160,8 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1371 (~57 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 123781 cr (+90781, ~3×).
-- **[INFO]** _Agency_ — Issued 3209 actions across 76% of ticks.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 123132 cr (+90132, ~3×).
+- **[INFO]** _Agency_ — Issued 3205 actions across 76% of ticks.
 - **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 118 of 118 act-now shortages.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 - **[NOTE]** _Reputation_ — Sustained raiding kept Earth pinned at Hostile (-984). Standings now heal toward neutral when the raids stop (a recoverable dial, not a one-way cliff) — but a persona that raids every tick outruns the drift, so the price is still real.
@@ -174,6 +174,6 @@ What the comparison of play styles reveals about the design as it stands:
 
 - **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
 - **[GOOD]** _Combat_ — Combat is reachable from the live loop: 2 fleet engagements fought (0 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
-- **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (114155 cr by hand vs 91480 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
-- **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~2× (≈114155 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
+- **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (113773 cr by hand vs 91480 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
+- **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~2× (≈113773 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
 - **[GOOD]** _Logistics_ — The standing-order layer is a *table* now (Sim::routes): many routes run concurrently against a shared freighter pool, each with its own params and idle/in-transit exception — the spreadsheet-sim master-table the influence model wants, not a single Option.

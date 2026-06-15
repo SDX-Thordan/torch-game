@@ -39,6 +39,7 @@ pub use faction::{Faction, Relations, RepTier};
 pub use industry::Station;
 pub use interdiction::{Interceptor, Interdiction};
 pub use logistics::TradeRoute;
+pub use orbit::{Body, BodyKind};
 pub use persist::{SaveState, SAVE_VERSION};
 pub use pressure::{Intensity, PressureKind, PressureSystem};
 pub use progression::{Blueprints, Branch, Buff, Ceo, Progression, Research};
