@@ -665,6 +665,66 @@ impl TorchSim {
         GString::from(format!("Refinery {input}→{output} @ {at}"))
     }
 
+    // ---- Faction contracts (§3.3/§16) ----
+
+    /// Number of contracts on the board (open + accepted).
+    #[func]
+    fn contract_count(&self) -> i64 {
+        self.sim.contracts().len() as i64
+    }
+
+    /// Number of open (not-yet-accepted) contracts on the board.
+    #[func]
+    fn open_contract_count(&self) -> i64 {
+        self.sim.open_contract_count() as i64
+    }
+
+    /// A one-line description of contract `i` (§3.3): who wants what, where, the
+    /// reward, and whether it's been accepted.
+    #[func]
+    fn contract_desc(&self, index: i64) -> GString {
+        let Some(c) = self.sim.contracts().get(index as usize) else {
+            return GString::default();
+        };
+        let good = self.sim.markets()[0]
+            .defs()
+            .get(c.commodity)
+            .map(|d| d.name)
+            .unwrap_or("?");
+        let at = self.sim.markets()[c.market].name();
+        let tag = if c.accepted { "[ACCEPTED] " } else { "" };
+        GString::from(format!(
+            "{tag}{}: {}× {good} → {at} for {} cr (+{} rep)",
+            c.faction.name(),
+            c.qty,
+            c.reward,
+            c.rep
+        ))
+    }
+
+    /// Accept the first open contract on the board (§3.3). Returns whether one
+    /// was accepted.
+    #[func]
+    fn accept_first_contract(&mut self) -> bool {
+        let id = self
+            .sim
+            .contracts()
+            .iter()
+            .find(|c| !c.accepted)
+            .map(|c| c.id);
+        match id {
+            Some(id) => self.sim.accept_contract(id),
+            None => false,
+        }
+    }
+
+    /// Accept-and-deliver the first contract whose owed cargo is already in the
+    /// warehouse (§3.3 one-press). Returns whether one was fulfilled.
+    #[func]
+    fn fulfill_ready_contract(&mut self) -> bool {
+        self.sim.fulfill_ready_contract().is_some()
+    }
+
     // ---- The command deck: standing policy a CEO sets (§12) ----
 
     /// Whether the standing interdiction patrol is hunting.

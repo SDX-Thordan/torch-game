@@ -544,6 +544,28 @@ Status: [x] done, [~] in progress, [ ] todo.
   24×): a quiet stretch that short is fast-forwardable + the §21 "felt vastness" of
   a burn, not a pacing dead-zone — so the Warlord's 144-tick gap reads Good.
 
+- **2026-06-15 — Faction contracts (§3.3/§16) — structured income + the rep-repair
+  path.** `sim::contracts` adds a job board: a faction posts a **delivery**
+  contract (bring `qty` of a commodity to its market) for a premium reward
+  (`CONTRACT_PREMIUM_BP` = 130% of face value) and a standing bump
+  (`CONTRACT_REP` = 60). The player `accept_contract`s (it then no longer lapses)
+  and `fulfill_contract`s from the warehouse — consuming the owed cargo, landing
+  it, banking the reward, lifting the faction's standing (§10), and counting the
+  delivery as an op on the §0 climb. This ties three systems the influence model
+  wants joined: the economy (you must *source* the goods), reputation (a
+  contract gives +60 vs. an interdiction's −50, so it's the deliberate repair
+  path the §10 "recoverable dial" needs a *verb* for), and the spine. **Key
+  determinism move:** `ContractBoard` carries its **own** `Pcg32`
+  (`seed ^ 0xC011_7AC7`) so generating offers never advances the shared world
+  RNG — proven by `the_contract_board_does_not_perturb_the_economy` (a world that
+  reads the board every tick stays bit-identical to one that doesn't) and by the
+  QA `SAMPLE_GAMEPLAY_REVIEW.md` regenerating unchanged (personas don't touch
+  contracts). Board hygiene mirrors the §19 alert lesson: a small capped menu
+  (`MAX_CONTRACTS` = 4), unaccepted offers lapse after a `CONTRACT_WINDOW` (168t)
+  delivery window, accepted ones persist (you still owe it). Bound to the shell
+  (K accept / J fill-from-warehouse + a deck line). `fulfill_ready_contract` is
+  the one-press accept-and-deliver for a contract whose cargo is already on hand.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

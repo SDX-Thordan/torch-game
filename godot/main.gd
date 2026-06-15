@@ -146,6 +146,10 @@ func _refresh() -> void:
 	if sim.station_count() > 0:
 		stations += "    " + sim.station_desc(0)
 	deck.append(stations)
+	var contracts := "contracts %d open" % sim.open_contract_count()
+	if sim.contract_count() > 0:
+		contracts += "    " + sim.contract_desc(0)
+	deck.append(contracts)
 	_deck.text = "\n".join(deck)
 
 	var feed_lines: Array[String] = ["── ALERT FEED ──"]
@@ -154,7 +158,7 @@ func _refresh() -> void:
 		feed_lines.append("%s %s" % [tag, sim.alert_message(a)])
 	_feed.text = "\n".join(feed_lines)
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab][I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause"
 
 
 func _draw() -> void:
@@ -249,6 +253,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				status = "Refinery founded: %s → refined @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
 			else:
 				status = "Can't found refinery — pick a RAW commodity, or short on capital/slots."
+		KEY_K:
+			status = "Contract accepted — deliver the goods before it lapses." if sim.accept_first_contract() else "No open contract to accept."
+		KEY_J:
+			status = "Contract delivered — paid and reputation lifted." if sim.fulfill_ready_contract() else "No contract you can fill from the warehouse."
 
 
 func _do_buy() -> void:

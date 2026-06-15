@@ -9,6 +9,7 @@ use super::alerts::{AlertFeed, Priority, Verb};
 use super::automation::AutomationPolicy;
 use super::campaign::Campaign;
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
+use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
 use super::economy::{default_markets, Market};
 use super::event::Event;
@@ -53,6 +54,24 @@ const RAW_COUNT: usize = 3;
 /// same-count pack is a genuine coin-flip (the gameplay-QA balance target), so
 /// committing warships is a real risk — your fleet can be lost (§13 attrition).
 const RAIDER_QUALITY: i64 = 50;
+/// Ticks between contract-board postings (§3.3/§16): a faction posts a delivery
+/// job roughly once a day at 1 tick/hour.
+const CONTRACT_INTERVAL: u64 = 24;
+/// How many open (unaccepted) offers the board carries at once — a small, fresh
+/// menu, not a backlog (the §19 anti-anxiety lesson applied to the job board).
+const MAX_CONTRACTS: usize = 4;
+/// Ticks a posted contract stays on the board before lapsing (a delivery window).
+const CONTRACT_WINDOW: u64 = 168;
+/// Delivery size band (units) for a posted contract.
+const CONTRACT_QTY_MIN: i64 = 20;
+const CONTRACT_QTY_SPAN: i64 = 40;
+/// Reward premium over the goods' face value at the delivery market, in basis
+/// points: the contract pays a margin above just buying-and-selling, which is
+/// what makes accepting it worthwhile (the structured-income hook, §3.3).
+const CONTRACT_PREMIUM_BP: i64 = 13_000;
+/// Standing gained with the offering faction on fulfilment (§10): more than a
+/// single interdiction costs, so contracts are a real reputation-repair path.
+const CONTRACT_REP: i64 = 60;
 
 /// Why a market order could not be filled (§5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +86,14 @@ pub enum TradeError {
 pub enum CommissionError {
     CantAfford,
     NotEnoughCrew,
+}
+
+/// Why a faction contract could not be accepted or fulfilled (§3.3/§16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContractError {
+    NotFound,
+    NotAccepted,
+    InsufficientCargo,
 }
 
 /// Why a station could not be founded (§3.1).
@@ -157,6 +184,7 @@ pub struct Sim {
     corp: Corp,
     routes: Vec<TradeRoute>,
     stations: Vec<Station>,
+    board: ContractBoard,
     rng: Pcg32,
     events: Vec<Event>,
     /// How many leading `events` the last `step` already returned and fed to the
@@ -203,6 +231,7 @@ impl Sim {
             corp: Corp::new(commodity_count),
             routes: Vec::new(),
             stations: Vec::new(),
+            board: ContractBoard::new(seed),
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -559,6 +588,90 @@ impl Sim {
         }
     }
 
+    /// The faction job board — open and accepted delivery contracts (§3.3/§16).
+    pub fn contracts(&self) -> &[super::contracts::Contract] {
+        self.board.offers()
+    }
+
+    /// Number of open (not-yet-accepted) contracts on the board.
+    pub fn open_contract_count(&self) -> usize {
+        self.board.open_count()
+    }
+
+    /// Maintain the contract board each tick (§3.3/§16): lapse stale unaccepted
+    /// offers, then — on the posting cadence and while the menu has room — post a
+    /// fresh delivery job. A faction asks for `qty` of a commodity delivered to
+    /// its market for a premium reward and a standing bump; accepting and
+    /// fulfilling it ties the economy (you must source the goods) to reputation
+    /// (§10) and the §0 climb (a fulfilment is an operation). The board draws from
+    /// its **own** RNG so generating offers never perturbs the world streams.
+    fn run_contracts(&mut self) {
+        self.board.expire_unaccepted(self.tick);
+        if !self.tick.is_multiple_of(CONTRACT_INTERVAL) || self.board.open_count() >= MAX_CONTRACTS
+        {
+            return;
+        }
+        let market = self.board.rng().below(self.markets.len() as u32) as usize;
+        let commodity_count = self.markets[market].defs().len();
+        let commodity = self.board.rng().below(commodity_count as u32) as usize;
+        let qty = CONTRACT_QTY_MIN + self.board.rng().below(CONTRACT_QTY_SPAN as u32) as i64;
+        let faction = self.markets[market].faction();
+        let face = self.markets[market].price(commodity) * qty;
+        let reward = face * CONTRACT_PREMIUM_BP / FEE_DEN;
+        let deadline = self.tick + CONTRACT_WINDOW;
+        self.board.post(
+            faction,
+            market,
+            commodity,
+            qty,
+            reward,
+            CONTRACT_REP,
+            deadline,
+        );
+    }
+
+    /// Accept open contract `id` (§3.3): the player now owes the delivery until
+    /// its deadline (accepted contracts no longer lapse). Returns whether it was
+    /// accepted.
+    pub fn accept_contract(&mut self, id: u64) -> bool {
+        self.board.accept(id)
+    }
+
+    /// Fulfil accepted contract `id` from the warehouse (§3.3/§16): consumes the
+    /// owed cargo, lands it at the faction's market, pays the reward, lifts the
+    /// standing (§10), and counts the delivery as an operation on the climb (§0).
+    /// Returns the reward credited, or why it could not be fulfilled.
+    pub fn fulfill_contract(&mut self, id: u64) -> Result<i64, ContractError> {
+        let c = *self.board.find(id).ok_or(ContractError::NotFound)?;
+        if !c.accepted {
+            return Err(ContractError::NotAccepted);
+        }
+        if self.corp.cargo(c.commodity) < c.qty {
+            return Err(ContractError::InsufficientCargo);
+        }
+        self.corp.unstore(c.commodity, c.qty);
+        self.markets[c.market].add_stock(c.commodity, c.qty);
+        self.corp.credit(c.reward);
+        self.relations.adjust(c.faction, c.rep);
+        self.board.remove(id);
+        self.complete_op(); // a delivered contract is progress on the climb (§0)
+        Ok(c.reward)
+    }
+
+    /// Accept and immediately attempt to fulfil the first open contract whose
+    /// owed cargo is already in the warehouse (the one-press path the influence
+    /// model wants). Returns the reward credited, if any.
+    pub fn fulfill_ready_contract(&mut self) -> Option<i64> {
+        let ready = self
+            .board
+            .offers()
+            .iter()
+            .find(|c| self.corp.cargo(c.commodity) >= c.qty)
+            .map(|c| c.id)?;
+        self.accept_contract(ready);
+        self.fulfill_contract(ready).ok()
+    }
+
     /// Standings, mutable — for diplomacy/contracts that move reputation (§10).
     pub fn relations_mut(&mut self) -> &mut Relations {
         &mut self.relations
@@ -616,6 +729,7 @@ impl Sim {
         self.run_automation();
         self.run_logistics();
         self.run_industry();
+        self.run_contracts();
         self.charge_upkeep();
         if self.tick.is_multiple_of(REP_RECOVERY_INTERVAL) {
             self.relations.decay_toward_neutral(REP_RECOVERY_STEP);
@@ -1673,6 +1787,110 @@ mod tests {
                 }
             }
             assert!(ok, "death-spiral with traffic on seed {seed}");
+        }
+    }
+
+    #[test]
+    fn the_board_posts_and_caps_contracts() {
+        let mut sim = Sim::new(7);
+        // The board fills to its cap and never exceeds it.
+        for _ in 0..2_000 {
+            sim.step();
+            assert!(sim.open_contract_count() <= MAX_CONTRACTS);
+        }
+        assert_eq!(
+            sim.open_contract_count(),
+            MAX_CONTRACTS,
+            "a healthy world keeps the job menu full"
+        );
+    }
+
+    #[test]
+    fn fulfilling_a_contract_pays_and_lifts_reputation() {
+        let mut sim = Sim::new(11);
+        // Let the board post some offers.
+        for _ in 0..CONTRACT_INTERVAL {
+            sim.step();
+        }
+        let c = *sim.contracts().first().expect("an offer should be posted");
+        // Stock the warehouse with exactly what the contract owes, then fulfil.
+        sim.corp.store(c.commodity, c.qty);
+        let before_credits = sim.corp().credits();
+        let before_rep = sim.relations().standing(c.faction);
+        assert!(sim.accept_contract(c.id));
+        let reward = sim
+            .fulfill_contract(c.id)
+            .expect("fulfilment should succeed");
+        assert_eq!(reward, c.reward);
+        assert_eq!(sim.corp().credits(), before_credits + c.reward);
+        assert_eq!(sim.relations().standing(c.faction), before_rep + c.rep);
+        assert_eq!(
+            sim.corp().cargo(c.commodity),
+            0,
+            "the owed cargo is consumed"
+        );
+        assert!(
+            sim.contracts().iter().all(|o| o.id != c.id),
+            "a fulfilled contract leaves the board"
+        );
+    }
+
+    #[test]
+    fn a_contract_must_be_accepted_and_stocked_to_fulfil() {
+        let mut sim = Sim::new(13);
+        for _ in 0..CONTRACT_INTERVAL {
+            sim.step();
+        }
+        let c = *sim.contracts().first().expect("an offer should be posted");
+        // Not accepted yet → NotAccepted.
+        assert_eq!(sim.fulfill_contract(c.id), Err(ContractError::NotAccepted));
+        // Accepted but empty warehouse → InsufficientCargo.
+        assert!(sim.accept_contract(c.id));
+        assert_eq!(
+            sim.fulfill_contract(c.id),
+            Err(ContractError::InsufficientCargo)
+        );
+        // A bogus id is NotFound.
+        assert_eq!(sim.fulfill_contract(99_999), Err(ContractError::NotFound));
+    }
+
+    #[test]
+    fn unaccepted_contracts_lapse_but_accepted_ones_persist() {
+        let mut sim = Sim::new(17);
+        for _ in 0..CONTRACT_INTERVAL {
+            sim.step();
+        }
+        let c = *sim.contracts().first().expect("an offer should be posted");
+        assert!(sim.accept_contract(c.id));
+        // Run well past the delivery window; the accepted contract is still owed.
+        for _ in 0..(CONTRACT_WINDOW + CONTRACT_INTERVAL) {
+            sim.step();
+        }
+        assert!(
+            sim.contracts().iter().any(|o| o.id == c.id && o.accepted),
+            "an accepted contract does not lapse"
+        );
+    }
+
+    #[test]
+    fn the_contract_board_does_not_perturb_the_economy() {
+        // The board has its own RNG, so a world *with* contract postings must be
+        // bit-identical in its economy to one where we never read the board —
+        // proving offer generation never advances the shared world streams (§27).
+        let mut a = Sim::new(23);
+        let mut b = Sim::new(23);
+        for _ in 0..1_000 {
+            a.step();
+            // `b` additionally pokes the board read paths every tick.
+            b.step();
+            let _ = b.contracts();
+            let _ = b.open_contract_count();
+        }
+        for (ma, mb) in a.markets().iter().zip(b.markets()) {
+            for c in 0..ma.defs().len() {
+                assert_eq!(ma.price(c), mb.price(c), "economy diverged");
+                assert_eq!(ma.stock(c), mb.stock(c), "stock diverged");
+            }
         }
     }
 }
