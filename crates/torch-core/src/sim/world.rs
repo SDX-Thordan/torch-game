@@ -13,6 +13,7 @@ use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::faction::Relations;
 use super::interdiction::{resolve, Interceptor, Interdiction};
+use super::logistics::TradeRoute;
 use super::orbit::{default_system, Body};
 use super::progression::Progression;
 use super::rng::Pcg32;
@@ -111,6 +112,7 @@ pub struct Sim {
     policy: AutomationPolicy,
     campaign: Campaign,
     corp: Corp,
+    route: Option<TradeRoute>,
     rng: Pcg32,
     events: Vec<Event>,
 }
@@ -144,6 +146,7 @@ impl Sim {
             policy: AutomationPolicy::default(),
             campaign: Campaign::new(),
             corp: Corp::new(commodity_count),
+            route: None,
             markets,
             rng: Pcg32::new(seed),
             events: Vec::new(),
@@ -251,6 +254,86 @@ impl Sim {
         Ok(())
     }
 
+    /// Commission a civilian freighter to run trade-route standing orders (§4).
+    pub fn commission_freighter(&mut self) -> Result<(), CommissionError> {
+        let hull = ships::hull(ShipClass::Freighter);
+        let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
+        if self.corp.credits() < price {
+            return Err(CommissionError::CantAfford);
+        }
+        if self.corp.trained_crew() < hull.crew_required {
+            return Err(CommissionError::NotEnoughCrew);
+        }
+        self.corp.debit(price);
+        self.corp.assign_crew(hull.crew_required);
+        self.corp.add_freighter();
+        Ok(())
+    }
+
+    /// The current trade-route standing order, if any (§4).
+    pub fn route(&self) -> Option<TradeRoute> {
+        self.route
+    }
+
+    /// Set a parameterized Trade Route standing order — buy `commodity` at
+    /// `origin`, sell at `dest`, `qty` per trip, only while the spread clears
+    /// `min_margin` (§4). A freighter runs it; exceptions go idle.
+    pub fn set_trade_route(
+        &mut self,
+        commodity: usize,
+        origin: usize,
+        dest: usize,
+        qty: i64,
+        min_margin: i64,
+    ) {
+        self.route = Some(TradeRoute::new(commodity, origin, dest, qty, min_margin));
+    }
+
+    /// Cancel the standing trade route.
+    pub fn clear_trade_route(&mut self) {
+        self.route = None;
+    }
+
+    /// Travel time in ticks between two markets at the current orrery geometry.
+    fn travel_ticks(&self, origin: usize, dest: usize) -> u64 {
+        let o = self.bodies[self.markets[origin].body()].position(self.tick);
+        let d = self.bodies[self.markets[dest].body()].position(self.tick);
+        let (dx, dy) = (d.0 - o.0, d.1 - o.1);
+        let dist = (dx * dx + dy * dy).isqrt();
+        ((dist / CRUISE_SPEED) as u64).max(MIN_TRAVEL)
+    }
+
+    /// Execute the standing trade route this tick (§4): deliver an arriving trip,
+    /// or dispatch a new one when a freighter is free and the spread clears the
+    /// margin. The route runs itself; the player only set the parameters.
+    fn run_logistics(&mut self) {
+        let Some(mut rt) = self.route else {
+            return;
+        };
+        if rt.in_transit {
+            if self.tick >= rt.arrival {
+                let revenue = self.markets[rt.dest].price(rt.commodity) * rt.carrying;
+                self.markets[rt.dest].add_stock(rt.commodity, rt.carrying);
+                self.corp.credit(revenue);
+                rt.in_transit = false;
+                rt.carrying = 0;
+            }
+        } else if rt.active && self.corp.freighters() > 0 {
+            let buy = self.markets[rt.origin].price(rt.commodity);
+            let spread = self.markets[rt.dest].price(rt.commodity) - buy;
+            let cost = buy * rt.qty;
+            let stocked = self.markets[rt.origin].stock(rt.commodity) > rt.qty;
+            if spread >= rt.min_margin && stocked && self.corp.credits() >= cost {
+                self.markets[rt.origin].remove_stock(rt.commodity, rt.qty);
+                self.corp.debit(cost);
+                rt.in_transit = true;
+                rt.carrying = rt.qty;
+                rt.arrival = self.tick + self.travel_ticks(rt.origin, rt.dest);
+            }
+        }
+        self.route = Some(rt);
+    }
+
     /// Standings, mutable — for diplomacy/contracts that move reputation (§10).
     pub fn relations_mut(&mut self) -> &mut Relations {
         &mut self.relations
@@ -302,6 +385,7 @@ impl Sim {
         self.spawn_traffic();
         self.pirate_raid();
         self.run_automation();
+        self.run_logistics();
         self.events.push(Event::Tick { tick: self.tick });
         // The alert feed (§19) consumes this tick's events (§29).
         let tick = self.tick;
@@ -647,6 +731,52 @@ mod tests {
         assert_eq!(
             sim.commission_ship(ShipClass::Battleship),
             Err(CommissionError::NotEnoughCrew)
+        );
+    }
+
+    #[test]
+    fn a_trade_route_runs_itself_for_profit() {
+        // The standing-order heart (§4): set the params + own a freighter, and the
+        // sim flies the loop, banking the spread with no further input.
+        let mut sim = Sim::new(0);
+        sim.commission_freighter().unwrap();
+        sim.set_trade_route(5, 1, 0, 20, 1); // ReactorFuel, Earth → Ceres
+        let start = sim.corp().credits();
+        for _ in 0..2_000 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().credits() > start,
+            "the route should bank profit hands-off"
+        );
+    }
+
+    #[test]
+    fn a_route_needs_a_freighter_and_respects_its_margin() {
+        // No freighter ⇒ no trips.
+        let mut sim = Sim::new(0);
+        sim.set_trade_route(5, 1, 0, 20, 1);
+        let start = sim.corp().credits();
+        for _ in 0..500 {
+            sim.step();
+        }
+        assert_eq!(
+            sim.corp().credits(),
+            start,
+            "no freighter ⇒ the route can't run"
+        );
+        // With a freighter but an unreachable margin, the route stays idle.
+        let mut sim = Sim::new(0);
+        sim.commission_freighter().unwrap();
+        sim.set_trade_route(5, 1, 0, 20, 100_000);
+        let start = sim.corp().credits();
+        for _ in 0..500 {
+            sim.step();
+        }
+        assert_eq!(
+            sim.corp().credits(),
+            start,
+            "spread below margin ⇒ idle (an exception)"
         );
     }
 
