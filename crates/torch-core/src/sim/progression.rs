@@ -149,6 +149,13 @@ impl Research {
         self.unlocked.iter().filter(|u| **u).count()
     }
 
+    /// The cheapest tech that can be researched right now (for auto-invest, §12).
+    pub fn cheapest_researchable(&self) -> Option<usize> {
+        (0..self.catalog.len())
+            .filter(|&i| self.can_research(i).is_ok())
+            .min_by_key(|&i| self.catalog[i].cost)
+    }
+
     /// Aggregate percent bonus of a kind across all unlocked techs.
     fn bonus(&self, pick: impl Fn(TechEffect) -> Option<i64>) -> i64 {
         self.catalog

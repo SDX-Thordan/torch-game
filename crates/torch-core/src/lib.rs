@@ -386,6 +386,24 @@ impl TorchSim {
     fn blueprint_known_count(&self) -> i64 {
         self.sim.progression().blueprints.known_count() as i64
     }
+
+    // ---- Managers & automation (§12) ----
+
+    /// Set the standing interdiction policy: whether the patrol hunts, which
+    /// faction to target (−1 = any, 0..3 by index), and a minimum cargo size.
+    #[func]
+    fn set_interdiction_policy(&mut self, enabled: bool, target: i64, min_cargo: i64) {
+        let pol = &mut self.sim.policy_mut().interdiction;
+        pol.enabled = enabled;
+        pol.target = sim::Faction::ALL.get(target as usize).copied();
+        pol.min_cargo = min_cargo;
+    }
+
+    /// Toggle auto-investment of research points (§10/§12).
+    #[func]
+    fn set_auto_research(&mut self, enabled: bool) {
+        self.sim.policy_mut().auto_research = enabled;
+    }
 }
 
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the

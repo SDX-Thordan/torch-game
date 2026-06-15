@@ -114,8 +114,10 @@ Status: [x] done, [~] in progress, [ ] todo.
     pirate raids don't blame the player). Markets are faction-owned.
   - [x] Research tree + blueprint discovery (seed+params, rep-gated) + CEO skill
     track (level + one perk branch of passive buffs) in `sim::progression`.
-- [~] **10. Managers & automation** (exceptions-as-verbs). Alert feed (§19) done
-  in step 8; policy/manager automation still to build.
+- [x] **10. Managers & automation** (`sim::automation`) — run-by-exception policy
+  layer: a standing interdiction patrol (faction/min-cargo filter) and
+  auto-research run autonomously in `step()`; the alert feed (§19) surfaces the
+  consequences. Policy set by the player, executed by managers.
 - [ ] **11. Procedural assembly tool** (offline) + baking pipeline.
 - [ ] **12. Tier-1→2 ascent + gate foreshadowing**.
 - [ ] **13. Pressure systems** + forecasting + pacing governor.
@@ -269,6 +271,18 @@ Status: [x] done, [~] in progress, [ ] todo.
   passes its own `relations` to honor the gate). Bound to Godot; demo shows a CEO
   hitting level 4/Warlord, a drive tech, and a discovered blueprint. Each pub
   struct field stays reachable through the re-exports, so no dead-code trip.
+
+- **2026-06-14 — Managers & automation (§12) — run by exception.** `sim::automation`
+  holds a `Copy` `AutomationPolicy` (an `InterdictionPolicy` with enable/faction/
+  min-cargo filter + a standing `patrol` Interceptor, plus `auto_research`). `Sim`
+  owns it; `run_automation()` runs each `step()` after pirates: on a 12-tick patrol
+  cadence the manager picks the fattest matching in-flight hauler and flies the
+  same `interdiction::resolve` the player would, cutting it (player attribution →
+  `ripple_reputation`); `auto_research` spends on `cheapest_researchable()`. The
+  loop copies `self.policy` first to avoid holding a borrow across the mutations.
+  Default policy is all-off, so existing tests (relations stay neutral) are
+  unaffected. Demo: a company auto-hunting Earth drove Earth to −900 hands-off.
+  Lesson: an all-default `Default` impl trips `clippy::derivable_impls` — derive it.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
