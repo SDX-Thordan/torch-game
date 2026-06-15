@@ -18,13 +18,16 @@ const QTY_STEP := 5
 const QTY_MAX := 500
 const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (§30)
 
-# 3D orrery framing (§21). Sim distances are in ~10^6 units; scale to a few dozen
-# world units and look down at an angle so the ecliptic reads as a plane.
-const SCALE3D := 1.0 / 320000.0         # sim units → world units (Ceres ≈ 9 units)
-const CAM_POS := Vector3(0, 16, 13)
-# Look left of the sun so the whole system sits in the clear right half of the
-# screen, not behind the left-hand HUD column (§20).
-const LOOK_TARGET := Vector3(-5.5, 0, 0)
+# 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit, so the system
+# spans Mercury (0.39) → Pluto (39.5) → the ring-gate (52), conveying real scale.
+const SCALE3D := 1.0 / 1_000_000.0      # sim units (AU=10^6) → world units (1 AU = 1)
+# Fixed 3/4 top-down view direction from the focus point; distance is the zoom.
+const CAM_DIR := Vector3(0.0, 1.15, 0.9)
+const ZOOM_MIN := 1.2
+const ZOOM_MAX := 140.0
+# Body render radii by kind (exaggerated for legibility, not to scale):
+# 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf, 4 Moon, 5 Gate.
+const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.045, 0.0]
 const SPACE_BG := Color(0.02, 0.03, 0.06)
 const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)   # left info-column backdrop (§20)
 const HAULER_COL := Color(0.95, 0.7, 0.35)
@@ -38,6 +41,8 @@ var selected := 0                       # index of the selected in-flight hauler
 var flash := 0.0                         # act-now alert juice: a fading screen tint (§23)
 var ascend_flash := 0.0                  # tier-ascension fanfare: a fading gold glow (§0.3)
 var last_tier := ""                      # to detect a tier ascent across frames
+var _zoom := 10.0                        # camera distance from focus (world units)
+var _focus_body := 0                     # the body the camera tracks (0 = Sol)
 
 # The trade cursor — granular control over what/where/how much you deal (§5).
 var sel_comm := 5                       # commodity (ReactorFuel by default)
@@ -91,18 +96,20 @@ func _build_world() -> void:
 	add_child(env)
 
 	_cam = Camera3D.new()
-	_cam.look_at_from_position(CAM_POS, LOOK_TARGET, Vector3.UP)
 	_cam.current = true
+	_cam.far = 6000.0          # the gate sits ~52 units out; keep it in view
 	add_child(_cam)
+	_update_camera()
 
-	# The sun lights the system from the centre.
+	# A soft directional key light (the system is too wide for a point sun to
+	# light Pluto), plus a sun glow at the centre.
 	var sun_light := OmniLight3D.new()
-	sun_light.omni_range = 200.0
-	sun_light.light_energy = 1.6
+	sun_light.omni_range = 6000.0
+	sun_light.light_energy = 1.2
 	add_child(sun_light)
 	var key := DirectionalLight3D.new()
 	key.rotation_degrees = Vector3(-60, -30, 0)
-	key.light_energy = 0.4
+	key.light_energy = 0.7
 	add_child(key)
 
 	# Shared hauler/wreck materials (created once; reused across the pools).
@@ -110,38 +117,45 @@ func _build_world() -> void:
 	_select_mat = _emissive_mat(SELECT_COL)
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))   # teal: a derelict to strip
 
-	var max_r := 1.0
+	var gate_r := 40.0
 	for b in sim.body_count():
-		var pos := _world3d(sim.body_x(b), sim.body_y(b))
-		if b == 0:
-			# The sun: a bright emissive core at the centre.
-			var sun := _sphere(0.9, _emissive_mat(Color(1.0, 0.85, 0.3)))
-			sun.position = pos
+		var kind := sim.body_kind(b)
+		if kind == 0:
+			# Sol: a bright emissive core at the centre.
+			var sun := _sphere(BODY_RADIUS[0], _emissive_mat(Color(1.0, 0.85, 0.3)))
 			add_child(sun)
 			_body_nodes.append(sun)
 			continue
-		var r := pos.length()
-		max_r = maxf(max_r, r)
-		# Orbit ring on the ecliptic.
-		add_child(_ring(r, Color(0.25, 0.35, 0.45)))
-		# The planet/station body, lit by the sun.
-		var body := _sphere(0.5, _lit_mat(_body_colour(b)))
-		body.position = pos
+		if kind == 5:
+			# The ring-gate: rendered as the outer ring below, not a sphere — but
+			# keep an index-aligned placeholder so _update_world stays simple.
+			gate_r = _world3d(sim.body_x(b), sim.body_y(b)).length()
+			var ph := Node3D.new()
+			add_child(ph)
+			_body_nodes.append(ph)
+			continue
+		# A planet / dwarf / moon.
+		var body := _sphere(BODY_RADIUS[kind], _lit_mat(_body_colour_kind(b, kind)))
 		add_child(body)
-		# A billboarded name tag floating above it (§21 legibility).
+		_body_nodes.append(body)
+		# Orbit ring only for bodies that circle the Sun (planets/dwarfs); a moon's
+		# ring would have to track its moving parent, deferred.
+		if sim.body_parent(b) == 0:
+			var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
+			add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+		# A billboarded name tag (smaller, dimmer for moons; seen on zoom-in).
 		var tag := Label3D.new()
 		tag.text = sim.body_name(b)
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		tag.modulate = Color(0.75, 0.85, 0.95)
-		tag.pixel_size = 0.006
-		tag.position = Vector3(0, 0.6, 0)
+		tag.modulate = Color(0.6, 0.7, 0.78) if kind == 4 else Color(0.72, 0.84, 0.95)
+		tag.pixel_size = 0.0035 if kind == 4 else 0.006
+		tag.position = Vector3(0, BODY_RADIUS[kind] + 0.1, 0)
 		body.add_child(tag)
-		_body_nodes.append(body)
 
-	# The always-visible ring-gate (§0.1): a faint outer ring that brightens as you
-	# approach. Updated each frame from gate_progress_pct.
+	# The always-visible ring-gate (§0.1) at its true distance beyond Pluto; it
+	# brightens with gate_progress_pct each frame.
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
-	_gate_ring = _ring_mat(max_r + 1.8, _gate_mat, 0.05)
+	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
 	add_child(_gate_ring)
 
 	# Hauler lane trails (§7b): faint lines from each hauler to its destination,
@@ -168,7 +182,7 @@ func _build_starfield() -> void:
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.albedo_color = Color(0.85, 0.88, 1.0)
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.18, 0.18)
+	quad.size = Vector2(1.4, 1.4)
 	quad.material = mat
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -180,8 +194,10 @@ func _build_starfield() -> void:
 		var dir := Vector3(rng.randfn(), rng.randfn(), rng.randfn())
 		if dir.length() < 0.001:
 			dir = Vector3.UP
-		var pos := dir.normalized() * rng.randf_range(55.0, 80.0)
-		var s := rng.randf_range(0.5, 1.6)   # varied star sizes
+		# Far beyond the gate (~52) and the max zoom-out (~140) so they read as a
+		# fixed backdrop at any zoom.
+		var pos := dir.normalized() * rng.randf_range(260.0, 420.0)
+		var s := rng.randf_range(0.6, 2.0)   # varied star sizes
 		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * s), pos))
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
@@ -295,7 +311,43 @@ func _body_colour(b: int) -> Color:
 	return palette[(b - 1) % palette.size()]
 
 
-# ---- world → screen ---------------------------------------------------------
+## Colour a body by kind (gas giants get distinct icy/banded tints; moons grey).
+func _body_colour_kind(b: int, kind: int) -> Color:
+	match kind:
+		2:   # gas giant — the four are bodies 6..9 in order Jupiter→Neptune
+			var giants := [
+				Color(0.85, 0.72, 0.5),    # Jupiter — banded amber
+				Color(0.92, 0.85, 0.6),    # Saturn — pale gold
+				Color(0.6, 0.88, 0.88),    # Uranus — ice cyan
+				Color(0.45, 0.6, 0.95),    # Neptune — deep blue
+			]
+			return giants[((b - 6) % giants.size() + giants.size()) % giants.size()]
+		3:   # dwarf planet
+			return Color(0.72, 0.66, 0.6)
+		4:   # moon
+			return Color(0.7, 0.72, 0.76)
+		_:
+			return _body_colour(b)
+
+
+# ---- camera + world → screen ------------------------------------------------
+
+## Position the camera from the focus body and zoom each frame (§17 zoom/pan).
+func _update_camera() -> void:
+	var f := _focus_pos()
+	# Offset the look target left of the focus so the focused body sits in the
+	# clear right half (the HUD owns the left column, §20).
+	var look := f + Vector3(-0.42 * _zoom, 0.0, 0.0)
+	_cam.position = look + CAM_DIR.normalized() * _zoom
+	_cam.look_at(look, Vector3.UP)
+
+
+## World position of the body the camera tracks (Sol at origin by default).
+func _focus_pos() -> Vector3:
+	if _focus_body > 0 and _focus_body < sim.body_count():
+		return _world3d(sim.body_x(_focus_body), sim.body_y(_focus_body))
+	return Vector3.ZERO
+
 
 ## Sim coords (orbital plane) → 3D world position on the ecliptic.
 func _world3d(wx: float, wy: float) -> Vector3:
@@ -340,13 +392,14 @@ func _process(delta: float) -> void:
 
 ## Mirror the sim snapshot into the 3D scene each frame.
 func _update_world() -> void:
+	_update_camera()   # the focused body orbits, so the camera tracks it
 	for b in sim.body_count():
 		if b < _body_nodes.size():
 			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
 	# Haulers: grow the pool to the current count, place them, hide the rest.
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
-		var mi := _sphere(0.22, _hauler_mat)
+		var mi := _sphere(0.06, _hauler_mat)
 		add_child(mi)
 		_hauler_pool.append(mi)
 	for i in _hauler_pool.size():
@@ -372,7 +425,7 @@ func _update_world() -> void:
 	# near, so discovery is visible on the map, not just in the HUD line.
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
-		var wm := _sphere(0.18, _wreck_mat)
+		var wm := _sphere(0.06, _wreck_mat)
 		add_child(wm)
 		_wreck_pool.append(wm)
 	for wi in _wreck_pool.size():
@@ -380,7 +433,7 @@ func _update_world() -> void:
 		var wb := sim.wreck_body(wi) if wi < wn else -1
 		if wb >= 0:
 			wnode.visible = true
-			wnode.position = _world3d(sim.body_x(wb), sim.body_y(wb)) + Vector3(0.5 + 0.35 * wi, 0.7, 0)
+			wnode.position = _world3d(sim.body_x(wb), sim.body_y(wb)) + Vector3(0.12 + 0.08 * wi, 0.14, 0)
 		else:
 			wnode.visible = false
 	# The gate ring brightens with approach (§0.1).
@@ -495,7 +548,7 @@ func _refresh() -> void:
 			feed += "[color=#9fb0c0]    %s[/color]\n" % msg
 	_feed.text = feed
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load   ·  map: [wheel]zoom [click]focus/target [RMB]reset-view"
 
 
 ## Append up to `cap` rows of a standing-order table to the deck, with an overflow
@@ -531,30 +584,51 @@ func _pick_hauler(pos: Vector2) -> bool:
 
 
 ## Select the market whose body is nearest a screen point (sets the trade cursor).
-func _pick_market(pos: Vector2) -> void:
+## Click any body to focus the camera on it (zoom into a gas giant's moons, §17);
+## a market body also sets the trade cursor.
+func _pick_body(pos: Vector2) -> void:
 	var best := -1
-	var best_d := 36.0   # px pick radius around the body
-	for m in sim.market_count():
-		var b := sim.market_body(m)
-		if b < 0:
-			continue
+	var best_d := 40.0   # px pick radius around the body
+	for b in sim.body_count():
+		if sim.body_kind(b) == 5:
+			continue   # the gate isn't a focus target
 		var d := _screen(_world3d(sim.body_x(b), sim.body_y(b))).distance_to(pos)
 		if d < best_d:
 			best_d = d
-			best = m
-	if best >= 0:
-		sel_market = best
-		status = "Market: %s — trade cursor here." % sim.market_name(best)
+			best = b
+	if best < 0:
+		return
+	_focus_body = best
+	# Zoom in a little so a clicked planet's moon system fills the view.
+	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(best) == 2 else _zoom
+	var note := ""
+	for m in sim.market_count():
+		if sim.market_body(m) == best:
+			sel_market = m
+			note = " — trade cursor here"
+	status = "Focus: %s%s." % [sim.body_name(best), note]
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Click an in-flight hauler in the orrery to target it for interdiction (§21);
-	# failing that, select the market at the clicked body — the orrery is the
-	# control surface.
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if not _pick_hauler(event.position):
-			_pick_market(event.position)
-		return
+	if event is InputEventMouseButton and event.pressed:
+		# Wheel zooms; left-click targets a hauler then focuses a body; right-click
+		# resets to the full-system view (§17 map navigation).
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				_zoom = clampf(_zoom * 0.85, ZOOM_MIN, ZOOM_MAX)
+				return
+			MOUSE_BUTTON_WHEEL_DOWN:
+				_zoom = clampf(_zoom * 1.18, ZOOM_MIN, ZOOM_MAX)
+				return
+			MOUSE_BUTTON_LEFT:
+				if not _pick_hauler(event.position):
+					_pick_body(event.position)
+				return
+			MOUSE_BUTTON_RIGHT:
+				_focus_body = 0
+				_zoom = 10.0
+				status = "View: inner system (scroll to zoom out to the gate)."
+				return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	match event.keycode:

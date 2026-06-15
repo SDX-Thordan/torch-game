@@ -130,6 +130,35 @@ impl TorchSim {
         )
     }
 
+    /// The kind of body `index` (§17): 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf,
+    /// 4 Moon, 5 Gate — for the orrery to size and colour it.
+    #[func]
+    fn body_kind(&self, index: i64) -> i64 {
+        use sim::BodyKind::*;
+        self.sim
+            .bodies()
+            .get(index as usize)
+            .map(|b| match b.kind {
+                Star => 0,
+                Planet => 1,
+                GasGiant => 2,
+                DwarfPlanet => 3,
+                Moon => 4,
+                Gate => 5,
+            })
+            .unwrap_or(1)
+    }
+
+    /// The parent body `index` orbits (its planet, for a moon; itself for Sol).
+    #[func]
+    fn body_parent(&self, index: i64) -> i64 {
+        self.sim
+            .bodies()
+            .get(index as usize)
+            .map(|b| b.parent as i64)
+            .unwrap_or(0)
+    }
+
     #[func]
     fn body_x(&self, index: i64) -> i64 {
         self.sim

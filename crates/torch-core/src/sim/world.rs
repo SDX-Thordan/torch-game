@@ -17,7 +17,7 @@ use super::faction::Relations;
 use super::industry::Station;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::logistics::TradeRoute;
-use super::orbit::{default_system, Body};
+use super::orbit::{self, default_system, Body};
 use super::pressure::{Intensity, PressureKind, PressureSystem};
 use super::progression::Progression;
 use super::rng::Pcg32;
@@ -487,8 +487,8 @@ impl Sim {
 
     /// Travel time in ticks between two markets at the current orrery geometry.
     fn travel_ticks(&self, origin: usize, dest: usize) -> u64 {
-        let o = self.bodies[self.markets[origin].body()].position(self.tick);
-        let d = self.bodies[self.markets[dest].body()].position(self.tick);
+        let o = orbit::position_of(&self.bodies, self.markets[origin].body(), self.tick);
+        let d = orbit::position_of(&self.bodies, self.markets[dest].body(), self.tick);
         let (dx, dy) = (d.0 - o.0, d.1 - o.1);
         let dist = (dx * dx + dy * dy).isqrt();
         ((dist / CRUISE_SPEED) as u64).max(MIN_TRAVEL)
@@ -1153,8 +1153,8 @@ impl Sim {
         };
         // Lift the cargo now (origin sheds surplus); land it on arrival.
         self.markets[origin].remove_stock(commodity, qty);
-        let origin_pos = self.bodies[self.markets[origin].body()].position(self.tick);
-        let dest_pos = self.bodies[self.markets[dest].body()].position(self.tick);
+        let origin_pos = orbit::position_of(&self.bodies, self.markets[origin].body(), self.tick);
+        let dest_pos = orbit::position_of(&self.bodies, self.markets[dest].body(), self.tick);
         let (dx, dy) = (dest_pos.0 - origin_pos.0, dest_pos.1 - origin_pos.1);
         let dist = (dx * dx + dy * dy).isqrt();
         let travel = ((dist / CRUISE_SPEED) as u64).max(MIN_TRAVEL);
@@ -1211,12 +1211,14 @@ impl Sim {
 
     /// Build a render snapshot of the world at the current tick (§29).
     pub fn snapshot(&self) -> Snapshot {
-        let bodies = self
-            .bodies
-            .iter()
-            .map(|b| {
-                let (x, y) = b.position(self.tick);
-                BodyState { name: b.name, x, y }
+        let bodies = (0..self.bodies.len())
+            .map(|i| {
+                let (x, y) = orbit::position_of(&self.bodies, i, self.tick);
+                BodyState {
+                    name: self.bodies[i].name,
+                    x,
+                    y,
+                }
             })
             .collect();
         let markets = self

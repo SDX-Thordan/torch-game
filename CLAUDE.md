@@ -856,6 +856,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   weighted, and *documented as heuristics*; the value is the comparison
   (weakest-link + dominant-strategy), not any single number.
 
+- **2026-06-15 — Full-scale solar system + moon hierarchy + zoom (§17/§21).** The
+  map went from 4 bodies to the **whole system** — Mercury→Pluto at *real* scale
+  (clean **1 AU = 1 world unit**) with the **ring-gate beyond Pluto (52 AU)**, so
+  space finally has *size*. `orbit::Body` gained a **`parent`** (self for Sol) and a
+  **`kind`** (Star/Planet/GasGiant/Dwarf/Moon/Gate); the gas giants + Earth/Mars/
+  Pluto carry **moon systems**. Positions resolve through the parent chain
+  (`orbit::position_of`: a moon's absolute pos = its local orbit + its planet's), so
+  moons track their planet. **Body indices are load-bearing** (markets reference
+  Earth=3/Mars=4/Ceres=5) — they kept the same orbital radii, so the economy/§7c
+  gate are unchanged (the QA review shifted only because planet *periods* were
+  recomputed a hair more precisely — still 0 concerns). Orrery rewrite: a **camera
+  that tracks a focus body** at a zoom distance, **mouse-wheel zoom** (1.2–140),
+  **click-to-focus** any body (dive into a gas giant's moons), **RMB reset**; bodies
+  sized/coloured by kind, the gate ring at its true distance. Render-verified at
+  three zooms (inner system → full system + gate → Saturn + Titan/Rhea/Enceladus).
+  New `body_kind`/`body_parent` bindings. **Next (PR 2):** colonies/markets on the
+  moons + asteroids in Saturn's rings + OPA(=Belt)/Earth/Mars alignment. *Lesson:*
+  exact astronomical scale makes moons invisible — exaggerate moon orbits for
+  legibility while keeping planetary orbits real (feel over accuracy).
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
