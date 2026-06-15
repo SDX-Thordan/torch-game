@@ -412,6 +412,24 @@ Status: [x] done, [~] in progress, [ ] todo.
   observe *campaign state* directly (poll `tier()` each tick) and keep the event
   tally only to *detect* the dropped-event discrepancy.
 
+- **2026-06-15 — QA finding #6 fixed: a table of standing routes (§4).** The
+  standing-order layer was a single `Option<TradeRoute>`; the influence model
+  wants a master-table. `Sim` now holds `routes: Vec<TradeRoute>` (capped at
+  `MAX_ROUTES` = 4). `run_logistics` lands all arrivals, then dispatches idle
+  routes against a **shared freighter pool** (a route only sets out if a
+  freighter is free, so the pool — not the route count — bounds concurrent
+  trips). `set_trade_route` appends; `clear_trade_route` empties the table;
+  `routes()`/`route()` (first) accessors; shell binding gains `route_count` and a
+  "+N more" status suffix. Core tests
+  `the_route_table_runs_many_routes_on_a_shared_freighter_pool`,
+  `the_route_table_is_capped`; the QA Logistician now runs a 2-route / 2-freighter
+  table and the `design_review` Logistics finding flips Note → Good.
+
+  **All six original gameplay-QA findings are now resolved (the design review is
+  all-Good).** One *new* finding the harness surfaced while wiring combat: matched
+  fleet engagements are lopsided (the player held the field in 0% of mirror
+  fights), flagged as a combat-balance Note for a later pass.
+
 - **2026-06-15 — QA finding #5 fixed: reputation is a dial, not a one-way cliff.**
   Raiding tanked a faction to Hostile with no modeled way back. `Relations::
   decay_toward_neutral(step)` drifts every standing toward 0, called from `step()`

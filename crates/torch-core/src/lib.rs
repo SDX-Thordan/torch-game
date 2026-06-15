@@ -595,7 +595,22 @@ impl TorchSim {
                 "idle — spread below margin"
             }
         };
-        GString::from(format!("{commodity} {origin}→{dest} ×{} [{state}]", r.qty))
+        let extra = self.sim.routes().len().saturating_sub(1);
+        let suffix = if extra > 0 {
+            format!(" (+{extra} more)")
+        } else {
+            String::new()
+        };
+        GString::from(format!(
+            "{commodity} {origin}→{dest} ×{} [{state}]{suffix}",
+            r.qty
+        ))
+    }
+
+    /// How many standing trade routes are in the table (§4).
+    #[func]
+    fn route_count(&self) -> i64 {
+        self.sim.routes().len() as i64
     }
 
     /// Found a refinery turning raw commodity `raw` (0..2) into its refined

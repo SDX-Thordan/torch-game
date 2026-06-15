@@ -87,6 +87,8 @@ const MIN_TRAVEL: u64 = 24;
 const PIRATE_INTERVAL: u64 = 72;
 /// Ticks between automated interdiction sorties (§12 patrol cadence).
 const AUTOMATION_INTERVAL: u64 = 12;
+/// How many standing trade routes the player can run at once (§4 master-table).
+const MAX_ROUTES: usize = 4;
 /// Ticks between reputation-decay ticks (§10): grudges fade slowly toward
 /// neutral, so a Hostile standing is recoverable if you stop antagonizing.
 const REP_RECOVERY_INTERVAL: u64 = 24;
@@ -149,7 +151,7 @@ pub struct Sim {
     policy: AutomationPolicy,
     campaign: Campaign,
     corp: Corp,
-    route: Option<TradeRoute>,
+    routes: Vec<TradeRoute>,
     stations: Vec<Station>,
     rng: Pcg32,
     events: Vec<Event>,
@@ -195,7 +197,7 @@ impl Sim {
             policy: AutomationPolicy::default(),
             campaign: Campaign::new(),
             corp: Corp::new(commodity_count),
-            route: None,
+            routes: Vec::new(),
             stations: Vec::new(),
             markets,
             rng: Pcg32::new(seed),
@@ -349,14 +351,21 @@ impl Sim {
         Ok(())
     }
 
-    /// The current trade-route standing order, if any (§4).
-    pub fn route(&self) -> Option<TradeRoute> {
-        self.route
+    /// The player's table of standing trade routes (§4).
+    pub fn routes(&self) -> &[TradeRoute] {
+        &self.routes
     }
 
-    /// Set a parameterized Trade Route standing order — buy `commodity` at
-    /// `origin`, sell at `dest`, `qty` per trip, only while the spread clears
-    /// `min_margin` (§4). A freighter runs it; exceptions go idle.
+    /// The first standing route, if any — a convenience for the single-route
+    /// status view in the shell (§4).
+    pub fn route(&self) -> Option<TradeRoute> {
+        self.routes.first().copied()
+    }
+
+    /// Add a parameterized Trade Route standing order to the table — buy
+    /// `commodity` at `origin`, sell at `dest`, `qty` per trip, only while the
+    /// spread clears `min_margin` (§4). Many routes run concurrently against the
+    /// shared freighter pool; exceptions go idle. Capped at [`MAX_ROUTES`].
     pub fn set_trade_route(
         &mut self,
         commodity: usize,
@@ -365,12 +374,15 @@ impl Sim {
         qty: i64,
         min_margin: i64,
     ) {
-        self.route = Some(TradeRoute::new(commodity, origin, dest, qty, min_margin));
+        if self.routes.len() < MAX_ROUTES {
+            self.routes
+                .push(TradeRoute::new(commodity, origin, dest, qty, min_margin));
+        }
     }
 
-    /// Cancel the standing trade route.
+    /// Clear the whole route table.
     pub fn clear_trade_route(&mut self) {
-        self.route = None;
+        self.routes.clear();
     }
 
     /// Travel time in ticks between two markets at the current orrery geometry.
@@ -382,15 +394,23 @@ impl Sim {
         ((dist / CRUISE_SPEED) as u64).max(MIN_TRAVEL)
     }
 
-    /// Execute the standing trade route this tick (§4): deliver an arriving trip,
-    /// or dispatch a new one when a freighter is free and the spread clears the
-    /// margin. The route runs itself; the player only set the parameters.
+    /// Run the whole route table this tick (§4): land every arriving trip, then
+    /// dispatch idle routes against the **shared freighter pool** (a route can
+    /// only set out if a freighter is free). The routes run themselves; the
+    /// player only set the parameters, and exceptions (below margin, no free
+    /// freighter) simply stay idle.
     fn run_logistics(&mut self) {
-        let Some(mut rt) = self.route else {
+        if self.routes.is_empty() {
             return;
-        };
-        if rt.in_transit {
-            if self.tick >= rt.arrival {
+        }
+        let freighters = self.corp.freighters();
+        // Move the table out so the per-route mutations don't fight the
+        // `markets`/`corp` borrows (same pattern as the single-route version).
+        let mut routes = std::mem::take(&mut self.routes);
+
+        // Deliveries first, freeing up freighters for this tick's dispatch.
+        for rt in routes.iter_mut() {
+            if rt.in_transit && self.tick >= rt.arrival {
                 let revenue = self.markets[rt.dest].price(rt.commodity) * rt.carrying;
                 self.markets[rt.dest].add_stock(rt.commodity, rt.carrying);
                 self.corp.credit(revenue);
@@ -398,7 +418,17 @@ impl Sim {
                 rt.carrying = 0;
                 self.complete_op(); // a delivered standing order is an op (§0/§4)
             }
-        } else if rt.active && self.corp.freighters() > 0 {
+        }
+
+        // Dispatch idle routes while freighters remain in the pool.
+        let mut in_flight = routes.iter().filter(|r| r.in_transit).count() as i64;
+        for rt in routes.iter_mut() {
+            if in_flight >= freighters {
+                break;
+            }
+            if rt.in_transit || !rt.active {
+                continue;
+            }
             let buy = self.markets[rt.origin].price(rt.commodity);
             let spread = self.markets[rt.dest].price(rt.commodity) - buy;
             let cost = buy * rt.qty;
@@ -409,9 +439,11 @@ impl Sim {
                 rt.in_transit = true;
                 rt.carrying = rt.qty;
                 rt.arrival = self.tick + self.travel_ticks(rt.origin, rt.dest);
+                in_flight += 1;
             }
         }
-        self.route = Some(rt);
+
+        self.routes = routes;
     }
 
     /// The player's production stations (§3.1).
@@ -1196,6 +1228,44 @@ mod tests {
             start,
             "spread below margin ⇒ idle (an exception)"
         );
+    }
+
+    #[test]
+    fn the_route_table_runs_many_routes_on_a_shared_freighter_pool() {
+        // The §4 master-table: several standing routes run concurrently, bounded
+        // by how many freighters are in the pool. Two freighters + three routes
+        // ⇒ at most two trips in flight at once, and the table still banks profit.
+        let mut sim = Sim::new(0);
+        sim.commission_freighter().unwrap();
+        sim.commission_freighter().unwrap();
+        sim.set_trade_route(5, 1, 0, 20, 1); // ReactorFuel, Earth → Ceres
+        sim.set_trade_route(4, 0, 1, 20, 1); // Metals, Ceres → Earth
+        sim.set_trade_route(1, 0, 1, 20, 1); // Ore, Ceres → Earth
+        assert_eq!(sim.routes().len(), 3, "three routes sit in the table");
+        let start = sim.corp().credits();
+        let mut max_in_flight = 0;
+        for _ in 0..2_000 {
+            sim.step();
+            let flying = sim.routes().iter().filter(|r| r.in_transit).count();
+            max_in_flight = max_in_flight.max(flying);
+        }
+        assert!(
+            max_in_flight <= 2,
+            "two freighters cap concurrent trips at 2, saw {max_in_flight}"
+        );
+        assert!(max_in_flight >= 2, "both freighters should get used");
+        assert!(sim.corp().credits() > start, "the table should bank profit");
+    }
+
+    #[test]
+    fn the_route_table_is_capped() {
+        let mut sim = Sim::new(0);
+        for _ in 0..10 {
+            sim.set_trade_route(5, 1, 0, 20, 1);
+        }
+        assert_eq!(sim.routes().len(), 4, "the table is capped at MAX_ROUTES");
+        sim.clear_trade_route();
+        assert!(sim.routes().is_empty(), "clearing empties the whole table");
     }
 
     #[test]
