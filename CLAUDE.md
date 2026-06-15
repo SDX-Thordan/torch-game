@@ -758,6 +758,24 @@ Status: [x] done, [~] in progress, [ ] todo.
   is the part to tune on a real display next. The 2D drawn orrery is gone; this is
   the §17 "richer 3D solar-system view" the GDD wanted. No Rust change — pure shell.
 
+- **2026-06-15 — We can RENDER the shell, not just parse it (key tooling).** The
+  env has `xvfb` + software Mesa GL, so the actual UI can be captured to PNG and
+  *looked at*, closing the "can't see the render" gap:
+  `LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" godot --path godot
+  --rendering-method gl_compatibility --rendering-driver opengl3` (the project's
+  default *mobile/Vulkan* renderer won't run on llvmpipe — **must override to
+  `gl_compatibility` + `opengl3`**). Capture via a temporary `_process` hook:
+  `get_viewport().get_texture().get_image().save_png(path)` then `get_tree().quit()`
+  (revert the hook after; `shots/` is gitignored). `pip install Pillow` to
+  crop/zoom the 1280×720 frame and read dense panels. **First render paid off
+  immediately** — it caught three things parse-checking never could: (1) the
+  left-column panels *overlapped* (rendered line-height ≈ font+9px, taller than
+  budgeted) — fixed by tuned sizes/positions; (2) the orrery sat *half-behind* the
+  HUD (system centred on screen) — fixed with `LOOK_TARGET = (-5.5,0,0)` so it sits
+  in the clear right half; (3) the PAUSED banner *collided* with the top bar — moved
+  over the orrery. Re-rendered to confirm each fix. Lesson: a visual/3D shell change
+  isn't "done" at headless-parse — render it and *look*.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
