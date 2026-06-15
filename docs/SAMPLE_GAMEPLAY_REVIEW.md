@@ -84,8 +84,8 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 1273 (~53 days) |
 | CEO level | 23 · techs 0 |
-| traffic | 166 flew, 0 arrived, 52 cut, 52 shortages |
-| act-now alerts | 52 raised, 0 answered |
+| traffic | 166 flew, 0 arrived, 166 cut, 166 shortages |
+| act-now alerts | 166 raised, 0 answered |
 | standings (E/M/B/I) | -1000 / 1000 / 0 / 0 |
 | market wall hits | 0 |
 
@@ -96,7 +96,7 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1273 (~53 days).
 - **[NOTE]** _Economy_ — Active all run but treasury never moved — the loop found no work (e.g. a standing order idle below its margin). That idle state is the exception the feed should surface.
 - **[NOTE]** _Agency_ — Acted on only 2% of ticks (119 actions) — long stretches with nothing to press. Real-time-with-pause needs either denser decisions or faster time-compression here.
-- **[NOTE]** _Alert feed_ — 52 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[NOTE]** _Alert feed_ — 166 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[CONCERN]** _Reputation_ — Raiding drove Earth to Hostile (-1000) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
 - **[INFO]** _Reputation_ — Mars warmed to 1000 over the run.
 
@@ -111,8 +111,8 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 1825 (~76 days) |
 | CEO level | 17 · techs 6 |
-| traffic | 166 flew, 33 arrived, 49 cut, 49 shortages |
-| act-now alerts | 49 raised, 0 answered |
+| traffic | 166 flew, 33 arrived, 132 cut, 132 shortages |
+| act-now alerts | 132 raised, 0 answered |
 | standings (E/M/B/I) | -980 / 1000 / -800 / 0 |
 | market wall hits | 0 |
 
@@ -123,7 +123,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1825 (~76 days).
 - **[CONCERN]** _Economy_ — Treasury ran away: 33000 → 4679885 cr (~141×) with no wealth-scaled sink. Repeated arbitrage compounds without bound, so trading stops being a decision and becomes a faucet.
 - **[INFO]** _Agency_ — Issued 4083 actions across 100% of ticks.
-- **[NOTE]** _Alert feed_ — 49 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[NOTE]** _Alert feed_ — 132 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[CONCERN]** _Reputation_ — Raiding drove Earth to Hostile (-980) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
 - **[INFO]** _Reputation_ — Mars warmed to 1000 over the run.
 - **[CONCERN]** _Reputation_ — Raiding drove Belt to Hostile (-800) with no modeled way to recover standing — the cost is one-way, so the tradeoff is a cliff, not a dial.
@@ -138,4 +138,3 @@ What the comparison of play styles reveals about the design as it stands:
 - **[NOTE]** _Economy_ — Manual buy/sell is instant and riskless, while only the routed trade pays transit time. Over the same run the hand-trading Arbitrageur banked 4923240 cr vs the standing Logistician's 120280 cr — hand-trading strictly dominates the standing order it should be motivating (§4 vs §5).
 - **[CONCERN]** _Economy_ — No wealth-scaled credit sink: the Arbitrageur compounded ~98× on one repeated press. Arbitrage needs diminishing returns (deeper price impact) or a sink (upkeep, taxes, build costs that scale) to stay a decision.
 - **[NOTE]** _Logistics_ — Only one standing trade route exists at a time (Sim::route is a single Option). A 'spreadsheet sim in space' wants a *table* of routes and presets, each with its own params and exception line.
-- **[CONCERN]** _Event plumbing_ — Player verbs called between ticks push events that the next `step()` clears before the feed or the returned stream reads them: ["Privateer", "Tycoon"] climbed whole tiers yet emitted zero TierAscended events, and a player interdiction's Scarcity never reaches the feed. So player cuts raise no act-now alert and milestones go unvoiced — only sim-internal cuts (pirates/automation) are heard. The §0.3 ascent fanfare and the §0.4 'exploit shortage' verb only fire for events the player didn't cause.
