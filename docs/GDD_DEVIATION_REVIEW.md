@@ -35,7 +35,7 @@ one place. Each is tagged:
 | 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
 | 3 | Combat is non-interactive (no live commands, thin doctrine, no diorama) | §9 / §22 | 🟠 |
 | 4 | Save = single JSON slot; no multiple slots, no Ironman | §13 / §30 | 🟠 |
-| 5 | Expressive identity partial (ship names only; no corp name/logo/livery) | §14 | 🟠 |
+| 5 | Expressive identity — **corp name + livery ✅ done** (logo deferred) | §14 | 🟡 (was 🟠) |
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
 | 7 | Multi-view shell *replaces* the map; not slide-over panels | §18 | 🟡 (follows mockups) |
 | 8 | Commodity chain truncated to Raw→Refined (no Components/Assembled) | §7d | 🟡 |
@@ -137,9 +137,14 @@ one place. Each is tagged:
   naming; the Rocinante effect.
 - **Built:** Ship naming (`ships::christen_ship`) and the Rocinante effect
   (`Corp::resolve_engagement` sorts veterans-first, flagship spotlight) are done.
-  **No corp name, logo, or livery** — there is no player-identity input at all.
-- **Status:** The attachment half (named/blooded hero ships) is in; the
-  self-expression half (corp branding/livery) is not.
+  **Corp name + livery now in** (`Corp.name`/`Corp.livery` + `CORP_NAMES`/`LIVERY`
+  palettes): the player cycles a corporation name preset and a fleet livery colour
+  (RENAME / LIVERY in the FLEET view); the livery paints the warships on the orrery
+  and the corp-name label, and both persist in `SaveState`. **Logo** (a baked
+  monogram/texture) is deferred — it needs the art pipeline (roadmap #11).
+- **Status — ADDRESSED 2026-06-16 (name + livery).** Both halves of §14 are now
+  present: attachment (named/blooded hero ships, Rocinante effect) **and**
+  self-expression (corp name + livery). Only the logo/texture remains, gated on art.
 
 ---
 

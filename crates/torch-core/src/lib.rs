@@ -462,6 +462,32 @@ impl TorchSim {
         self.sim.answer_top_shortage(20)
     }
 
+    /// The player's corporation name (§14 expressive identity).
+    #[func]
+    fn corp_name(&self) -> GString {
+        GString::from(self.sim.corp().name())
+    }
+
+    /// Adopt corp name preset `i` (cycled in the UI). Returns the new name.
+    #[func]
+    fn set_corp_name(&mut self, i: i64) -> GString {
+        self.sim.set_corp_name_preset(i.max(0) as usize);
+        GString::from(self.sim.corp().name())
+    }
+
+    /// The fleet livery colour (§14) as a Godot Color (rgb 0..1).
+    #[func]
+    fn corp_livery_color(&self) -> Color {
+        let (r, g, b) = self.sim.corp().livery_rgb();
+        Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0)
+    }
+
+    /// Cycle the fleet livery; returns the new index (§14).
+    #[func]
+    fn cycle_livery(&mut self) -> i64 {
+        self.sim.cycle_corp_livery() as i64
+    }
+
     /// Number of derelicts currently sighted and awaiting salvage (§15).
     #[func]
     fn wreck_count(&self) -> i64 {

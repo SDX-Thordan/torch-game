@@ -932,6 +932,8 @@ impl Sim {
             trained_crew: self.corp.trained_crew(),
             freighters: self.corp.freighters(),
             fleet,
+            corp_name: self.corp.name().to_string(),
+            corp_livery: self.corp.livery(),
             relations: self.relations.clone(),
             campaign: self.campaign,
             research_unlocked: self.progression.research.flags().to_vec(),
@@ -1002,6 +1004,7 @@ impl Sim {
             s.freighters,
             fleet,
         );
+        self.corp.set_identity(s.corp_name.clone(), s.corp_livery);
         self.relations = s.relations.clone();
         self.campaign = s.campaign;
         self.progression
@@ -1214,6 +1217,16 @@ impl Sim {
     /// The authored thread — opening missions + the gate mystery (§0.1/§16).
     pub fn missions(&self) -> &super::missions::Missions {
         &self.missions
+    }
+
+    /// Adopt corp name preset `i` (§14 expressive identity).
+    pub fn set_corp_name_preset(&mut self, i: usize) {
+        self.corp.set_name_preset(i);
+    }
+
+    /// Cycle the fleet livery colour (§14); returns the new index.
+    pub fn cycle_corp_livery(&mut self) -> usize {
+        self.corp.cycle_livery()
     }
 
     /// Remove the hauler at `index`, denying its delivery and tagging the

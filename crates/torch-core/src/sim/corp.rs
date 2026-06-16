@@ -15,6 +15,30 @@ const STARTING_CREDITS: i64 = 50_000;
 /// Trained crew on the books at founding (§8c bottleneck): a few frigates' worth.
 const STARTING_CREW: i64 = 60;
 
+/// Corporation name presets the player cycles for self-expression (§14). Evocative
+/// of the hard-SF setting; the player picks an identity, not a blank field (mobile).
+pub const CORP_NAMES: [&str; 8] = [
+    "Helios Combine",
+    "Tycho Salvage & Freight",
+    "Ceres Mutual",
+    "Vesta Industrial",
+    "Hyperion Logistics",
+    "Pallas Holdings",
+    "Kuiper Reach",
+    "Meridian Drift Co.",
+];
+
+/// Livery colours (RGB 0..=255) painted across the fleet (and the UI accent) — the
+/// company's flag, the §14 self-expression half (corp branding/livery).
+pub const LIVERY: [(u8, u8, u8); 6] = [
+    (102, 242, 255), // cyan (default)
+    (255, 176, 64),  // amber
+    (120, 230, 140), // green
+    (240, 110, 120), // crimson
+    (180, 150, 255), // violet
+    (235, 235, 240), // white
+];
+
 /// A ship in the player's fleet: a validated fit, a christened name (§14), and an
 /// accruing **service history** (§11/§13) — the age and battle record that turn a
 /// hull into a *beloved hero ship* and make losing a veteran a felt, permanent
@@ -80,6 +104,10 @@ pub struct Corp {
     trained_crew: i64,
     /// Freighters owned, for running trade-route standing orders (§4).
     freighters: i64,
+    /// The player's corporation name (§14 expressive identity).
+    name: String,
+    /// Livery colour index into [`LIVERY`] — the company's flag across the fleet.
+    livery: usize,
 }
 
 impl Corp {
@@ -91,7 +119,43 @@ impl Corp {
             fleet: Vec::new(),
             trained_crew: STARTING_CREW,
             freighters: 0,
+            name: CORP_NAMES[0].to_string(),
+            livery: 0,
         }
+    }
+
+    /// The corporation's name (§14).
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Adopt the name preset at `i` (cycled by the player). Returns the new name.
+    pub fn set_name_preset(&mut self, i: usize) -> &str {
+        self.name = CORP_NAMES[i % CORP_NAMES.len()].to_string();
+        &self.name
+    }
+
+    /// The livery colour index, and its RGB (§14).
+    pub fn livery(&self) -> usize {
+        self.livery
+    }
+
+    pub fn livery_rgb(&self) -> (u8, u8, u8) {
+        LIVERY[self.livery % LIVERY.len()]
+    }
+
+    /// Cycle to the next livery; returns the new index.
+    pub fn cycle_livery(&mut self) -> usize {
+        self.livery = (self.livery + 1) % LIVERY.len();
+        self.livery
+    }
+
+    /// Restore the chosen identity from a save (§30).
+    pub fn set_identity(&mut self, name: String, livery: usize) {
+        if !name.is_empty() {
+            self.name = name;
+        }
+        self.livery = livery % LIVERY.len();
     }
 
     pub fn freighters(&self) -> i64 {
@@ -276,6 +340,24 @@ mod tests {
         corp.fleet[1].battles_won = 3;
         corp.fleet[1].battles = 5;
         assert_eq!(corp.flagship().unwrap().name, "B");
+    }
+
+    #[test]
+    fn corp_identity_picks_a_name_and_cycles_livery() {
+        let mut c = Corp::new(6);
+        assert_eq!(c.name(), CORP_NAMES[0]);
+        assert_eq!(c.livery(), 0);
+        c.set_name_preset(2);
+        assert_eq!(c.name(), CORP_NAMES[2]);
+        // Cycling wraps through the whole palette and back to 0.
+        for i in 1..LIVERY.len() {
+            assert_eq!(c.cycle_livery(), i);
+        }
+        assert_eq!(c.cycle_livery(), 0, "wraps");
+        // Restore overlays a saved identity.
+        c.set_identity("Custom Co.".into(), 3);
+        assert_eq!(c.name(), "Custom Co.");
+        assert_eq!(c.livery(), 3);
     }
 
     #[test]
