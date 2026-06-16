@@ -934,6 +934,43 @@ Status: [x] done, [~] in progress, [ ] todo.
   desktop-trackpad bonus. *Can't xvfb-verify orientation/touch* (desktop has neither)
   — render only confirmed the buttons sit correctly; the device is the real test.
 
+- **2026-06-16 — Multi-view command-deck shell from the UI mockups (§18–§21).** The
+  player supplied four UI mockups (orrery + context panel, fleet table, production/
+  blueprint, market & logistics) and asked the game to *look/feel* like them. Built
+  the **whole multi-view shell**: a shared visual design language in
+  `godot/ui/ui_kit.gd` (`class_name UiKit` — palette + StyleBoxFlat factories for
+  panels/gauges/toggles/nav-buttons/tabs/action-buttons) and a rewritten `main.gd`
+  with persistent **chrome** (rounded bezel, top status bar = brand · view-title ·
+  alert ticker · date/credits/ore/fuel-gauge/crew readouts, left **nav rail**) over
+  a content host that swaps **four views** (`_select_view`): SYSTEMS (the existing
+  3D orrery, now parented under a toggleable `_orrery_root`, + a station context
+  panel with live stock, an active-construction-queue list, and working
+  standing-order toggles), FLEET (a `GridContainer` roster table with
+  ALL/FLEETS/SINGLE-SHIPS/IDLE tabs, fuel gauges, flagship line), BUILD (hull list →
+  a **wireframe blueprint** in a `SubViewport` with `debug_draw=DEBUG_DRAW_WIREFRAME`
+  + `RenderingServer.set_debug_generate_wireframes(true)` → stats/cost/COMMISSION +
+  a construction queue), and MARKET (two custom-draw `Control`s — `ui/flow_graph.gd`
+  trade schematic + `ui/mini_chart.gd` rolling price history — over a market-ticker
+  grid). All existing keyboard verbs (§0.4) are preserved; F1–F4 also switch views.
+  No Rust change — pure shell over the existing `TorchSim`/`TorchShipyard` bindings;
+  131+8 tests still green. **Lessons, all caught by rendering (not parse-checking):**
+  (1) a *fresh checkout has no* `.godot/extension_list.cfg`, so a bare
+  `godot --headless --path` can't resolve the GDExtension types (`TorchSim` "not
+  found", cascading type-inference errors) — run one **editor import pass**
+  (`godot --headless --editor --quit`) first to register the extension; (2) GDScript
+  needs typed sources for `:=` inference — an *untyped* `var shipyard` makes every
+  `shipyard.x()` a Variant, and **`abs()` returns Variant** (use `absf()`/`absi()`);
+  (3) `Camera3D.look_at` requires the node **in the tree** (add_child *then* look_at);
+  (4) `Viewport.get_texture().get_image()` lags **one frame** behind state changes,
+  so a screenshot harness must switch-then-wait-N-frames before grabbing; (5) a
+  floating PAUSED banner collided with every view's content — folded the pause/speed
+  state into the **view title** instead (always-clear). Render workflow unchanged
+  (`LIBGL_ALWAYS_SOFTWARE=1 xvfb-run … --rendering-method gl_compatibility
+  --rendering-driver opengl3`). Audio still deferred. Follow-ups: a bundled thin
+  sci-fi **font** (default font is the biggest remaining gap from the mockups'
+  feel), richer trade-flow arrows (needs a route origin/dest binding), and a less
+  pill-shaped blueprint hull.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
