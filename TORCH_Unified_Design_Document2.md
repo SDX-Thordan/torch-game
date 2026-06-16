@@ -243,7 +243,7 @@ The long-horizon spine that turns a corporation into an empire, and the *renewal
 
 ## 18. Orientation & Navigation — The Command Console
 - **Landscape-first** for the full experience; matches the sit-down session rhythm.
-- **Persistent map + slide-over panels.** The live 3D orrery owns the screen; a slim **top bar** carries time controls + the alert feed; panels slide from the edges (left = assets, right = selected detail). The map never fully occludes.
+- **Map-anchored nav-rail console** *(mobile-first realization, amended 2026-06-16).* A slim **left nav rail** switches between top-level views — **SYSTEMS** (the live 3D orrery owns the screen with a right context panel; the map is never occluded *here*), **FLEET**, **BUILD**, **MARKET**. A slim **top bar** carries time controls + the alert feed across every view. On the 6-inch-phone target the data views (FLEET/BUILD/MARKET) are **full-screen** — consistent with the "either map *or* data" honesty below — and the player is always one rail-tap from the map. *(This supersedes the original "panels slide from the edges; the map never fully occludes" framing, which assumed a tablet/desktop canvas; the slide-over treatment remains the ideal for wide screens.)*
 - **Portrait triage mode** *(post-core).* Glance, clear exceptions, queue an order; full orrery in landscape when seated.
 - **Phone vs. tablet honesty:** side-by-side panels are a tablet luxury; on a 6-inch phone you'll see *either* map *or* data — design panels to stand alone there.
 

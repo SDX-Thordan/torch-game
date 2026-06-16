@@ -37,7 +37,7 @@ one place. Each is tagged:
 | 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
 | 5 | Expressive identity — **corp name + livery ✅ done** (logo deferred) | §14 | 🟡 (was 🟠) |
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
-| 7 | Multi-view shell *replaces* the map; not slide-over panels | §18 | 🟡 (follows mockups) |
+| 7 | Multi-view shell vs. §18 slide-over panels — **✅ reconciled** (GDD amended) | §18 | 🟢 (was 🟡) |
 | 8 | Commodity chain truncated to Raw→Refined (no Components/Assembled) | §7d | 🟡 |
 | 9 | Combat omits heat, facing/spinal-vs-turret, retreat/priority doctrine | §8a / §9 | 🟡 |
 | 10 | Civilian classes partial (no Courier/Salvager/Survey) | §8e | 🟡 |
@@ -170,17 +170,19 @@ one place. Each is tagged:
   was not, and adding it needs a network fetch. JSON satisfies versioned save/load
   today. Low risk; revisit if save size/perf ever matters.
 
-### 7. 🟡 The multi-view shell *replaces* the map; it is not slide-over panels — §18
-- **GDD:** "The live 3D orrery owns the screen … panels slide from the edges …
-  **the map never fully occludes.**"
+### 7. 🟢 Multi-view shell vs. §18 — ✅ reconciled (GDD amended) — §18
+- **GDD (original):** "The live 3D orrery owns the screen … panels slide from the
+  edges … **the map never fully occludes.**"
 - **Built:** The 2026-06-16 shell is a **nav-rail view switcher**: SYSTEMS shows the
   orrery with a right context panel (map visible), but FLEET / BUILD / MARKET are
   **full-screen panels that fully replace** the orrery.
-- **Why / tension:** This follows the **player-supplied UI mockups**, which
-  themselves depict full-screen fleet/production/market views. So the build matches
-  the *mockups* while diverging from *§18's* "never occludes" rule. **Flag for
-  reconciliation:** decide whether §18 should be amended to bless full-screen views,
-  or whether the non-map views should become non-occluding overlays.
+- **Resolution (2026-06-16):** §18 is **amended** to bless the map-anchored nav-rail
+  console as the **mobile-first realization** — full-screen data views on the
+  6-inch-phone target are consistent with §18's own "either map *or* data" honesty
+  bullet, and the player is always one rail-tap from the map. The slide-over,
+  never-occlude treatment remains the documented ideal for wide (tablet/desktop)
+  screens. The build matches the player-supplied mockups; the GDD now matches the
+  build.
 
 ### 8. 🟡 Commodity chain truncated to Raw→Refined — §7d
 - **GDD:** Raw → Refined → **Components** → **Assembled** (hull plate, frames,
@@ -284,8 +286,8 @@ one place. Each is tagged:
    commands + heat + a voxel diorama remain a later combat pass.
 3. ~~**Authored gate-mystery thread + opening missions (#2, 🔴).**~~ **✅ done
    (MVP seed).** The #1 design priority's missing half.
-4. **Reconcile §18 vs. the mockups (#7).** A doc decision, not code: amend §18 to
-   bless full-screen views, or make non-map views non-occluding.
+4. ~~**Reconcile §18 vs. the mockups (#7).**~~ **✅ done.** §18 amended to bless the
+   map-anchored nav-rail console as the mobile-first realization.
 5. ~~**Identity, save-slots/Ironman (#5, #4).**~~ **✅ done** (corp name + livery;
    3 slots + Ironman). **Data-pipeline breadth (#12)** — extend the §31 tuning
    overlay beyond commodities — is the next independent fill.
