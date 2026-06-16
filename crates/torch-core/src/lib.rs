@@ -834,6 +834,26 @@ impl TorchSim {
         self.sim.campaign().gate_progress_bp() / 100
     }
 
+    /// Whether the player can transit the open ring-gate right now (§0.1/§17) — the
+    /// climactic endgame verb is available standing at the gate, not yet through.
+    #[func]
+    fn can_transit_gate(&self) -> bool {
+        self.sim.can_transit_gate()
+    }
+
+    /// Whether the player has already transited into the Beyond endgame (§17).
+    #[func]
+    fn gate_transited(&self) -> bool {
+        self.sim.campaign().transited()
+    }
+
+    /// Transit the ring-gate into the endgame (§0.1/§17). Returns whether it
+    /// happened (only at the open gate). The climax of the whole climb.
+    #[func]
+    fn transit_gate(&mut self) -> bool {
+        self.sim.transit_gate()
+    }
+
     /// The active opening-mission title (§16), or "" once the tutorial is done.
     #[func]
     fn mission_title(&self) -> GString {

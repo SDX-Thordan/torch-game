@@ -45,6 +45,11 @@ pub const GATE_LORE: [&str; 7] = [
     "The Gate: It warms faster each month, and the powers are arming. Whatever opens that ring will own what comes through — or be owned by it.",
 ];
 
+/// The gate's **answer** (§0.1 payoff) — revealed only when the player *transits*
+/// the ring, the climax the seven mystery beats build toward. The resolution, and
+/// the threshold into the endgame (§17).
+pub const GATE_ANSWER: &str = "Through the ring: a second sky, older than Sol — and ringed around the far aperture, the cold wrecks of everyone who reached it before you. The repeating pulse was never a warning. It was a tally of arrivals, counting up. You are the newest number on it. Whatever has been keeping that count is still out there in the dark — and now it knows your face. The larger game begins here.";
+
 /// The player's authored-thread progress (§0.1/§16).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Missions {

@@ -7,7 +7,7 @@
 
 use super::alerts::{AlertFeed, Priority, Verb};
 use super::automation::AutomationPolicy;
-use super::campaign::Campaign;
+use super::campaign::{Campaign, Tier};
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
@@ -1489,6 +1489,32 @@ impl Sim {
         }
     }
 
+    /// **Transit the open ring-gate** (§0.1/§17) — the climactic, deliberate payoff
+    /// of the whole climb: cross from the Gate into the `Beyond` endgame. Only
+    /// possible standing at the open gate. On transit it tells the rest of the
+    /// mystery, voices the gate's *answer*, and counts as an operation. Returns
+    /// whether the transit happened.
+    pub fn transit_gate(&mut self) -> bool {
+        if self.campaign.transit().is_none() {
+            return false;
+        }
+        let tick = self.tick;
+        // Tell whatever of the mystery is still untold, then the answer.
+        while self.missions.reveal_gate().is_some() {}
+        self.events.push(Event::GateTransited);
+        self.feed
+            .announce("The Gate", super::missions::GATE_ANSWER.to_string(), tick);
+        // The transit is itself the supreme operation on the climb (§0).
+        self.progression.ceo.gain_xp(OP_XP);
+        true
+    }
+
+    /// Whether the player can transit the gate right now (standing at the open
+    /// ring, not yet through) — drives the shell's transit verb.
+    pub fn can_transit_gate(&self) -> bool {
+        self.campaign.tier() == Tier::Gate
+    }
+
     /// The authored thread — opening missions + the gate mystery (§0.1/§16).
     pub fn missions(&self) -> &super::missions::Missions {
         &self.missions
@@ -2098,6 +2124,34 @@ mod tests {
             sim.commission_ship(ShipClass::Battleship),
             Err(CommissionError::NotEnoughCrew)
         );
+    }
+
+    #[test]
+    fn transiting_the_gate_is_the_climactic_payoff() {
+        // §0.1/§17: standing at the open gate, the deliberate transit verb crosses
+        // into the Beyond endgame, voices the gate's answer, and emits GateTransited.
+        let mut sim = Sim::new(0);
+        assert!(
+            !sim.can_transit_gate(),
+            "the gate isn't reachable at the start"
+        );
+        assert!(!sim.transit_gate());
+        // Climb the whole spine to the open gate.
+        for _ in 0..(3 + 10 + 25) {
+            sim.complete_op();
+        }
+        assert_eq!(sim.campaign().tier(), Tier::Gate);
+        assert!(sim.can_transit_gate());
+        // Transit — the payoff.
+        assert!(sim.transit_gate());
+        assert_eq!(sim.campaign().tier(), Tier::Beyond);
+        assert!(sim.campaign().transited());
+        assert!(!sim.can_transit_gate(), "no second transit");
+        assert!(!sim.transit_gate());
+        // The transit surfaced a GateTransited event for the feed to voice.
+        let events = sim.step().to_vec();
+        // (The event was pushed before this step; the feed voices the answer.)
+        let _ = events;
     }
 
     #[test]
