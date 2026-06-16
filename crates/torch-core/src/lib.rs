@@ -317,6 +317,17 @@ impl TorchSim {
         }
     }
 
+    /// Peek a save slot at `path` (§30): the saved tick, or `-1` if the file is
+    /// missing or unreadable — for the archive UI's slot summaries.
+    #[func]
+    fn save_peek(&self, path: GString) -> i64 {
+        std::fs::read_to_string(path.to_string())
+            .ok()
+            .and_then(|json| sim::SaveState::from_json(&json).ok())
+            .map(|s| s.tick as i64)
+            .unwrap_or(-1)
+    }
+
     /// Price of commodity `c` at market `m`.
     #[func]
     fn price(&self, market: i64, commodity: i64) -> i64 {

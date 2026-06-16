@@ -25,7 +25,8 @@ const BRANCH_NAMES := ["Industrialist", "Trader", "Warlord", "Diplomat"]
 const INTENSITY_NAMES := ["Calm", "Normal", "Harsh"]   # §13 pressure difficulty
 const QTY_STEP := 5
 const QTY_MAX := 500
-const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (§30)
+const SAVE_SLOTS := 3                        # numbered manual save slots (§30)
+const IRONMAN_AUTOSAVE_SEC := 20.0           # how often Ironman autosaves
 
 # Views (index = nav-rail order).
 const V_SYSTEMS := 0
@@ -126,6 +127,9 @@ var _fleet_grid: GridContainer
 var _fleet_count: Label
 var _corp_lbl: Label
 var corp_name_idx := 0
+var save_slot := 0                           # active manual slot, 0..SAVE_SLOTS-1 (§30)
+var ironman := false                         # Ironman: autosave, no manual reloads
+var _autosave_accum := 0.0
 var _fleet_tabs: Array[Button] = []
 
 # Build view.
@@ -534,6 +538,7 @@ func _build_systems_view() -> void:
 	_tg_patrol = _add_toggle(col, "Interdiction patrol", func(on): sim.toggle_patrol())
 	_tg_research = _add_toggle(col, "Auto-research", func(on): sim.toggle_auto_research())
 	_tg_pause = _add_toggle(col, "Auto-pause on alert", func(on): auto_pause = on)
+	_add_toggle(col, "Ironman (autosave, no reloads)", _toggle_ironman)
 
 	# Bottom-left overlay panel: NOW goal + the active mission + the gate mystery +
 	# the always-visible gate progress (§0.1 — the authored destination pull, §16).
@@ -617,6 +622,21 @@ func _build_systems_view() -> void:
 	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
 	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
 
+	# Archive (§30): numbered save slots + load. (Ironman toggle lives in settings.)
+	var ar := HBoxContainer.new()
+	ar.add_theme_constant_override("separation", 6)
+	ar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ar.anchor_left = 1
+	ar.anchor_top = 1
+	ar.offset_left = -470
+	ar.offset_top = -88
+	ar.offset_right = -120
+	ar.offset_bottom = -56
+	root.add_child(ar)
+	ar.add_child(_make_op_button("SLOT", _cycle_slot))
+	ar.add_child(_make_op_button("SAVE", _do_save))
+	ar.add_child(_make_op_button("LOAD", _do_load))
+
 
 func _add_toggle(col: VBoxContainer, text: String, cb: Callable) -> CheckButton:
 	var row := UiKit.toggle_row(text, false)
@@ -676,6 +696,57 @@ func _dispatch_fleet_to_focus() -> void:
 		status = "Can't dispatch: %s." % blocked
 	else:
 		status = "No docked warships to send (or already there)."
+
+
+## ---- save slots + Ironman (§13/§30) -----------------------------------------
+
+func _slot_path(i: int) -> String:
+	return ProjectSettings.globalize_path("user://torch_slot_%d.json" % i)
+
+
+func _ironman_path() -> String:
+	return ProjectSettings.globalize_path("user://torch_ironman.json")
+
+
+func _active_save_path() -> String:
+	return _ironman_path() if ironman else _slot_path(save_slot)
+
+
+func _do_save() -> void:
+	var err := String(sim.save_game(_active_save_path()))
+	if err == "":
+		status = "Saved — %s." % ("Ironman" if ironman else "slot %d" % (save_slot + 1))
+	else:
+		status = "Save failed: %s" % err
+
+
+func _do_load() -> void:
+	if ironman:
+		status = "Ironman — no manual reload. Your choices stand."
+		return
+	var err := String(sim.load_game(_slot_path(save_slot)))
+	if err == "":
+		speed_idx = 0
+		selected = 0
+		status = "Loaded slot %d — paused. [1] to resume." % (save_slot + 1)
+	else:
+		status = "Load failed: %s" % err
+
+
+func _cycle_slot() -> void:
+	save_slot = (save_slot + 1) % SAVE_SLOTS
+	var t := sim.save_peek(_slot_path(save_slot))
+	status = "Slot %d — %s." % [save_slot + 1, ("saved day %d" % (t / 24)) if t >= 0 else "empty"]
+
+
+func _toggle_ironman(on: bool) -> void:
+	ironman = on
+	if ironman:
+		sim.save_game(_ironman_path())   # commit a baseline immediately
+		_autosave_accum = 0.0
+		status = "IRONMAN engaged — autosaves, no reloads. Live with your choices."
+	else:
+		status = "Ironman off — manual slots restored."
 
 
 ## Cycle the corporation name through the presets (§14 self-expression).
@@ -1052,6 +1123,12 @@ func _process(delta: float) -> void:
 	last_tier = tier
 	flash = maxf(0.0, flash - delta * 2.0)
 	ascend_flash = maxf(0.0, ascend_flash - delta)
+	# Ironman (§13): the world saves itself, so there's no scumming a bad call.
+	if ironman:
+		_autosave_accum += delta
+		if _autosave_accum >= IRONMAN_AUTOSAVE_SEC:
+			_autosave_accum = 0.0
+			sim.save_game(_ironman_path())
 	if view == V_SYSTEMS:
 		_update_world()
 	if view == V_BUILD and _ship_pivot:
@@ -1556,16 +1633,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_H:
 			status = "Wreck stripped — haul aboard." if sim.salvage_wreck() else "No derelict in range to salvage."
 		KEY_F5:
-			var serr := sim.save_game(ProjectSettings.globalize_path(SAVE_PATH))
-			status = "Game saved." if serr == "" else "Save failed: %s" % serr
+			_do_save()
 		KEY_F9:
-			var lerr := sim.load_game(ProjectSettings.globalize_path(SAVE_PATH))
-			if lerr == "":
-				speed_idx = 0
-				selected = 0
-				status = "Game loaded — paused. Press [1] to resume."
-			else:
-				status = "Load failed: %s" % lerr
+			_do_load()
 
 
 func _do_buy() -> void:

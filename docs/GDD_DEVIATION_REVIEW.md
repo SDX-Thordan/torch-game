@@ -34,7 +34,7 @@ one place. Each is tagged:
 | 1 | Delta-v movement / per-ship position — **warships ✅ done** (freighters + combat-positioning follow) | §2 / §6 | 🟠 (was 🔴) |
 | 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
 | 3 | Combat is non-interactive (no live commands, thin doctrine, no diorama) | §9 / §22 | 🟠 |
-| 4 | Save = single JSON slot; no multiple slots, no Ironman | §13 / §30 | 🟠 |
+| 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
 | 5 | Expressive identity — **corp name + livery ✅ done** (logo deferred) | §14 | 🟡 (was 🟠) |
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
 | 7 | Multi-view shell *replaces* the map; not slide-over panels | §18 | 🟡 (follows mockups) |
@@ -128,9 +128,14 @@ one place. Each is tagged:
 
 ### 4. 🟠 Persistence: a single JSON slot; no multiple slots, no Ironman — §13, §30
 - **GDD:** Free-save / **multiple slots native**; **optional Ironman** mode (§13).
-- **Built:** `sim::persist` round-trips a full save, but the shell saves/loads a
-  single fixed path (`user://savegame.json`, F5/F9). No slot UI, no Ironman.
-- **Status:** Save/load works; the slot/Ironman *features* are unbuilt.
+- **Built / ADDRESSED 2026-06-16:** the core `sim::persist` round-trip drives
+  **3 numbered manual slots** (`user://torch_slot_N.json`) with a SLOT/SAVE/LOAD
+  touch-control row and a `save_peek` binding that shows each slot's saved day; and
+  an **Ironman** toggle (in the settings) that autosaves every 20 s to a dedicated
+  slot and **blocks manual reload** — no scumming a bad call (§13). This also fixes
+  a mobile gap: save/load was previously desktop-only (F5/F9), now it's touchable.
+- **Status:** Multiple slots + Ironman now in; only fancier slot metadata (named
+  saves, screenshots) is unbuilt.
 
 ### 5. 🟠 Expressive identity is partial — §14
 - **GDD:** Corporation name, logo, **livery colors** across fleet + stations; ship
