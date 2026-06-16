@@ -124,6 +124,8 @@ var _feed: RichTextLabel
 # Fleet view.
 var _fleet_grid: GridContainer
 var _fleet_count: Label
+var _corp_lbl: Label
+var corp_name_idx := 0
 var _fleet_tabs: Array[Button] = []
 
 # Build view.
@@ -216,7 +218,7 @@ func _build_world() -> void:
 	_orrery_root.add_child(key)
 
 	_hauler_mat = _emissive_mat(HAULER_COL)
-	_ship_mat = _emissive_mat(Color(0.4, 0.95, 1.0))   # player warships: bright cyan
+	_ship_mat = _emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
 	_select_mat = _emissive_mat(SELECT_COL)
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
 
@@ -676,6 +678,27 @@ func _dispatch_fleet_to_focus() -> void:
 		status = "No docked warships to send (or already there)."
 
 
+## Cycle the corporation name through the presets (§14 self-expression).
+func _cycle_corp_name() -> void:
+	corp_name_idx += 1
+	var nm := String(sim.set_corp_name(corp_name_idx))
+	status = "Corporation renamed: %s." % nm
+
+
+## Cycle the fleet livery and repaint the ships (§14).
+func _cycle_livery_btn() -> void:
+	sim.cycle_livery()
+	_apply_livery()
+	status = "Fleet livery updated."
+
+
+## Repaint the shared warship material to the current livery (§14).
+func _apply_livery() -> void:
+	var c := sim.corp_livery_color()
+	_ship_mat.albedo_color = c
+	_ship_mat.emission = c
+
+
 ## Refuel every docked warship to a full tank (§6).
 func _refuel_fleet() -> void:
 	var n := 0
@@ -709,6 +732,14 @@ func _build_fleet_view() -> void:
 		b.pressed.connect(func(): _set_fleet_tab(ti))
 		tabs.add_child(b)
 		_fleet_tabs.append(b)
+	# Expressive identity (§14): corp name + cycle name / livery.
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(spacer)
+	_corp_lbl = UiKit.label("", 13, UiKit.TEXT_HI)
+	tabs.add_child(_corp_lbl)
+	tabs.add_child(_make_op_button("RENAME", _cycle_corp_name))
+	tabs.add_child(_make_op_button("LIVERY", _cycle_livery_btn))
 	_fleet_count = UiKit.label("", 11, UiKit.TEXT_DIM)
 	v.add_child(_fleet_count)
 	v.add_child(UiKit.rule())
@@ -1256,6 +1287,9 @@ func _refresh_fleet() -> void:
 			_fleet_grid.add_child(UiKit.label("—" if _i == 0 else "", 12, UiKit.TEXT_DIM))
 	_fleet_count.text = "%d ships  ·  flagship: %s" % [
 		fsz + sim.freighters(), String(sim.flagship_name()) if fsz > 0 else "—"]
+	if _corp_lbl:
+		_corp_lbl.text = String(sim.corp_name())
+		_corp_lbl.add_theme_color_override("font_color", sim.corp_livery_color())
 
 
 func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: String, fuel: float, fuelcol: Color) -> void:
