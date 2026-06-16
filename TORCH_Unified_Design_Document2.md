@@ -112,6 +112,29 @@ The three-way cold war is a living tension meter; flashpoints create embargoes, 
 - **Trajectory choice per move:** economical (slow, low delta-v) vs. hard burn (fast, expensive, taxes crew). Transfer windows make some routes cheap only at certain alignments — a genuine planning puzzle (verb #4).
 - **Delta-v budget per ship** from remass tankage + drive efficiency. Running dry strands you. Outer-system excursions (§15) make this bite hardest.
 
+> **Requirement — delta-v governs *all* ship movement (incl. the player fleet).**
+> This is Pillar #2 ("delta-v is the universal constraint", §2) made concrete, and
+> it is **load-bearing**, not flavor: *every* mobile ship — NPC haulers, player
+> freighters, **and player warships** — must have a **tracked position** on the
+> orrery and a **per-ship delta-v budget** (= remass tankage × drive efficiency,
+> the `ShipStats.delta_v` proxy in §8). A move *commits* a trajectory, *spends*
+> delta-v + remass, and takes time derived from the ship's drive and the chosen
+> burn (economical vs. hard burn, §6 above) at the live orbital geometry — **never
+> a flat speed**. A ship that runs its remass dry is **stranded** until refueled;
+> refueling infrastructure is therefore strategic ground. This is what makes the
+> fleet a positional, logistical asset (and a real interdiction target) rather than
+> an abstract roster.
+>
+> **Current MVP gap (to close).** Today `delta_v` is computed per fit and used only
+> for *combat* range/mobility and the shipyard readout; the **movement layer does
+> not consume it**. NPC haulers move at a flat `CRUISE_SPEED` (positions tracked,
+> rendered); player freighters are an abstract **pooled count** with an in-transit
+> timer (no individual position); player **warships have no position at all** and
+> never traverse the map (combat is the abstract `engage_raiders` verb). Closing
+> this — per-ship position + a spent delta-v/remass budget + stranding/refuel —
+> is the next major sim step toward Pillar #2, and unblocks an honest FLEET view
+> (location/fuel are currently synthesized in the shell because the sim lacks them).
+
 ## 7. Economy & Industry
 
 The deepest system and the biggest engineering lift. Two decoupled layers, simplified for MVP.

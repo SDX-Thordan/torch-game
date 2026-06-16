@@ -971,6 +971,22 @@ Status: [x] done, [~] in progress, [ ] todo.
   feel), richer trade-flow arrows (needs a route origin/dest binding), and a less
   pill-shaped blueprint hull.
 
+- **2026-06-16 — Delta-v doesn't govern movement yet (GDD gap flagged, §6).** Player
+  feedback while reviewing the FLEET view: ship location/fuel are *synthesized* in
+  the shell because the sim doesn't track them. Confirmed the gap against the GDD:
+  Pillar #2 says "delta-v is the universal constraint" and §6 mandates a per-ship
+  delta-v budget + committed trajectories, but today `ShipStats.delta_v` is used
+  only for **combat** range/mobility + the shipyard readout — the **movement layer
+  ignores it**. NPC haulers move at a flat `CRUISE_SPEED` (positions tracked,
+  rendered); player freighters are an abstract **pooled count** + an in-transit
+  timer (no position); player **warships have no position at all** (combat is the
+  abstract `engage_raiders` verb). Added an explicit **Requirement & current-gap
+  note to the GDD §6** so the requirement (every ship — incl. the player fleet —
+  has a tracked position + a spent delta-v/remass budget; running dry strands;
+  travel time/cost derive from the drive + chosen burn, never a flat speed) is
+  unambiguous and tracked. This is the next major sim step toward Pillar #2 and
+  unblocks an honest FLEET view. Not yet implemented — flagged, not built.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
