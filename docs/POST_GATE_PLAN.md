@@ -106,7 +106,7 @@ spine of the endgame loop.
   construction → §7c gate + QA review body byte-identical (only the UI-wiring binding
   count moved, all 6 now wired).
 
-### G4 — Incursions (the far side answers) 👁️
+### G4 — Incursions (the far side answers) 👁️ — ✅ DONE
 **Goal:** the `GATE_ANSWER` payoff — "now it knows your face." A new
 `PressureKind::Incursion` track that activates **only post-transit**: escalating raids
 from beyond the ring that target the bridgehead (G3) and the core, voiced as
@@ -119,6 +119,19 @@ incursions (a distinct, dread voice in the feed). Reuses the pressure cadence +
 - **Shell:** incursion alerts + a pressure-gauge for the far-side threat.
 - **Tests:** incursions only fire post-transit; they escalate; an answered incursion
   protects the bridgehead.
+- **Built:** `PressureKind::Incursion` (gauges `[i32;3]`→`[i32;4]`); a dormant endgame
+  layer on `PressureSystem` (`begin_endgame(now)` at transit; cadence **tightens** and
+  severity **climbs** with time-in-Beyond, both off a `beyond_start` clock). `Sim`
+  telegraphs (`ThreatForecast{Incursion}`), lands an incursion as an **act-now
+  `IncursionStruck`** with a `DefendBridgehead` verb + a response window; unanswered, it
+  `strike_bridgehead`s for its severity (`BridgeheadDamaged`, `BridgeheadFell` at zero).
+  `defend_bridgehead(band)` rallies the fleet vs a severity-scaled far-side pack
+  (quality 70) — a win repels it cleanly (an op), a loss lets it through. Persisted via
+  `endgame_since` (`#[serde(default)]`; `begin_endgame` is idempotent so a reload
+  resumes the clock). 3 bindings + a DEFEND button (lit only while an incursion presses)
+  + an `⚠ INCURSION … DEFEND` line in the destination panel. **Gated on transit →** §7c
+  gate + QA review body byte-identical (gauge[3] stays 0 pre-transit; the new events
+  fold into the variety ascent-bit; personas never transit).
 
 ### G5 — The larger game resolves (empire / win-state) 👑
 **Goal:** "own what comes through — or be owned by it." The culminating loop: hold the

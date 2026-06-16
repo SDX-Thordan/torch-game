@@ -119,6 +119,7 @@ var _sys_gate_lbl: Label
 var _transit_btn: Button
 var _bridge_found_btn: Button
 var _bridge_upgrade_btn: Button
+var _defend_btn: Button
 var _sys_mission: Label
 var _sys_lore: Label
 var _tg_patrol: CheckButton
@@ -663,6 +664,10 @@ func _build_systems_view() -> void:
 	_bridge_upgrade_btn = _make_op_button("⛓ REINFORCE", _upgrade_bridgehead)
 	_bridge_upgrade_btn.visible = false
 	fo.add_child(_bridge_upgrade_btn)
+	# The act-now far-side defense (§17, G4) — lit only while an incursion presses.
+	_defend_btn = _make_op_button("⚔ DEFEND BRIDGEHEAD", _defend_bridgehead)
+	_defend_btn.visible = false
+	fo.add_child(_defend_btn)
 
 	# Archive (§30): numbered save slots + load. (Ironman toggle lives in settings.)
 	var ar := HBoxContainer.new()
@@ -861,6 +866,23 @@ func _upgrade_bridgehead() -> void:
 			status = "Not enough credits to reinforce the bridgehead."
 		3:
 			status = "Found a bridgehead before you can reinforce it."
+
+
+## Defend the bridgehead against the pending incursion (§17, G4) — rally the fleet
+## and resolve the fight. The far side answers; you answer back.
+func _defend_bridgehead() -> void:
+	var result: int = sim.defend_bridgehead(combat_band)
+	match result:
+		1:
+			ascend_flash = 1.0
+			status = "⚔ Incursion repelled — the bridgehead holds the line."
+			_open_diorama()
+		0:
+			flash = 1.0
+			status = "⚔ The line broke — the bridgehead is hit."
+			_open_diorama()
+		-1:
+			status = "No fleet to answer the incursion. Commission warships."
 
 
 ## Rename the flagship, cycling an evocative call-sign pool (§14, mobile-friendly —
@@ -1692,7 +1714,10 @@ func _refresh_systems() -> void:
 			var bi: int = sim.bridgehead_integrity()
 			var bm: int = sim.bridgehead_max_integrity()
 			var bl: int = sim.bridgehead_level()
-			_sys_gate_lbl.text = "BRIDGEHEAD  Lv%d  ·  integrity %d/%d" % [bl, bi, bm]
+			if sim.incursion_pending():
+				_sys_gate_lbl.text = "⚠ INCURSION  ·  bridgehead Lv%d  %d/%d  ·  DEFEND" % [bl, bi, bm]
+			else:
+				_sys_gate_lbl.text = "BRIDGEHEAD  Lv%d  ·  integrity %d/%d" % [bl, bi, bm]
 		else:
 			_sys_gate_lbl.text = "BEYOND THE GATE  ·  plant the bridgehead"
 	else:
@@ -1705,10 +1730,14 @@ func _refresh_systems() -> void:
 	# once, then reinforce it.
 	var beyond_now: bool = sim.gate_transited()
 	var has_bridge: bool = sim.bridgehead_founded()
+	var under_attack: bool = sim.incursion_pending()
 	if _bridge_found_btn:
 		_bridge_found_btn.visible = beyond_now and not has_bridge
 	if _bridge_upgrade_btn:
-		_bridge_upgrade_btn.visible = beyond_now and has_bridge
+		_bridge_upgrade_btn.visible = beyond_now and has_bridge and not under_attack
+	# The DEFEND verb (§17, G4) — only while an incursion is actually pressing.
+	if _defend_btn:
+		_defend_btn.visible = beyond_now and under_attack
 	# Feed.
 	var feed := ""
 	for a in mini(sim.alert_count(), 3):

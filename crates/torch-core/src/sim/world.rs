@@ -149,6 +149,15 @@ const BRIDGEHEAD_FOUND_COST: i64 = 60_000;
 /// Credits to upgrade the bridgehead one level; scales with the level reached so
 /// each reinforcement is a heavier commitment (§17, G3).
 const BRIDGEHEAD_UPGRADE_BASE_COST: i64 = 40_000;
+/// Ticks the player has to mount a defense once an incursion lands before it
+/// strikes the bridgehead unanswered (§17, G4). An act-now window, like a shortage.
+const INCURSION_RESPONSE_WINDOW: u64 = 36;
+/// Crew quality of the far-side incursion raiders (§17, G4) — a notch above the
+/// inner-system pirates: the far side fields a tougher enemy.
+const INCURSION_QUALITY: i64 = 70;
+/// Incursion-pack size scales with severity: one raider per this-much severity,
+/// floored at a pair (§17, G4).
+const INCURSION_SEVERITY_PER_SHIP: i64 = 25;
 
 /// Ticks between hauler spawn attempts (≈ one per day at 1 tick/hour).
 const SPAWN_INTERVAL: u64 = 24;
@@ -247,6 +256,14 @@ pub struct Sim {
     /// The player's far-side foothold (§17 endgame, G3). Unfounded until the player
     /// transits the gate and founds it; inert pre-transit.
     bridgehead: Bridgehead,
+    /// The tick the player transited the gate (§17, G4) — lights the incursion
+    /// escalation clock; `None` until transit. Persisted so a post-transit save
+    /// resumes the endgame.
+    endgame_since: Option<u64>,
+    /// An incursion currently bearing on the bridgehead, awaiting a defense (§17,
+    /// G4): `(severity, deadline tick)`. Transient — a reload re-opens a fresh
+    /// window rather than persisting mid-incursion state.
+    pending_incursion: Option<(i64, u64)>,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -318,6 +335,8 @@ impl Sim {
             board: ContractBoard::new(seed),
             salvage: SalvageField::new(seed, blueprint_count, body_count),
             bridgehead: Bridgehead::new(),
+            endgame_since: None,
+            pending_incursion: None,
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -536,9 +555,9 @@ impl Sim {
     /// One-press answer to the loudest open act-now shortage (the alert→verb
     /// path the influence model wants). Returns whether one was answered.
     pub fn answer_top_shortage(&mut self, qty: i64) -> bool {
-        let target = self.feed.surfaced().iter().find_map(|a| {
-            a.verb
-                .map(|Verb::ExploitShortage { market, commodity }| (market, commodity))
+        let target = self.feed.surfaced().iter().find_map(|a| match a.verb {
+            Some(Verb::ExploitShortage { market, commodity }) => Some((market, commodity)),
+            _ => None,
         });
         match target {
             Some((m, c)) => self.exploit_shortage(m, c, qty).is_ok(),
@@ -1186,6 +1205,7 @@ impl Sim {
             mission_done: self.missions.done_flags(),
             gate_revealed: self.missions.gate_beats_revealed(),
             bridgehead: self.bridgehead,
+            endgame_since: self.endgame_since,
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1283,6 +1303,11 @@ impl Sim {
         self.progression.ceo.restore(s.ceo_xp, s.ceo_branch);
         self.missions.restore(&s.mission_done, s.gate_revealed);
         self.bridgehead = s.bridgehead;
+        // Resume the far-side endgame clock if this is a post-transit save (§17, G4).
+        self.endgame_since = s.endgame_since;
+        if let Some(start) = s.endgame_since {
+            self.pressure.begin_endgame(start);
+        }
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1360,6 +1385,137 @@ impl Sim {
             let struck = self.pirate_raid();
             self.pressure.after_raid(now, struck);
         }
+        // The far-side endgame threat (§17, G4) — dormant until the gate is transited.
+        if self.pressure.endgame() {
+            self.run_incursions(now);
+        }
+    }
+
+    /// The far-side incursion layer (§17, G4), run each tick once past the ring: an
+    /// escalating threat that telegraphs, lands on the bridgehead as an act-now
+    /// "defend" exception, and — if unanswered within the window — damages the
+    /// foothold. Gated on `pressure.endgame()`, which is off until transit, so the
+    /// pre-transit world never enters here.
+    fn run_incursions(&mut self, now: u64) {
+        // An unanswered incursion strikes the bridgehead when its window lapses.
+        if let Some((severity, deadline)) = self.pending_incursion {
+            if now >= deadline {
+                self.pending_incursion = None;
+                self.strike_bridgehead(severity);
+            }
+        }
+        // Telegraph the next incursion ahead of time (§13 forecasting carried over).
+        if self.pressure.should_forecast_incursion(now) {
+            let eta = self.pressure.incursion_eta(now);
+            self.events.push(Event::ThreatForecast {
+                kind: PressureKind::Incursion,
+                eta,
+            });
+            self.pressure.mark_incursion_forecast_sent();
+        }
+        // A new incursion lands (only if none is already pending — one crisis at a
+        // time on the foothold).
+        if self.pending_incursion.is_none() && self.pressure.incursion_ready(now) {
+            let severity = self.pressure.incursion_severity(now);
+            self.pending_incursion = Some((severity, now + INCURSION_RESPONSE_WINDOW));
+            self.events.push(Event::IncursionStruck { severity });
+            self.pressure.after_incursion(now);
+        }
+    }
+
+    /// Apply incursion damage to the bridgehead and voice it; if it falls, emit the
+    /// loss beat (§17, G4/G5). No-op without a founded foothold (the incursion finds
+    /// nothing to hit).
+    fn strike_bridgehead(&mut self, severity: i64) {
+        if !self.bridgehead.is_founded() {
+            return;
+        }
+        let fell = self.bridgehead.damage(severity);
+        self.events.push(Event::BridgeheadDamaged {
+            integrity: self.bridgehead.integrity(),
+        });
+        if fell {
+            self.events.push(Event::BridgeheadFell);
+        }
+    }
+
+    /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
+    /// shell lights the DEFEND verb while this holds.
+    pub fn incursion_pending(&self) -> bool {
+        self.pending_incursion.is_some()
+    }
+
+    /// The severity of the pending incursion, or 0 if none (§17, G4).
+    pub fn pending_incursion_severity(&self) -> i64 {
+        self.pending_incursion.map(|(s, _)| s).unwrap_or(0)
+    }
+
+    /// **Defend the bridgehead** against the pending incursion (§17, G4): rally the
+    /// fleet and resolve combat against a far-side raider pack scaled by the
+    /// incursion's severity. A win repels it cleanly (the foothold takes no damage)
+    /// and counts as an op; a loss lets the incursion through (the bridgehead is
+    /// struck for its severity). Returns the battle outcome, or `None` if there's no
+    /// incursion to answer or no warships to answer with.
+    pub fn defend_bridgehead(&mut self, band: Band) -> Option<BattleOutcome> {
+        let (severity, _) = self.pending_incursion?;
+        // The whole fleet rallies to the far side — defending the foothold is the
+        // priority, wherever the ships were (§17). Need at least one warship.
+        let player_ships: Vec<Loadout> = self
+            .corp
+            .fleet()
+            .iter()
+            .map(|s| s.loadout.clone())
+            .collect();
+        if player_ships.is_empty() {
+            return None;
+        }
+        // The incursion pack scales with severity — a tougher, growing enemy (§17).
+        let pack_size = ((severity / INCURSION_SEVERITY_PER_SHIP).max(2)) as usize;
+        let pack: Vec<Loadout> = (0..pack_size)
+            .map(|_| {
+                ships::reference_loadout_quality(
+                    ShipClass::Frigate,
+                    INCURSION_QUALITY,
+                    &mut self.rng,
+                )
+            })
+            .collect();
+        let player_doctrine = Doctrine {
+            band,
+            ..self.combat_doctrine
+        };
+        let raider_doctrine = Doctrine {
+            band,
+            ..Doctrine::default()
+        };
+        let outcome = combat::resolve(
+            &Fleet {
+                ships: &player_ships,
+                doctrine: player_doctrine,
+            },
+            &Fleet {
+                ships: &pack,
+                doctrine: raider_doctrine,
+            },
+            &mut self.rng,
+        );
+        let survivors = outcome.survivors[0];
+        let losses = player_ships.len() - survivors;
+        let won = outcome.winner == Some(0);
+        let all: Vec<usize> = (0..player_ships.len()).collect();
+        self.corp.resolve_engagement_for(all, survivors, won);
+        self.pending_incursion = None;
+        self.feed.resolve_incursion();
+        if won {
+            // Repelled — the foothold is safe and the win is progress (§0).
+            self.complete_op();
+        } else {
+            // The line broke — the incursion reaches the bridgehead.
+            self.strike_bridgehead(severity);
+        }
+        self.events.push(Event::BattleResolved { won, losses });
+        self.last_battle = Some((band, [player_ships.len(), pack.len()], outcome.clone()));
+        Some(outcome)
     }
 
     /// Administratively cut the in-flight hauler with `id` (a guaranteed delete,
@@ -1560,6 +1716,9 @@ impl Sim {
         self.events.push(Event::GateTransited);
         self.feed
             .announce("The Gate", super::missions::GATE_ANSWER.to_string(), tick);
+        // The far side now knows your face (§17, G4): light the incursion clock.
+        self.endgame_since = Some(tick);
+        self.pressure.begin_endgame(tick);
         // The transit is itself the supreme operation on the climb (§0).
         self.progression.ceo.gain_xp(OP_XP);
         true
@@ -2297,6 +2456,82 @@ mod tests {
         assert_eq!(sim.upgrade_bridgehead(), Ok(()));
         assert_eq!(sim.bridgehead().level(), 2);
         assert!(sim.bridgehead().max_integrity() > max1);
+    }
+
+    #[test]
+    fn incursions_only_fire_after_transit_and_damage_an_undefended_bridgehead() {
+        // §17/G4: pre-transit no incursion ever fires (byte-identical world); after
+        // transit they escalate, and an undefended one chips the bridgehead.
+        let mut sim = Sim::new(5);
+        // A long pre-transit run raises no incursion at all.
+        for _ in 0..600 {
+            sim.step();
+        }
+        assert!(!sim.incursion_pending());
+        assert!(!sim.pressure().endgame());
+        // Climb, transit, found the foothold.
+        for _ in 0..(3 + 10 + 25) {
+            sim.complete_op();
+        }
+        assert!(sim.transit_gate());
+        assert!(
+            sim.pressure().endgame(),
+            "transit lights the incursion clock"
+        );
+        sim.corp_mut().credit(500_000);
+        assert_eq!(sim.found_bridgehead(), Ok(()));
+        let full = sim.bridgehead().integrity();
+        // Run long enough for an incursion to land and (undefended) lapse onto the
+        // foothold — its integrity must fall.
+        for _ in 0..400 {
+            sim.step();
+            if sim.bridgehead().integrity() < full {
+                break;
+            }
+        }
+        assert!(
+            sim.bridgehead().integrity() < full,
+            "an undefended incursion damages the bridgehead"
+        );
+    }
+
+    #[test]
+    fn defending_an_incursion_protects_the_bridgehead() {
+        // §17/G4: with a strong enough fleet, answering the incursion repels it and
+        // the bridgehead takes no damage.
+        let mut sim = Sim::new(11);
+        for _ in 0..(3 + 10 + 25) {
+            sim.complete_op();
+        }
+        assert!(sim.transit_gate());
+        sim.corp_mut().credit(5_000_000);
+        assert_eq!(sim.found_bridgehead(), Ok(()));
+        // Stand up a frigate squadron (the 60-crew pool affords five) — a heavy
+        // numeric edge over the 2-ship opening incursion pack, so the defense wins.
+        for _ in 0..5 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        assert!(!sim.corp().fleet().is_empty(), "a squadron stands ready");
+        let full = sim.bridgehead().integrity();
+        // Advance until an incursion is pending, then defend it.
+        let mut defended = false;
+        for _ in 0..400 {
+            sim.step();
+            if sim.incursion_pending() {
+                let outcome = sim.defend_bridgehead(Band::Close);
+                assert!(outcome.is_some(), "the fleet answers");
+                assert!(!sim.incursion_pending(), "the incursion is resolved");
+                defended = true;
+                break;
+            }
+        }
+        assert!(defended, "an incursion arrived to defend against");
+        // A won defense leaves the foothold unscathed.
+        assert_eq!(
+            sim.bridgehead().integrity(),
+            full,
+            "a successful defense costs the bridgehead no integrity"
+        );
     }
 
     #[test]

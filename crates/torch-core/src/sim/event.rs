@@ -46,4 +46,12 @@ pub enum Event {
     BridgeheadFounded,
     /// The player upgraded the far-side bridgehead to `level` (§17, G3).
     BridgeheadUpgraded { level: u32 },
+    /// An incursion from beyond the ring has reached the bridgehead (§17, G4) —
+    /// act-now: defend it or it takes `severity` damage. The GATE_ANSWER payoff.
+    IncursionStruck { severity: i64 },
+    /// The far-side bridgehead took incursion damage (§17, G4); `integrity` is what
+    /// remains.
+    BridgeheadDamaged { integrity: i64 },
+    /// The far-side bridgehead was overrun (§17, G5) — the endgame loss beat.
+    BridgeheadFell,
 }

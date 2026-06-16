@@ -41,6 +41,8 @@ pub enum Urgency {
 pub enum Verb {
     /// A shortage is an opportunity: sell into it, or relieve it.
     ExploitShortage { market: usize, commodity: usize },
+    /// An incursion is at the bridgehead (§17, G4): rally the fleet and repel it.
+    DefendBridgehead,
 }
 
 /// One entry in the feed.
@@ -139,6 +141,21 @@ impl AlertFeed {
         }
     }
 
+    /// Mark the active "defend the bridgehead" act-now alert as answered, dropping
+    /// it from the feed (§17, G4 — the incursion exception→verb loop closed).
+    pub fn resolve_incursion(&mut self) -> bool {
+        if let Some(pos) = self
+            .alerts
+            .iter()
+            .rposition(|a| a.verb == Some(Verb::DefendBridgehead))
+        {
+            self.alerts.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Classify a world event into an alert (or nothing, for routine noise).
     pub fn ingest(&mut self, event: &Event, tick: u64) {
         // Age out unanswered act-now shortages — the shortage has passed (§7b/§19).
@@ -155,6 +172,11 @@ impl AlertFeed {
             Event::WreckSalvaged { .. } => Some(self.wreck_salvaged(tick)),
             Event::BridgeheadFounded => Some(Self::bridgehead_founded(tick)),
             Event::BridgeheadUpgraded { level } => Some(self.bridgehead_upgraded(*level, tick)),
+            Event::IncursionStruck { .. } => Some(self.incursion(tick)),
+            Event::BridgeheadDamaged { integrity } => {
+                Some(self.bridgehead_damaged(*integrity, tick))
+            }
+            Event::BridgeheadFell => Some(Self::bridgehead_fell(tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -322,6 +344,51 @@ impl AlertFeed {
                 "{}: The bridgehead is reinforced — now level {level}.",
                 mgr.name
             ),
+            verb: None,
+        }
+    }
+
+    /// An incursion has reached the bridgehead (§17, G4) — act-now: defend it.
+    fn incursion(&self, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::ActNow,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: Contacts through the ring — they're on the bridgehead. Defend it.",
+                mgr.name
+            ),
+            verb: Some(Verb::DefendBridgehead),
+        }
+    }
+
+    /// The bridgehead took incursion damage (§17, G4) — a Warning FYI.
+    fn bridgehead_damaged(&self, integrity: i64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: The bridgehead is hit — integrity {integrity}.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// The bridgehead fell (§17, G5) — the gravest line.
+    fn bridgehead_fell(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: The bridgehead is overrun. The far side is lost to us."
+                .to_string(),
             verb: None,
         }
     }

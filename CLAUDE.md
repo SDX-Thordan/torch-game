@@ -170,6 +170,34 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — G4: incursions — the far side answers (post-gate sandbox, §17).**
+  The `GATE_ANSWER` payoff made mechanical: an escalating threat from beyond the ring
+  that only wakes **post-transit**. `PressureKind::Incursion` (gauges `[i32;3]`→`[4]`)
+  and a dormant endgame layer on `PressureSystem` — `begin_endgame(now)` (called at
+  `transit_gate`) lights it; the cadence **tightens** and severity **climbs** with
+  time-in-Beyond (both off a `beyond_start` clock, pure/integer/deterministic). `Sim`
+  telegraphs incursions (`ThreatForecast{Incursion}`), lands one as an **act-now**
+  `IncursionStruck` carrying a `Verb::DefendBridgehead` + a response window; left
+  unanswered past the window it `strike_bridgehead`s for its severity
+  (`BridgeheadDamaged`, and `BridgeheadFell` at zero — the G5 loss hook).
+  `defend_bridgehead(band)` rallies the whole fleet vs a **severity-scaled** far-side
+  pack (quality 70, a notch above inner pirates) — a win repels it cleanly (no damage +
+  an op), a loss lets it through. Persisted via `endgame_since` (`#[serde(default)]`);
+  `begin_endgame` is idempotent so a post-transit reload resumes the clock (pending
+  incursions are transient — a reload re-opens a fresh window). 3 bindings + a DEFEND
+  button (lit only while an incursion presses) + an `⚠ INCURSION … DEFEND` destination
+  line. **Gated on `pressure.endgame()` (off until transit) →** §7c gate + QA review
+  body **byte-identical**: gauge[3] stays 0 pre-transit so `peak_pressure` is unmoved,
+  and the three new `Event` variants fold into the QA variety ascent-bit (personas
+  never transit). *Three routine catches:* (1) adding `Verb::DefendBridgehead` broke an
+  **irrefutable** closure pattern (`.map(|Verb::ExploitShortage{..}| …)`) — rewrote it
+  as a `match`; (2) the two QA exhaustive `Event` matches + the `pressure_level` binding
+  match needed the new arms; (3) `let mut p` in a read-only pressure test tripped
+  `unused_mut`. *Combat-test lesson:* a Battleship needs 120 crew vs the 60 starting
+  pool, so a "stand up a heavy squadron" defense test must commission **Frigates**
+  (12 crew ⇒ five fit the pool) — a 5-vs-2 numeric edge wins reliably on the seed.
+  167 core + QA + 17 GUT green. **Next: G5** (the win-state / empire resolution).
+
 - **2026-06-16 — G3: the far-side bridgehead (post-gate sandbox, §17).** The third
   post-gate rung: the player's **own foothold beyond the ring**. `sim::bridgehead::
   Bridgehead` is a `Copy` state (`founded`/`level`/`integrity`) with

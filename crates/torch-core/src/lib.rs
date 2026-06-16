@@ -639,12 +639,14 @@ impl TorchSim {
         self.sim.salvage_top()
     }
 
-    /// A §13 pressure gauge, `0..=100`: 0 = FactionWar, 1 = Piracy, 2 = Scarcity.
+    /// A §13/§17 pressure gauge, `0..=100`: 0 = FactionWar, 1 = Piracy,
+    /// 2 = Scarcity, 3 = Incursion (the far-side endgame threat).
     #[func]
     fn pressure_level(&self, kind: i64) -> i64 {
         let k = match kind {
             0 => sim::PressureKind::FactionWar,
             2 => sim::PressureKind::Scarcity,
+            3 => sim::PressureKind::Incursion,
             _ => sim::PressureKind::Piracy,
         };
         self.sim.pressure().level(k) as i64
@@ -1270,6 +1272,38 @@ impl TorchSim {
     #[func]
     fn warships_on_station(&self) -> i64 {
         self.sim.warships_on_station() as i64
+    }
+
+    // ---- far-side incursions (§17 endgame, G4) ------------------------------
+
+    /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
+    /// shell lights the DEFEND verb while this holds.
+    #[func]
+    fn incursion_pending(&self) -> bool {
+        self.sim.incursion_pending()
+    }
+
+    /// The severity of the pending incursion (0 if none) (§17, G4).
+    #[func]
+    fn pending_incursion_severity(&self) -> i64 {
+        self.sim.pending_incursion_severity()
+    }
+
+    /// Defend the bridgehead against the pending incursion at `band` (0 close, 1
+    /// medium, 2 long) (§17, G4). Returns 1 if repelled, 0 if the line broke, −1 if
+    /// there was no incursion to answer or no warships to answer with.
+    #[func]
+    fn defend_bridgehead(&mut self, band: i64) -> i64 {
+        let band = match band {
+            0 => sim::Band::Close,
+            2 => sim::Band::Long,
+            _ => sim::Band::Medium,
+        };
+        match self.sim.defend_bridgehead(band) {
+            Some(o) if o.winner == Some(0) => 1,
+            Some(_) => 0,
+            None => -1,
+        }
     }
 
     // ---- combat doctrine + the diorama BattleLog (§9/§22) -------------------

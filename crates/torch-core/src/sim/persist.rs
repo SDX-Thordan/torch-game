@@ -87,10 +87,14 @@ pub struct SaveState {
     #[serde(default = "one")]
     pub gate_revealed: usize,
 
-    // ---- the far-side endgame (§17, G3) ----
+    // ---- the far-side endgame (§17, G3/G4) ----
     /// The player's far-side bridgehead; default = unfounded (pre-transit / old saves).
     #[serde(default)]
     pub bridgehead: Bridgehead,
+    /// The tick the player transited (lights the incursion clock, §17 G4); `None`
+    /// pre-transit / old saves.
+    #[serde(default)]
+    pub endgame_since: Option<u64>,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

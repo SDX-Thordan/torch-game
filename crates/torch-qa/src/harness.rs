@@ -317,11 +317,14 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                 Event::ThreatForecast { .. } => t.forecasts += 1,
                 Event::WreckSighted { .. } => t.wrecks_sighted += 1,
                 Event::WreckSalvaged { .. } => t.wrecks_salvaged += 1,
-                // The endgame transit + bridgehead beats (§17) — personas don't reach
-                // them, so just fold them into the ascent tally.
+                // The endgame transit + bridgehead + incursion beats (§17) — personas
+                // don't reach them, so just fold them into the ascent tally.
                 Event::GateTransited
                 | Event::BridgeheadFounded
-                | Event::BridgeheadUpgraded { .. } => t.tier_ascended_events += 1,
+                | Event::BridgeheadUpgraded { .. }
+                | Event::IncursionStruck { .. }
+                | Event::BridgeheadDamaged { .. }
+                | Event::BridgeheadFell => t.tier_ascended_events += 1,
                 Event::Tick { .. } => {}
             }
         }
@@ -362,12 +365,15 @@ fn event_kind_bit(e: &Event) -> u32 {
         Event::ThreatForecast { .. } => 1 << 6,
         Event::WreckSighted { .. } => 1 << 7,
         Event::WreckSalvaged { .. } => 1 << 8,
-        // The endgame transit + bridgehead beats are the supreme ascents — fold them
-        // into the ascent bit so the variety denominator is unchanged (no persona
-        // reaches them anyway).
-        Event::GateTransited | Event::BridgeheadFounded | Event::BridgeheadUpgraded { .. } => {
-            1 << 4
-        }
+        // The endgame transit + bridgehead + incursion beats are the supreme ascents —
+        // fold them into the ascent bit so the variety denominator is unchanged (no
+        // persona reaches them anyway).
+        Event::GateTransited
+        | Event::BridgeheadFounded
+        | Event::BridgeheadUpgraded { .. }
+        | Event::IncursionStruck { .. }
+        | Event::BridgeheadDamaged { .. }
+        | Event::BridgeheadFell => 1 << 4,
     }
 }
 
