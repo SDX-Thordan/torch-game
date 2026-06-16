@@ -1806,8 +1806,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_J:
 			status = "Contract delivered — paid and reputation lifted." if sim.fulfill_ready_contract() else "No contract you can fill from the warehouse."
 		KEY_L:
-			var err := sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
-			status = "Commodity data reloaded." if err == "" else "Reload failed: %s" % err
+			# Hot-reload both tuning overlays (§31): commodities + ship catalog.
+			var cerr: String = sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
+			var serr: String = sim.reload_ship_data(ProjectSettings.globalize_path("user://ships.json"))
+			if cerr == "" and serr == "":
+				status = "Tuning data reloaded (commodities + ships)."
+			else:
+				status = "Reload failed: %s" % (cerr if cerr != "" else serr)
 		KEY_U:
 			var nxt := (sim.intensity() + 1) % 3
 			sim.set_intensity(nxt)

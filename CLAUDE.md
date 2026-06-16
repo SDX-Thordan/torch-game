@@ -160,6 +160,32 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Ship class specs are now data (deviation #12, §31).** Extended the
+  "numbers in data, logic in Rust" overlay from commodities to **ship hulls +
+  weapons** — the second-highest-leverage tuning domain. New `data/ships.json` tunes
+  every hull's numeric envelope (mass/armor/thrust/tankage/drive/power/mounts/crew →
+  and therefore build cost = `dry_mass × SHIP_PRICE_PER_MASS` and the §8c crew
+  bottleneck) and every weapon (damage/intercept/mass/power), matched **by name**
+  with the exact commodity pattern: partial overlay, unknown-name = error (typo
+  protection), and an `include_str!`'d `DEFAULT_SHIP_JSON` proven to reproduce the
+  compiled catalogs by `ship_data_matches_compiled_defaults` (file ↔ code can't
+  drift). **Made real, not just parsed:** `Sim` holds a `ShipCatalog` (default =
+  compiled tables); `commission_ship`/`commission_freighter` fit from it via
+  `ShipCatalog::reference_loadout_quality`, and `reload_ship_data(json)` swaps it
+  (parse-before-mutate, touches no RNG → deterministic mid-run retune). **Identity
+  stays in code** (hull `class`, weapon `kind`) — only numbers are data, same call
+  as commodities. Combat *raider* packs keep the compiled defaults (raiders aren't
+  player-tunable content), and the persist fleet-restore uses the default catalog
+  (tuning is a runtime overlay, not save state) — so a default `Sim` is byte-
+  identical: the §7c gate holds and the QA review body is unchanged. **Borrow note:**
+  `self.catalog.reference_loadout_quality(class, q, &mut self.rng)` is a *disjoint*
+  two-field borrow (catalog immutable + rng mutable) and compiles cleanly. **Shell:**
+  the `L` dev-reload key now reloads *both* overlays (`user://commodities.json` +
+  `user://ships.json`); bound as `reload_ship_data(path)`. *GDScript lesson:* `:=`
+  type inference on a gdext method return can fail to resolve (`Cannot infer the
+  type`) even when the sibling call infers fine — type the local explicitly
+  (`var serr: String = sim.reload_ship_data(...)`).
+
 - **2026-06-16 — Combat command + diorama (deviation #3, §9/§22).** Closed the
   "combat is non-interactive" gap. Two halves: (1) the **command layer** — the §9
   `Doctrine` gained a **target priority** (biggest hull / most wounded) and a

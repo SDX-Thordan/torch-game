@@ -23,7 +23,7 @@ use super::pressure::{Intensity, PressureKind, PressureSystem};
 use super::progression::Progression;
 use super::rng::Pcg32;
 use super::salvage::{SalvageField, SalvageReward};
-use super::ships::{self, Loadout, ShipClass};
+use super::ships::{self, Loadout, ShipCatalog, ShipClass};
 use super::traffic::Hauler;
 
 /// Credits charged per unit of a commissioned hull's dry mass (§5 sink).
@@ -210,6 +210,10 @@ pub struct Sim {
     /// The last resolved battle (band, starting counts, BattleLog) — for the §22
     /// diorama. Transient (not saved).
     last_battle: Option<(Band, [usize; 2], BattleOutcome)>,
+    /// Hull + weapon catalog the player's ships are fit from (§31). Defaults to the
+    /// compiled tables; `reload_ship_data` retunes it from JSON. A tuning overlay,
+    /// not save state — content stays in code.
+    catalog: ShipCatalog,
     pressure: PressureSystem,
     rng: Pcg32,
     events: Vec<Event>,
@@ -265,6 +269,7 @@ impl Sim {
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
+            catalog: ShipCatalog::default(),
             pressure: PressureSystem::new(Intensity::default()),
             markets,
             rng: Pcg32::new(seed),
@@ -299,6 +304,21 @@ impl Sim {
             m.retune(&defs)?;
         }
         Ok(())
+    }
+
+    /// Hot-reload hull + weapon numbers from a JSON tuning document (§31): swap the
+    /// ship catalog the player's future ships are fit from. Parses before mutating,
+    /// so a bad file leaves the catalog untouched. Already-built hulls keep their
+    /// fitted loadout (it's baked at commission); new commissions use the new
+    /// numbers. Touches no RNG — a mid-run retune stays deterministic.
+    pub fn reload_ship_data(&mut self, json: &str) -> Result<(), String> {
+        self.catalog = super::ships::tuned_ship_catalog(json)?;
+        Ok(())
+    }
+
+    /// The live ship catalog (§31), for the shell's shipyard readout.
+    pub fn ship_catalog(&self) -> &ShipCatalog {
+        &self.catalog
     }
 
     /// The §13 pressure layer (gauges, raid schedule, intensity) — read by the
@@ -445,7 +465,7 @@ impl Sim {
     /// Commission a warship of `class` into the fleet (§5/§8c): pays its build
     /// cost and draws its crew from the trained-crew pool.
     pub fn commission_ship(&mut self, class: ShipClass) -> Result<(), CommissionError> {
-        let hull = ships::hull(class);
+        let hull = self.catalog.hull(class);
         let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
         if self.corp.credits() < price {
             return Err(CommissionError::CantAfford);
@@ -453,7 +473,9 @@ impl Sim {
         if self.corp.trained_crew() < hull.crew_required {
             return Err(CommissionError::NotEnoughCrew);
         }
-        let loadout = ships::reference_loadout(class, &mut self.rng);
+        let loadout = self
+            .catalog
+            .reference_loadout_quality(class, 50, &mut self.rng);
         self.corp.debit(price);
         self.corp.assign_crew(hull.crew_required);
         // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14). It rolls
@@ -562,7 +584,7 @@ impl Sim {
 
     /// Commission a civilian freighter to run trade-route standing orders (§4).
     pub fn commission_freighter(&mut self) -> Result<(), CommissionError> {
-        let hull = ships::hull(ShipClass::Freighter);
+        let hull = self.catalog.hull(ShipClass::Freighter);
         let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
         if self.corp.credits() < price {
             return Err(CommissionError::CantAfford);

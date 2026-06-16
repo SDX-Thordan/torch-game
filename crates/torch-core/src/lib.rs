@@ -289,6 +289,18 @@ impl TorchSim {
         GString::from(result.err().unwrap_or_default())
     }
 
+    /// Hot-reload hull + weapon numbers from a JSON tuning file at `path` (§31):
+    /// retune the catalog future ships are fit from. Returns "" on success or a
+    /// human-readable error; the live catalog is left untouched on any failure.
+    #[func]
+    fn reload_ship_data(&mut self, path: GString) -> GString {
+        let path = path.to_string();
+        let result = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {path}: {e}"))
+            .and_then(|json| self.sim.reload_ship_data(&json));
+        GString::from(result.err().unwrap_or_default())
+    }
+
     /// Save the run to a JSON file at `path` (§30). Returns "" on success or a
     /// human-readable error. File I/O lives here in the shell binding, not the core.
     #[func]
