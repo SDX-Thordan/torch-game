@@ -40,6 +40,7 @@ jobs:
   gut:
     name: Godot — GUT view/integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Community image with Godot 4.6.3 headless; we add Rust to build the gdext
     # core the tests load (the sim↔view binding contract, §32).
     container:
@@ -58,8 +59,11 @@ jobs:
       - name: Build the gdext core (debug cdylib the extension loads)
         run: cargo build
 
+      # Godot can hang headless if it grabs a display/audio device — force the dummy
+      # drivers, and timeout each step so a hang fails fast (observable) instead of
+      # burning the whole job.
       - name: Import project (registers the gdextension + GUT class_names)
-        run: godot --headless --path godot --import || true
+        run: timeout 360 godot --headless --audio-driver Dummy --display-driver headless --path godot --import || true
 
       - name: Run GUT
-        run: godot --headless --path godot -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit
+        run: timeout 360 godot --headless --audio-driver Dummy --display-driver headless --path godot -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit
