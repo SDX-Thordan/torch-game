@@ -1032,6 +1032,14 @@ impl TorchSim {
         }
     }
 
+    /// Warships on station at the home core, ready to answer a raider muster (§6).
+    /// Lets the shell tell "no fleet" (commission one) apart from "fleet off
+    /// station" (recall it) when an engage finds no defenders.
+    #[func]
+    fn warships_on_station(&self) -> i64 {
+        self.sim.warships_on_station() as i64
+    }
+
     // ---- combat doctrine + the diorama BattleLog (§9/§22) -------------------
 
     /// Set the player's target priority (§9): 0 = biggest hull, 1 = most wounded.

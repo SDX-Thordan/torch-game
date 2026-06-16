@@ -817,11 +817,15 @@ func _cycle_retreat() -> void:
 	status = "Retreat threshold: %s." % ("never (fight to the death)" if rt == 0 else "%d%%" % rt)
 
 
-## Throw the fleet at a raider pack and play back the result (§9/§22).
+## Throw the on-station fleet at a raider pack and play back the result (§9/§22).
 func _engage_raiders() -> void:
 	var r := sim.engage(combat_band)
 	if r == -1:
-		status = "No warships to send — commission a hull in BUILD first."
+		# Distinguish "no fleet" from "fleet is off defending elsewhere" (§6).
+		if sim.fleet_size() > 0 and sim.warships_on_station() == 0:
+			status = "Fleet is off-station — recall warships to the core to engage."
+		else:
+			status = "No warships to send — commission a hull in BUILD first."
 		return
 	_open_diorama()
 
@@ -1547,8 +1551,9 @@ func _refresh_fleet() -> void:
 		var bands := ["close", "medium", "long"]
 		var tgt := "wounded" if sim.combat_target() == 1 else "biggest"
 		var rt := sim.combat_retreat()
-		_combat_lbl.text = "range %s · target %s · retreat %s" % [
-			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt)]
+		var on_station: int = sim.warships_on_station()
+		_combat_lbl.text = "range %s · target %s · retreat %s · %d on station" % [
+			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt), on_station]
 
 
 func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: String, fuel: float, fuelcol: Color) -> void:

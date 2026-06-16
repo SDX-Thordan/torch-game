@@ -31,7 +31,7 @@ one place. Each is tagged:
 
 | # | Deviation | GDD | Tag |
 |---|---|---|---|
-| 1 | Delta-v movement / per-ship position — **warships ✅ done** (freighters + combat-positioning follow) | §2 / §6 | 🟠 (was 🔴) |
+| 1 | Delta-v movement / per-ship position — **warships ✅ + combat positioning ✅** (freighters follow) | §2 / §6 | 🟠 (was 🔴) |
 | 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
 | 3 | Combat command layer + diorama — **✅ done** (engage verb, doctrine knobs, BattleLog playback) | §9 / §22 | 🟡 (was 🟠) |
 | 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
@@ -78,10 +78,19 @@ one place. Each is tagged:
   burn (economical vs. hard, verb #4); `Sim::refuel_ship` buys remass at a dock; a
   dry tank **strands** the ship. Ships render on the orrery; the FLEET view shows
   **real** location/fuel; a mobile **SEND FLEET / REFUEL** control dispatches the
-  fleet to the focused world. Persistence saves the nav state. **Remaining for full
-  Pillar-#2 coverage:** player **freighters** (still pooled-count + route timer) and
-  **combat positioning** (`engage_raiders` not yet gated on the fleet being at the
-  fight) — tracked as follow-ups, hence re-tagged 🟠.
+  fleet to the focused world. Persistence saves the nav state.
+- **Combat positioning ADDRESSED 2026-06-16.** `engage_raiders` is now gated on
+  position: raiders muster on the inner lanes at the **home core** (`markets[0]`'s
+  body, where hulls commission), and **only warships on station there** answer —
+  losses fall on those ships alone (`Corp::resolve_engagement_for`, Rocinante effect
+  preserved within the engaged group), while a fleet flown to the outer system
+  **can't defend the core** until it burns home. So the delta-v movement layer is
+  *consequential*: positioning the fleet is now a real defensive decision.
+  `warships_on_station()` drives an accurate shell readout (FLEET doctrine line +
+  "recall the fleet" message). Backward-compatible (fresh hulls dock at the core →
+  on station), so all tests + the QA review are unchanged.
+- **Remaining for full Pillar-#2 coverage:** player **freighters** (still
+  pooled-count + route timer) — the last positional follow-up, hence still 🟠.
 
 ### 2. 🔴 No authored gate-mystery narrative or opening missions — §0.1, §16
 - **GDD:** The destination pull is the **#1 over-invest priority** (§0.2). The gate
