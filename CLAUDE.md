@@ -150,8 +150,9 @@ Status: [x] done, [~] in progress, [ ] todo.
   **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
   design findings). The §32 counterpart to `cargo test`: tests assert systems
   *work*, this critiques how the game *plays*. Same seed ⇒ same review. Now a
-  **two-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
-  (engaging & fun?).
+  **three-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
+  (engaging & fun?) + `ui` (a static affordance audit of the binding ⟷ shell
+  wiring — can the player see & reach it all?).
 - [~] **14. Juice & audio pass**, then UX polish. **Playable shell + 3D orrery
   done** (`godot/main.gd`): real-time-with-pause loop (§28), a **3D orrery** (§21:
   lit bodies orbit the sun on the ecliptic, haulers run the lanes, an
@@ -1039,6 +1040,28 @@ Status: [x] done, [~] in progress, [ ] todo.
   `MultiMeshInstance3D` of 600 billboarded unshaded quads on a deterministic shell
   (radius 55–80, seeded RNG) behind the system, so the dark space reads as depth,
   not emptiness. Cheap (one draw), pure shell, render-verified under xvfb.
+- **2026-06-16 — QA gets a third lens: UI usability (`torch-qa::ui`).** The harness
+  asks *does it work* and *is it engaging*; it now also asks *can the player see
+  and reach it all?* The Godot shell is GDScript (outside the `cargo test` gate),
+  but it can only touch the sim through the **gdext binding** (`#[func]` in
+  `lib.rs`) and wires it in `godot/*.gd` — committed source we can audit
+  **statically and deterministically**, no engine needed. `ui::audit` parses the
+  binding surface and the shell's `sim.<x>(` calls and flags: **phantom calls**
+  (the shell calling a non-existent binding — a runtime break GDScript's dynamic
+  typing hides until that path runs), **unreached capability** (bindings the shell
+  never wires), **exception→verb** (an act-now shortage must have a one-press
+  answer, §0.4), **status visibility** (Nielsen #1: treasury/tier/gate/feed on
+  screen), **recognition over recall** (Nielsen #6: a controls legend), and
+  **platform fit** (Android-first §33 vs. a keyboard-scale control surface). First
+  run on the real shell: 165 bindings, 73% wired (44 unreached), 40 keyboard
+  bindings *with* native `InputEventScreenTouch`/`Drag` handling and a controls
+  legend — mostly Good, with two Notes (the unreached bindings, and keeping the
+  touch surface first-class for the 40-verb keymap on mobile). It complements (not
+  replaces) the GUT view tests (#72) and the manual render-and-look pass. *Lesson:*
+  the binding ⟷ shell wiring is a real, checkable usability contract — phantom
+  calls and unreachable verbs are exactly the gaps that escape both `cargo test`
+  and a quick playtest.
+
 - **2026-06-15 — QA gets a second lens: engagement & "fun" (`torch-qa::engagement`).**
   The harness could say *does it work* (`review`/`design_review`); it now also
   asks *is it engaging*. `assess(&Transcript)` scores six **structural proxies**
