@@ -36,7 +36,7 @@ one place. Each is tagged:
 | 3 | Combat command layer + diorama — **✅ done** (engage verb, doctrine knobs, BattleLog playback) | §9 / §22 | 🟡 (was 🟠) |
 | 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
 | 5 | Expressive identity — **corp name + livery ✅ done** (logo deferred) | §14 | 🟡 (was 🟠) |
-| 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
+| 6 | Persistence — **✅ binary bincode shipping save + JSON dev export** | §30 | 🟢 (was 🟡) |
 | 7 | Multi-view shell vs. §18 slide-over panels — **✅ reconciled** (GDD amended) | §18 | 🟢 (was 🟡) |
 | 8 | Commodity chain — **✅ deepened to 4 tiers** (Raw→Refined→Components→Assembled, 12 goods) | §7d | 🟢 (was 🟡) |
 | 9 | Combat: **heat / aggressive-fire ✅** + retreat/target doctrine; facing/spinal still pending | §8a / §9 | 🟡 (narrowed) |
@@ -186,13 +186,18 @@ one place. Each is tagged:
 
 ## C. Intentional simplifications (functional, reduced from spec)
 
-### 6. 🟡 Persistence is JSON, not binary bincode — §30
+### 6. 🟢 Persistence — ✅ binary shipping save + JSON dev export — §30
 - **GDD:** "Binary (serde + bincode) … ship binary. Dev JSON export for inspection."
-- **Built:** JSON *is* the shipping format (`persist.rs` uses `serde_json`,
-  `SAVE_VERSION = 1`). The code comment acknowledges the divergence.
-- **Why:** `serde_json` is already in the locked dep tree (via gdext / §31); bincode
-  was not, and adding it needs a network fetch. JSON satisfies versioned save/load
-  today. Low risk; revisit if save size/perf ever matters.
+- **Built:** Exactly that now. `SaveState::to_bincode`/`from_bincode` (the **bincode**
+  shipping format) alongside `to_json`/`from_json` (the dev export). `Sim::save_bytes`
+  writes binary; `Sim::load_bytes` **auto-detects** (leading `{` ⇒ JSON, else
+  bincode) so old JSON saves still load. The shell `save_game` writes the compact
+  `.sav` binary, `export_save_json` dumps the readable JSON, and `save_peek`/
+  `load_game` read either. Both round-trip bit-for-bit (`a.to_save() == reloaded`),
+  binary is smaller than JSON, and a future version is refused in both formats.
+- **Note:** bincode 1.3 is the one added dependency (fetched fine). It's not
+  self-describing, so cross-version migration is the JSON export's job — exactly the
+  GDD's "ship binary, dev JSON" split.
 
 ### 7. 🟢 Multi-view shell vs. §18 — ✅ reconciled (GDD amended) — §18
 - **GDD (original):** "The live 3D orrery owns the screen … panels slide from the

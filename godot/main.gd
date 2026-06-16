@@ -723,11 +723,11 @@ func _dispatch_fleet_to_focus() -> void:
 ## ---- save slots + Ironman (§13/§30) -----------------------------------------
 
 func _slot_path(i: int) -> String:
-	return ProjectSettings.globalize_path("user://torch_slot_%d.json" % i)
+	return ProjectSettings.globalize_path("user://torch_slot_%d.sav" % i)
 
 
 func _ironman_path() -> String:
-	return ProjectSettings.globalize_path("user://torch_ironman.json")
+	return ProjectSettings.globalize_path("user://torch_ironman.sav")
 
 
 func _active_save_path() -> String:

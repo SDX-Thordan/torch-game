@@ -165,6 +165,21 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Binary save format: bincode shipping save + JSON dev export (#6, §30).**
+  Closed the last 🟡: the shipping save is now **bincode** (`SaveState::to_bincode`/
+  `from_bincode`) alongside the JSON dev export. `Sim::save_bytes`/`load_bytes`, with
+  `load_bytes` **auto-detecting** the format (leading `{` after whitespace ⇒ JSON,
+  else bincode) so **old JSON saves still load**. Bindings: `save_game` writes the
+  compact `.sav` binary, `export_save_json` dumps readable JSON, `save_peek`/
+  `load_game` read either; shell slot files moved `.json` → `.sav`. Round-trips
+  bit-for-bit (`a.to_save() == reloaded`), binary < JSON in size, version mismatch
+  refused in both formats. Added GUT `test_binary_save_round_trips_through_the_binding`.
+  **Notes:** (1) bincode 1.3 is the one new dep (fetched fine; it's *not*
+  self-describing, so `#[serde(default)]` cross-version tolerance is the JSON path's
+  job — exactly the GDD's "ship binary, dev JSON" split). (2) GDScript `:=` can't
+  infer a gdext return — the new GUT test needed `var tick: int = sim.tick()` typed
+  explicitly or the whole script fails to parse.
+
 - **2026-06-16 — View interpolation: orrery markers glide between ticks (#14, §28).**
   Pure-shell polish: the sim is a fixed 6-tick/s clock, so in-flight markers used to
   *snap* each tick. `_smooth_to` now lerps each hauler/warship/freighter marker

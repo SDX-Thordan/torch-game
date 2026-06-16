@@ -54,3 +54,21 @@ func test_bill_of_materials_describes_assembled_parts() -> void:
 	var bom := String(sim.ship_bom_desc(0))  # Frigate
 	assert_string_contains(bom, "Machinery", "the frigate BOM lists Machinery")
 	assert_false(sim.can_assemble_ship(0), "an empty warehouse can't assemble")
+
+
+func test_binary_save_round_trips_through_the_binding() -> void:
+	# §30: the shipping save is binary (bincode). Round-trip it through the gdext
+	# save/load bindings and confirm the run state restores.
+	sim.commission_ship(0)
+	sim.step()
+	sim.step()
+	var tick: int = sim.tick()
+	var fleet: int = sim.fleet_size()
+	var path: String = ProjectSettings.globalize_path("user://gut_test.sav")
+	assert_eq(String(sim.save_game(path)), "", "binary save writes cleanly")
+	# Advance, then load the save back — state should rewind to the saved point.
+	sim.step()
+	sim.step()
+	assert_eq(String(sim.load_game(path)), "", "binary save loads cleanly")
+	assert_eq(sim.tick(), tick, "tick restored from the binary save")
+	assert_eq(sim.fleet_size(), fleet, "fleet restored from the binary save")
