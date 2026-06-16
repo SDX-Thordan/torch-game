@@ -987,6 +987,27 @@ Status: [x] done, [~] in progress, [ ] todo.
   unambiguous and tracked. This is the next major sim step toward Pillar #2 and
   unblocks an honest FLEET view. Not yet implemented — flagged, not built.
 
+- **2026-06-16 — Full GDD-deviation audit (`docs/GDD_DEVIATION_REVIEW.md`).** Player
+  asked for an explicit, written review of everything that deviated from the GDD.
+  Audited the sim core + QA + shell section-by-section against
+  `TORCH_Unified_Design_Document2.md` and tagged 18 deviations 🔴 pillar / 🟠 MVP-gap
+  / 🟡 simplification / 🟢 sanctioned-deferral. **Two 🔴 pillar-level:** (#1) delta-v
+  doesn't govern movement + player ships positionless (§2/§6); (#2) no authored
+  gate-mystery thread or opening missions (§0.1/§16 — the #1 over-invest priority's
+  missing half; the mechanical spine is there, the narrative carrot isn't).
+  **🟠 MVP gaps:** non-interactive combat + no diorama (§9/§22), single-slot save /
+  no Ironman (§13/§30), partial expressive identity (no corp name/logo/livery, §14).
+  **Notable 🟡 to reconcile:** the new multi-view shell *replaces* the map (full-
+  screen FLEET/BUILD/MARKET) vs. §18's "map never fully occludes" — but it follows
+  the **player's own mockups**, so the deviation is a doc decision (amend §18 or make
+  views non-occluding). Other 🟡: JSON save not bincode (§30, intentional — dep
+  already in tree), Raw→Refined-only chain (§7d), combat omits heat/facing/doctrine
+  knobs (§8a/§9), partial civilian classes (§8e), crew name+quality only (§11,
+  right-sized per §0.2), data pipeline covers only commodities (§31), no GUT tests
+  (§32). 🟢: audio (player-dropped), voxel art + procedural assembly (#11 todo),
+  endgame §17 (post-MVP). Most *systems* are built and green — the deviations are
+  mostly known/tracked; the doc just makes them legible in one place.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
