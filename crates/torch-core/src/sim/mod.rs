@@ -6,6 +6,7 @@
 
 pub mod alerts;
 pub mod automation;
+pub mod bridgehead;
 pub mod campaign;
 pub mod combat;
 pub mod contracts;

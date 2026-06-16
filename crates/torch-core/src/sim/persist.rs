@@ -13,6 +13,7 @@
 
 use super::alerts::Priority;
 use super::automation::AutomationPolicy;
+use super::bridgehead::Bridgehead;
 use super::campaign::Campaign;
 use super::faction::Relations;
 use super::industry::Station;
@@ -85,6 +86,11 @@ pub struct SaveState {
     pub mission_done: Vec<bool>,
     #[serde(default = "one")]
     pub gate_revealed: usize,
+
+    // ---- the far-side endgame (§17, G3) ----
+    /// The player's far-side bridgehead; default = unfounded (pre-transit / old saves).
+    #[serde(default)]
+    pub bridgehead: Bridgehead,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

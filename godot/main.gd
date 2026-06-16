@@ -117,6 +117,8 @@ var _sys_now: Label
 var _sys_gate: ProgressBar
 var _sys_gate_lbl: Label
 var _transit_btn: Button
+var _bridge_found_btn: Button
+var _bridge_upgrade_btn: Button
 var _sys_mission: Label
 var _sys_lore: Label
 var _tg_patrol: CheckButton
@@ -654,6 +656,13 @@ func _build_systems_view() -> void:
 	_transit_btn = _make_op_button("⟁ TRANSIT GATE", _transit_gate)
 	_transit_btn.visible = false
 	fo.add_child(_transit_btn)
+	# Far-side endgame verbs (§17, G3) — only lit once through the ring.
+	_bridge_found_btn = _make_op_button("⛓ FOUND BRIDGEHEAD", _found_bridgehead)
+	_bridge_found_btn.visible = false
+	fo.add_child(_bridge_found_btn)
+	_bridge_upgrade_btn = _make_op_button("⛓ REINFORCE", _upgrade_bridgehead)
+	_bridge_upgrade_btn.visible = false
+	fo.add_child(_bridge_upgrade_btn)
 
 	# Archive (§30): numbered save slots + load. (Ironman toggle lives in settings.)
 	var ar := HBoxContainer.new()
@@ -823,6 +832,35 @@ func _transit_gate() -> void:
 				_focus_body = b
 				_zoom = 8.0
 				break
+
+
+## Found the far-side bridgehead (§17, G3) — the first foothold beyond the ring.
+func _found_bridgehead() -> void:
+	var code: int = sim.found_bridgehead()
+	match code:
+		0:
+			ascend_flash = 1.0
+			status = "⛓ The bridgehead stands. We hold ground beyond the ring."
+		1:
+			status = "Transit the gate before you can plant a foothold."
+		2:
+			status = "Not enough credits to found the bridgehead."
+		3:
+			status = "The bridgehead already stands."
+
+
+## Reinforce the far-side bridgehead a level (§17, G3) — more integrity to weather
+## the incursions to come.
+func _upgrade_bridgehead() -> void:
+	var code: int = sim.upgrade_bridgehead()
+	match code:
+		0:
+			var lvl: int = sim.bridgehead_level()
+			status = "⛓ Bridgehead reinforced — now level %d." % lvl
+		2:
+			status = "Not enough credits to reinforce the bridgehead."
+		3:
+			status = "Found a bridgehead before you can reinforce it."
 
 
 ## Rename the flagship, cycling an evocative call-sign pool (§14, mobile-friendly —
@@ -1650,13 +1688,27 @@ func _refresh_systems() -> void:
 		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
 	_sys_lore.text = "✦ %s" % String(sim.gate_lore())
 	if sim.gate_transited():
-		_sys_gate_lbl.text = "BEYOND THE GATE  ·  the larger game"
+		if sim.bridgehead_founded():
+			var bi: int = sim.bridgehead_integrity()
+			var bm: int = sim.bridgehead_max_integrity()
+			var bl: int = sim.bridgehead_level()
+			_sys_gate_lbl.text = "BRIDGEHEAD  Lv%d  ·  integrity %d/%d" % [bl, bi, bm]
+		else:
+			_sys_gate_lbl.text = "BEYOND THE GATE  ·  plant the bridgehead"
 	else:
 		_sys_gate_lbl.text = "RING-GATE  %d%%   ·   mystery %d/7" % [sim.gate_progress_pct(), sim.gate_beats()]
 	_sys_gate.value = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
 	# The endgame transit verb lights up only at the open gate (§0.1/§17).
 	if _transit_btn:
 		_transit_btn.visible = sim.can_transit_gate()
+	# The far-side bridgehead verbs light up only past the ring (§17, G3): found it
+	# once, then reinforce it.
+	var beyond_now: bool = sim.gate_transited()
+	var has_bridge: bool = sim.bridgehead_founded()
+	if _bridge_found_btn:
+		_bridge_found_btn.visible = beyond_now and not has_bridge
+	if _bridge_upgrade_btn:
+		_bridge_upgrade_btn.visible = beyond_now and has_bridge
 	# Feed.
 	var feed := ""
 	for a in mini(sim.alert_count(), 3):

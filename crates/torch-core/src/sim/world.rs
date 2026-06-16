@@ -7,6 +7,7 @@
 
 use super::alerts::{AlertFeed, Priority, Verb};
 use super::automation::AutomationPolicy;
+use super::bridgehead::Bridgehead;
 use super::campaign::{Campaign, Tier};
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::contracts::ContractBoard;
@@ -132,6 +133,23 @@ pub enum FoundError {
     TooManyStations,
 }
 
+/// Why a far-side bridgehead op (found/upgrade) could not proceed (§17, G3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BridgeheadError {
+    /// Not through the ring yet — the foothold can only be planted in the Beyond.
+    NotBeyond,
+    CantAfford,
+    /// Founding when one already stands, or upgrading when none does.
+    AlreadyFounded,
+    NotFounded,
+}
+
+/// Credits to found the far-side bridgehead (§17, G3) — an endgame outlay.
+const BRIDGEHEAD_FOUND_COST: i64 = 60_000;
+/// Credits to upgrade the bridgehead one level; scales with the level reached so
+/// each reinforcement is a heavier commitment (§17, G3).
+const BRIDGEHEAD_UPGRADE_BASE_COST: i64 = 40_000;
+
 /// Ticks between hauler spawn attempts (≈ one per day at 1 tick/hour).
 const SPAWN_INTERVAL: u64 = 24;
 /// Cap on concurrent in-flight haulers.
@@ -226,6 +244,9 @@ pub struct Sim {
     stations: Vec<Station>,
     board: ContractBoard,
     salvage: SalvageField,
+    /// The player's far-side foothold (§17 endgame, G3). Unfounded until the player
+    /// transits the gate and founds it; inert pre-transit.
+    bridgehead: Bridgehead,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -296,6 +317,7 @@ impl Sim {
             stations: Vec::new(),
             board: ContractBoard::new(seed),
             salvage: SalvageField::new(seed, blueprint_count, body_count),
+            bridgehead: Bridgehead::new(),
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -1163,6 +1185,7 @@ impl Sim {
             ceo_branch: self.progression.ceo.branch(),
             mission_done: self.missions.done_flags(),
             gate_revealed: self.missions.gate_beats_revealed(),
+            bridgehead: self.bridgehead,
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1259,6 +1282,7 @@ impl Sim {
             .restore(s.blueprints_known.clone());
         self.progression.ceo.restore(s.ceo_xp, s.ceo_branch);
         self.missions.restore(&s.mission_done, s.gate_revealed);
+        self.bridgehead = s.bridgehead;
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1545,6 +1569,56 @@ impl Sim {
     /// ring, not yet through) — drives the shell's transit verb.
     pub fn can_transit_gate(&self) -> bool {
         self.campaign.tier() == Tier::Gate
+    }
+
+    /// The player's far-side bridgehead (§17 endgame, G3) — unfounded until transit.
+    pub fn bridgehead(&self) -> &Bridgehead {
+        &self.bridgehead
+    }
+
+    /// **Found the far-side bridgehead** (§17, G3) — plant the first foothold beyond
+    /// the ring. Only possible in the `Beyond` (post-transit), once, for a credit
+    /// outlay. Founding is itself a spine op (it advances within the endgame).
+    pub fn found_bridgehead(&mut self) -> Result<(), BridgeheadError> {
+        if !self.campaign.transited() {
+            return Err(BridgeheadError::NotBeyond);
+        }
+        if self.bridgehead.is_founded() {
+            return Err(BridgeheadError::AlreadyFounded);
+        }
+        if self.corp.credits() < BRIDGEHEAD_FOUND_COST {
+            return Err(BridgeheadError::CantAfford);
+        }
+        self.corp.debit(BRIDGEHEAD_FOUND_COST);
+        self.bridgehead.found();
+        self.events.push(Event::BridgeheadFounded);
+        self.complete_op(); // securing the far side is progress on the climb (§0)
+        Ok(())
+    }
+
+    /// Cost to upgrade the bridgehead from its current level (§17, G3).
+    fn bridgehead_upgrade_cost(&self) -> i64 {
+        BRIDGEHEAD_UPGRADE_BASE_COST * self.bridgehead.level().max(1) as i64
+    }
+
+    /// **Upgrade the far-side bridgehead** (§17, G3) — reinforce the foothold a level,
+    /// raising the integrity it can weather under incursion (G4). Requires a standing
+    /// bridgehead and the (level-scaled) credits. A spine op.
+    pub fn upgrade_bridgehead(&mut self) -> Result<(), BridgeheadError> {
+        if !self.bridgehead.is_founded() {
+            return Err(BridgeheadError::NotFounded);
+        }
+        let cost = self.bridgehead_upgrade_cost();
+        if self.corp.credits() < cost {
+            return Err(BridgeheadError::CantAfford);
+        }
+        self.corp.debit(cost);
+        self.bridgehead.upgrade();
+        self.events.push(Event::BridgeheadUpgraded {
+            level: self.bridgehead.level(),
+        });
+        self.complete_op();
+        Ok(())
     }
 
     /// The authored thread — opening missions + the gate mystery (§0.1/§16).
@@ -2186,6 +2260,43 @@ mod tests {
         let events = sim.step().to_vec();
         // (The event was pushed before this step; the feed voices the answer.)
         let _ = events;
+    }
+
+    #[test]
+    fn the_bridgehead_is_a_post_transit_endgame_verb() {
+        // §17/G3: the far-side foothold can only be founded after transiting the gate,
+        // costs credits, and is itself a spine op. Upgrading reinforces it.
+        let mut sim = Sim::new(3);
+        assert!(!sim.bridgehead().is_founded());
+        // Can't found before the Beyond, even flush with cash.
+        sim.corp_mut().credit(500_000);
+        assert_eq!(
+            sim.found_bridgehead(),
+            Err(BridgeheadError::NotBeyond),
+            "no foothold before the ring"
+        );
+        // Climb + transit into the Beyond.
+        for _ in 0..(3 + 10 + 25) {
+            sim.complete_op();
+        }
+        assert!(sim.transit_gate());
+        assert!(sim.campaign().transited());
+        // Found it — costs credits, stands at level 1, and counts as an op.
+        let before = sim.corp().credits();
+        assert_eq!(sim.found_bridgehead(), Ok(()));
+        assert!(sim.bridgehead().is_founded());
+        assert_eq!(sim.bridgehead().level(), 1);
+        assert!(sim.corp().credits() < before, "founding costs credits");
+        assert_eq!(
+            sim.found_bridgehead(),
+            Err(BridgeheadError::AlreadyFounded),
+            "no second founding"
+        );
+        // Upgrade reinforces it (raises the level + integrity).
+        let max1 = sim.bridgehead().max_integrity();
+        assert_eq!(sim.upgrade_bridgehead(), Ok(()));
+        assert_eq!(sim.bridgehead().level(), 2);
+        assert!(sim.bridgehead().max_integrity() > max1);
     }
 
     #[test]

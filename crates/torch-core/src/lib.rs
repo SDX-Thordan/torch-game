@@ -879,6 +879,59 @@ impl TorchSim {
         self.sim.transit_gate()
     }
 
+    // ---- the far-side bridgehead (§17 endgame, G3) ----
+
+    /// Whether the player's far-side bridgehead has been founded (§17, G3).
+    #[func]
+    fn bridgehead_founded(&self) -> bool {
+        self.sim.bridgehead().is_founded()
+    }
+
+    /// The bridgehead's upgrade level (0 if unfounded) (§17, G3).
+    #[func]
+    fn bridgehead_level(&self) -> i64 {
+        self.sim.bridgehead().level() as i64
+    }
+
+    /// The bridgehead's current integrity (§17, G3/G4).
+    #[func]
+    fn bridgehead_integrity(&self) -> i64 {
+        self.sim.bridgehead().integrity()
+    }
+
+    /// The bridgehead's maximum integrity at its current level (§17, G3).
+    #[func]
+    fn bridgehead_max_integrity(&self) -> i64 {
+        self.sim.bridgehead().max_integrity()
+    }
+
+    /// Found the far-side bridgehead (§17, G3). Returns: 0 ok, 1 not in the Beyond,
+    /// 2 can't afford, 3 already founded.
+    #[func]
+    fn found_bridgehead(&mut self) -> i64 {
+        use sim::world::BridgeheadError as E;
+        match self.sim.found_bridgehead() {
+            Ok(()) => 0,
+            Err(E::NotBeyond) => 1,
+            Err(E::CantAfford) => 2,
+            Err(E::AlreadyFounded) => 3,
+            Err(E::NotFounded) => 3,
+        }
+    }
+
+    /// Upgrade the far-side bridgehead (§17, G3). Returns: 0 ok, 2 can't afford,
+    /// 3 not founded.
+    #[func]
+    fn upgrade_bridgehead(&mut self) -> i64 {
+        use sim::world::BridgeheadError as E;
+        match self.sim.upgrade_bridgehead() {
+            Ok(()) => 0,
+            Err(E::CantAfford) => 2,
+            Err(E::NotFounded) => 3,
+            Err(E::NotBeyond) | Err(E::AlreadyFounded) => 3,
+        }
+    }
+
     /// The active opening-mission title (§16), or "" once the tutorial is done.
     #[func]
     fn mission_title(&self) -> GString {

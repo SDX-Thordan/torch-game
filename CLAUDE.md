@@ -170,6 +170,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — G3: the far-side bridgehead (post-gate sandbox, §17).** The third
+  post-gate rung: the player's **own foothold beyond the ring**. `sim::bridgehead::
+  Bridgehead` is a `Copy` state (`founded`/`level`/`integrity`) with
+  `found`/`upgrade`/`damage`/`repair`/`has_fallen` — **`integrity` is carried now** so
+  **G4** (incursions) just wires the damage and **G5** the fall/win. `Sim` owns one;
+  `found_bridgehead` (Beyond-only — errs `NotBeyond` before transit — costs 60k, a
+  spine op via `complete_op`) and `upgrade_bridgehead` (level-scaled cost, raises max
+  integrity + tops it up). New `Event::BridgeheadFounded`/`BridgeheadUpgraded` voiced
+  through the feed (`AlertFeed::bridgehead_founded`/`_upgraded`). Persisted in
+  `SaveState` (`#[serde(default)]` ⇒ old saves load unfounded). **Inert pre-transit by
+  construction:** a fresh sim has no bridgehead and it can't be founded until
+  `campaign.transited()`, so the §7c gate holds and the **QA review body is
+  byte-identical** — only the UI-wiring affordance count moved (+6 bindings, all wired:
+  `bridgehead_founded`/`_level`/`_integrity`/`_max_integrity` + `found_bridgehead`/
+  `upgrade_bridgehead`). Shell: a FOUND BRIDGEHEAD / REINFORCE button pair (lit only
+  post-transit, mutually exclusive on `bridgehead_founded()`) + an integrity readout in
+  the destination panel. *Two routine catches:* (1) the two new `Event` variants broke
+  the QA harness's two **exhaustive** `match`es — added arms folding their variety bits
+  into the ascent bit (`1 << 4`) so `EVENT_KIND_COUNT` is unchanged (personas never
+  found a bridgehead → tally byte-identical); (2) `cargo fmt` reflowed the new
+  `format!`/match-arm lines — run it before the `--check` gate. 162 core + QA + 17 GUT
+  green. **Next: G4** (incursions — the far side answers).
+
 - **2026-06-16 — G2: the far-side economy (post-gate sandbox, §17).** The second
   post-gate rung: two **far-side markets** — **Threshold** (the bridgehead) + **The
   Tally** (where the count is kept), on G1's worlds — trade only post-transit. **Key

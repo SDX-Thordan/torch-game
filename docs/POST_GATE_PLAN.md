@@ -86,7 +86,7 @@ transited (a long, fuel-heavy haul — the freighter-remass system already price
   MARKET board until `far_side_revealed()`. `market_is_far_side` binding +
   `_visible_market_count()` shell helper.
 
-### G3 — The bridgehead (colonization) 🏗️
+### G3 — The bridgehead (colonization) 🏗️ — ✅ DONE
 **Goal:** "hold the bridgehead." A `found_bridgehead`/colonize verb available only in
 `Beyond` that plants the player's **own** far-side foothold (a colony/station that
 produces + anchors presence). This is the thing incursions threaten (G4) and the
@@ -95,6 +95,16 @@ spine of the endgame loop.
   + upgrade it; it's a spine op (advances within Beyond).
 - **Shell:** a BUILD/SYSTEMS verb + a bridgehead status panel in the endgame.
 - **Tests:** found/upgrade; only in Beyond.
+- **Built:** `sim::bridgehead::Bridgehead` (a `Copy` `founded`/`level`/`integrity`
+  state with `found`/`upgrade`/`damage`/`repair`/`has_fallen` — `integrity` is carried
+  now so **G4** just wires incursion damage). `Sim::found_bridgehead`
+  (Beyond-only, costs 60k, a spine op) + `upgrade_bridgehead` (level-scaled cost,
+  raises max integrity). `BridgeheadFounded`/`BridgeheadUpgraded` events voiced via the
+  feed; persisted in `SaveState` (`#[serde(default)]` ⇒ old saves load unfounded).
+  6 bindings + a SYSTEMS-overlay FOUND/REINFORCE button pair (lit only post-transit) +
+  a bridgehead integrity readout in the destination panel. Inert pre-transit by
+  construction → §7c gate + QA review body byte-identical (only the UI-wiring binding
+  count moved, all 6 now wired).
 
 ### G4 — Incursions (the far side answers) 👁️
 **Goal:** the `GATE_ANSWER` payoff — "now it knows your face." A new

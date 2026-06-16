@@ -153,6 +153,8 @@ impl AlertFeed {
             Event::ThreatForecast { eta, .. } => Some(self.forecast(*eta, tick)),
             Event::WreckSighted { .. } => Some(self.wreck_sighted(tick)),
             Event::WreckSalvaged { .. } => Some(self.wreck_salvaged(tick)),
+            Event::BridgeheadFounded => Some(Self::bridgehead_founded(tick)),
+            Event::BridgeheadUpgraded { level } => Some(self.bridgehead_upgraded(*level, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -291,6 +293,35 @@ impl AlertFeed {
             urgency: Urgency::Fyi,
             voice: mgr.name.clone(),
             message: format!("{}: Wreck stripped — the haul's aboard.", mgr.name),
+            verb: None,
+        }
+    }
+
+    /// The player founded their far-side bridgehead (§17 endgame, G3) — a milestone.
+    fn bridgehead_founded(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: We hold a foothold beyond the ring. The bridgehead stands."
+                .to_string(),
+            verb: None,
+        }
+    }
+
+    /// The player upgraded the far-side bridgehead (§17, G3) — an FYI beat.
+    fn bridgehead_upgraded(&self, level: u32, tick: u64) -> Alert {
+        let mgr = &self.markets_mgr;
+        Alert {
+            tick,
+            priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: The bridgehead is reinforced — now level {level}.",
+                mgr.name
+            ),
             verb: None,
         }
     }

@@ -41,4 +41,9 @@ pub enum Event {
     WreckSighted { id: u64 },
     /// A wreck was stripped for its reward (§15).
     WreckSalvaged { id: u64 },
+    /// The player founded their far-side bridgehead (§17 endgame, G3) — the first
+    /// foothold beyond the ring.
+    BridgeheadFounded,
+    /// The player upgraded the far-side bridgehead to `level` (§17, G3).
+    BridgeheadUpgraded { level: u32 },
 }
