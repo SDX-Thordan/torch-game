@@ -1289,6 +1289,34 @@ impl TorchSim {
         self.sim.pending_incursion_severity()
     }
 
+    /// How the far-side endgame has resolved (§17, G5): 0 undecided, 1 won, 2 lost.
+    #[func]
+    fn endgame_outcome(&self) -> i64 {
+        match self.sim.endgame_outcome() {
+            sim::EndgameOutcome::Undecided => 0,
+            sim::EndgameOutcome::Triumph => 1,
+            sim::EndgameOutcome::Fallen => 2,
+        }
+    }
+
+    /// Incursions repelled so far — victory progress (§17, G5).
+    #[func]
+    fn incursions_survived(&self) -> i64 {
+        self.sim.incursions_survived() as i64
+    }
+
+    /// The endgame win threshold for the bridgehead level (§17, G5).
+    #[func]
+    fn endgame_target_level(&self) -> i64 {
+        self.sim.endgame_targets().0 as i64
+    }
+
+    /// The endgame win threshold for incursions survived (§17, G5).
+    #[func]
+    fn endgame_target_incursions(&self) -> i64 {
+        self.sim.endgame_targets().1 as i64
+    }
+
     /// Defend the bridgehead against the pending incursion at `band` (0 close, 1
     /// medium, 2 long) (§17, G4). Returns 1 if repelled, 0 if the line broke, −1 if
     /// there was no incursion to answer or no warships to answer with.

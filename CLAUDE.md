@@ -163,12 +163,35 @@ Status: [x] done, [~] in progress, [ ] todo.
   BattleLog). Audio deferred indefinitely (player choice); deeper console-chrome +
   richer juice (a *voxel* diorama, live mid-fight commands) still to come.
 - [~] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
-  **Endgame started:** the `Tier::Beyond` post-gate tier + the deliberate
-  `transit_gate` verb + the gate-mystery *answer* (`GATE_ANSWER`) are in — the
-  destination payoff lands. The post-gate procedural sandbox (frontier content,
-  colonization, empire, incursions) is the next phase.
+  **Post-gate sandbox (G1–G5) complete** (`docs/POST_GATE_PLAN.md`): the `Tier::Beyond`
+  tier + `transit_gate` + the gate-mystery *answer* (G1/§0.1), the far-side **place**
+  (Erebus/Threshold/The Tally bodies, G1), **economy** (the far-side markets, G2),
+  **bridgehead** colonization (G3), escalating **incursions** (G4), and the **win/loss**
+  resolution (G5) — a full endgame loop, every rung transit-gated so the inner game
+  (and the §7c gate + QA review) stays byte-identical. Remaining: the **art track**
+  (A1 procedural assembly/baking, A2 voxel diorama) + deeper Tier-3 geopolitics.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-16 — G5: the endgame resolves + the post-gate sandbox is complete
+  (§17).** The culminating win/loss that finally *completes* the §0 destination pull.
+  `EndgameOutcome` (Undecided/Triumph/Fallen, serde). **Win** = the bridgehead reaches
+  `WIN_BRIDGEHEAD_LEVEL` (5) **and** `WIN_INCURSIONS_SURVIVED` (8) repelled incursions
+  (`check_endgame_won`, fired from `upgrade_bridgehead` + a won `defend_bridgehead`);
+  **loss** = the foothold is overrun (`strike_bridgehead` → `Fallen`). Voiced finales
+  (`EndgameWon`/`EndgameLost`, Critical). Resolution is **terminal** — `run_incursions`
+  short-circuits once decided, so the far side stops pressing. Persisted
+  (`incursions_survived` + `endgame_outcome`). 4 bindings + the destination panel shows
+  the **final goal** (`bridgehead Lv x/5 · held y/8`) plus the triumph/fallen banner
+  and a win/loss flash. All gated on transit → §7c gate + QA body **byte-identical**
+  (the two new events fold into the variety ascent-bit; personas never transit). Tests
+  `the_endgame_is_won_by_growing_and_holding_the_bridgehead` /
+  `..._is_lost_if_the_bridgehead_is_overrun` (the loss test grinds an *undefended*
+  foothold to zero; the win test refits frigates between defenses so the squadron keeps
+  winning). **With this the post-gate sandbox (G1–G5) is a full loop —** place →
+  economy → bridgehead → incursions → win/loss — every rung transit-gated so the inner
+  game stays byte-identical. 169 core + QA + 17 GUT green. The art track (A1 procedural
+  assembly, A2 voxel diorama) is the remaining independent work (`docs/POST_GATE_PLAN.md`).
 
 - **2026-06-16 — G4: incursions — the far side answers (post-gate sandbox, §17).**
   The `GATE_ANSWER` payoff made mechanical: an escalating threat from beyond the ring

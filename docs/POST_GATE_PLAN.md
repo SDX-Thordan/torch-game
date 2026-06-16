@@ -133,7 +133,7 @@ incursions (a distinct, dread voice in the feed). Reuses the pressure cadence +
   gate + QA review body byte-identical (gauge[3] stays 0 pre-transit; the new events
   fold into the variety ascent-bit; personas never transit).
 
-### G5 — The larger game resolves (empire / win-state) 👑
+### G5 — The larger game resolves (empire / win-state) 👑 — ✅ DONE
 **Goal:** "own what comes through — or be owned by it." The culminating loop: hold the
 bridgehead through rising incursions to a **victory state** (you control the far side
 / the gate), or lose it (the bridgehead falls). The §0 destination pull finally
@@ -142,6 +142,22 @@ bridgehead through rising incursions to a **victory state** (you control the far
   incursions survived; a loss on bridgehead destroyed); a voiced finale.
 - **Shell:** an endgame/victory screen; the destination panel shows the final goal.
 - **Tests:** the win/loss conditions trigger correctly.
+- **Built:** `EndgameOutcome` (Undecided/Triumph/Fallen, serde). **Win** = bridgehead
+  reaches `WIN_BRIDGEHEAD_LEVEL` (5) **and** `WIN_INCURSIONS_SURVIVED` (8) incursions
+  repelled (`check_endgame_won`, fired from `upgrade_bridgehead` + a won
+  `defend_bridgehead`); **loss** = the bridgehead is overrun (`strike_bridgehead` →
+  `Fallen`). Voiced finales (`EndgameWon`/`EndgameLost`, Critical). Resolution is
+  **terminal** — `run_incursions` short-circuits once decided. Persisted
+  (`incursions_survived` + `endgame_outcome`, `#[serde(default)]`). 4 bindings + the
+  destination panel shows the **final goal** (`bridgehead Lv x/5 · held y/8`) and the
+  triumph/fallen banner; a win/loss flash. **All gated on transit →** §7c + QA body
+  byte-identical. Tests: `the_endgame_is_won_by_growing_and_holding_the_bridgehead`,
+  `the_endgame_is_lost_if_the_bridgehead_is_overrun`.
+
+**The post-gate sandbox (G1–G5) is complete** — the §17 endgame is a full loop:
+*place → economy → bridgehead → incursions → win/loss*, every rung transit-gated so
+the inner game (and the §7c gate + QA review) stays byte-identical. The art track
+(A1/A2) remains the open, independent work.
 
 ---
 

@@ -54,4 +54,9 @@ pub enum Event {
     BridgeheadDamaged { integrity: i64 },
     /// The far-side bridgehead was overrun (§17, G5) — the endgame loss beat.
     BridgeheadFell,
+    /// The endgame resolved in **triumph** (§17, G5) — the bridgehead was grown and
+    /// held; you own the far side. The journey's end.
+    EndgameWon,
+    /// The endgame resolved in **defeat** (§17, G5) — the far side is lost.
+    EndgameLost,
 }

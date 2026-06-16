@@ -109,6 +109,21 @@ impl Tier {
     }
 }
 
+/// How the far-side endgame resolves (§17, G5) — the culminating win/loss the §0
+/// destination pull finally *completes*. `Undecided` until the bridgehead is either
+/// established and held (`Triumph`) or overrun (`Fallen`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum EndgameOutcome {
+    #[default]
+    Undecided,
+    /// The bridgehead was grown and held through the incursions — you own the far
+    /// side. The journey's end (§0.1).
+    Triumph,
+    /// The bridgehead was overrun — the far side is lost. A genuine ending, not a
+    /// treadmill.
+    Fallen,
+}
+
 /// Basis-point denominator.
 const BP: i64 = 10_000;
 /// Tiers above the start, used to scale gate progress to `[0, BP]`.

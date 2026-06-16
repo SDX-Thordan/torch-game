@@ -69,6 +69,7 @@ var view := V_SYSTEMS
 var flash := 0.0
 var ascend_flash := 0.0
 var last_tier := ""
+var _last_endgame := 0                       # 0 undecided · 1 won · 2 lost (§17, G5)
 var _zoom := 10.0
 var _focus_body := 0
 var _touches := {}
@@ -1488,6 +1489,16 @@ func _process(delta: float) -> void:
 		ascend_flash = 1.0
 		status = "Ascended to %s — the ring-gate draws closer." % tier
 	last_tier = tier
+	# The endgame finale (§17, G5): the journey completes, in triumph or defeat.
+	var endgame: int = sim.endgame_outcome()
+	if endgame != _last_endgame and endgame != 0:
+		if endgame == 1:
+			ascend_flash = 1.0
+			status = "★ Victory — the far side is yours. The journey is complete."
+		else:
+			flash = 1.0
+			status = "✝ The bridgehead has fallen. The far side is lost."
+	_last_endgame = endgame
 	flash = maxf(0.0, flash - delta * 2.0)
 	ascend_flash = maxf(0.0, ascend_flash - delta)
 	# Ironman (§13): the world saves itself, so there's no scumming a bad call.
@@ -1710,14 +1721,23 @@ func _refresh_systems() -> void:
 		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
 	_sys_lore.text = "✦ %s" % String(sim.gate_lore())
 	if sim.gate_transited():
-		if sim.bridgehead_founded():
-			var bi: int = sim.bridgehead_integrity()
-			var bm: int = sim.bridgehead_max_integrity()
+		var outcome: int = sim.endgame_outcome()
+		if outcome == 1:
+			_sys_gate_lbl.text = "★ THE FAR SIDE IS YOURS  ·  the journey is won"
+		elif outcome == 2:
+			_sys_gate_lbl.text = "✝ THE BRIDGEHEAD HAS FALLEN  ·  the far side is lost"
+		elif sim.bridgehead_founded():
 			var bl: int = sim.bridgehead_level()
+			var tl: int = sim.endgame_target_level()
+			var sv: int = sim.incursions_survived()
+			var ti: int = sim.endgame_target_incursions()
 			if sim.incursion_pending():
-				_sys_gate_lbl.text = "⚠ INCURSION  ·  bridgehead Lv%d  %d/%d  ·  DEFEND" % [bl, bi, bm]
+				var bi: int = sim.bridgehead_integrity()
+				var bm: int = sim.bridgehead_max_integrity()
+				_sys_gate_lbl.text = "⚠ INCURSION  ·  bridgehead %d/%d  ·  DEFEND" % [bi, bm]
 			else:
-				_sys_gate_lbl.text = "BRIDGEHEAD  Lv%d  ·  integrity %d/%d" % [bl, bi, bm]
+				# The final goal (§17, G5): grow to the target level and hold the line.
+				_sys_gate_lbl.text = "ENDGAME  ·  bridgehead Lv%d/%d  ·  held %d/%d" % [bl, tl, sv, ti]
 		else:
 			_sys_gate_lbl.text = "BEYOND THE GATE  ·  plant the bridgehead"
 	else:

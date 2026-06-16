@@ -14,7 +14,7 @@
 use super::alerts::Priority;
 use super::automation::AutomationPolicy;
 use super::bridgehead::Bridgehead;
-use super::campaign::Campaign;
+use super::campaign::{Campaign, EndgameOutcome};
 use super::faction::Relations;
 use super::industry::Station;
 use super::logistics::TradeRoute;
@@ -95,6 +95,12 @@ pub struct SaveState {
     /// pre-transit / old saves.
     #[serde(default)]
     pub endgame_since: Option<u64>,
+    /// Incursions repelled (§17, G5 victory progress); 0 pre-transit / old saves.
+    #[serde(default)]
+    pub incursions_survived: u64,
+    /// How the far-side endgame resolved (§17, G5); `Undecided` pre-transit / old saves.
+    #[serde(default)]
+    pub endgame_outcome: EndgameOutcome,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

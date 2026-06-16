@@ -324,7 +324,9 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                 | Event::BridgeheadUpgraded { .. }
                 | Event::IncursionStruck { .. }
                 | Event::BridgeheadDamaged { .. }
-                | Event::BridgeheadFell => t.tier_ascended_events += 1,
+                | Event::BridgeheadFell
+                | Event::EndgameWon
+                | Event::EndgameLost => t.tier_ascended_events += 1,
                 Event::Tick { .. } => {}
             }
         }
@@ -373,7 +375,9 @@ fn event_kind_bit(e: &Event) -> u32 {
         | Event::BridgeheadUpgraded { .. }
         | Event::IncursionStruck { .. }
         | Event::BridgeheadDamaged { .. }
-        | Event::BridgeheadFell => 1 << 4,
+        | Event::BridgeheadFell
+        | Event::EndgameWon
+        | Event::EndgameLost => 1 << 4,
     }
 }
 

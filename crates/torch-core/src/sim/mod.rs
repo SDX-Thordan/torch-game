@@ -33,7 +33,7 @@ pub mod world;
 
 pub use alerts::{Alert, AlertFeed, Priority, Urgency, Verb};
 pub use automation::{AutomationPolicy, InterdictionPolicy};
-pub use campaign::{Campaign, Tier};
+pub use campaign::{Campaign, EndgameOutcome, Tier};
 pub use combat::{Band, BattleOutcome, CombatEvent, Doctrine, Fleet, TargetPriority};
 pub use contracts::{Contract, ContractBoard};
 pub use corp::{Corp, OwnedShip};

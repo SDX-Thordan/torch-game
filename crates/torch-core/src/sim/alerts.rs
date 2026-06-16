@@ -177,6 +177,8 @@ impl AlertFeed {
                 Some(self.bridgehead_damaged(*integrity, tick))
             }
             Event::BridgeheadFell => Some(Self::bridgehead_fell(tick)),
+            Event::EndgameWon => Some(Self::endgame_won(tick)),
+            Event::EndgameLost => Some(Self::endgame_lost(tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -388,6 +390,34 @@ impl AlertFeed {
             urgency: Urgency::Fyi,
             voice: "The Board".to_string(),
             message: "The Board: The bridgehead is overrun. The far side is lost to us."
+                .to_string(),
+            verb: None,
+        }
+    }
+
+    /// The endgame resolved in triumph (§17, G5) — the journey's end.
+    fn endgame_won(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: The far side is ours. We held the ring and made it home. \
+                      This is the empire we built."
+                .to_string(),
+            verb: None,
+        }
+    }
+
+    /// The endgame resolved in defeat (§17, G5).
+    fn endgame_lost(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: The far side has taken what we built beyond the ring. \
+                      It was always counting; now it has its number."
                 .to_string(),
             verb: None,
         }

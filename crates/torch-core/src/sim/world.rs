@@ -8,7 +8,7 @@
 use super::alerts::{AlertFeed, Priority, Verb};
 use super::automation::AutomationPolicy;
 use super::bridgehead::Bridgehead;
-use super::campaign::{Campaign, Tier};
+use super::campaign::{Campaign, EndgameOutcome, Tier};
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
@@ -158,6 +158,11 @@ const INCURSION_QUALITY: i64 = 70;
 /// Incursion-pack size scales with severity: one raider per this-much severity,
 /// floored at a pair (§17, G4).
 const INCURSION_SEVERITY_PER_SHIP: i64 = 25;
+/// Bridgehead level the player must reach to win the endgame (§17, G5).
+const WIN_BRIDGEHEAD_LEVEL: u32 = 5;
+/// Incursions the player must repel to win the endgame (§17, G5). Together with the
+/// level threshold this is "grow the foothold *and* hold it through the assault."
+const WIN_INCURSIONS_SURVIVED: u64 = 8;
 
 /// Ticks between hauler spawn attempts (≈ one per day at 1 tick/hour).
 const SPAWN_INTERVAL: u64 = 24;
@@ -264,6 +269,11 @@ pub struct Sim {
     /// G4): `(severity, deadline tick)`. Transient — a reload re-opens a fresh
     /// window rather than persisting mid-incursion state.
     pending_incursion: Option<(i64, u64)>,
+    /// Incursions the player has weathered by repelling them (§17, G5) — half of
+    /// the victory condition.
+    incursions_survived: u64,
+    /// How the far-side endgame resolved (§17, G5) — `Undecided` until a win or loss.
+    endgame_outcome: EndgameOutcome,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -337,6 +347,8 @@ impl Sim {
             bridgehead: Bridgehead::new(),
             endgame_since: None,
             pending_incursion: None,
+            incursions_survived: 0,
+            endgame_outcome: EndgameOutcome::Undecided,
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -1206,6 +1218,8 @@ impl Sim {
             gate_revealed: self.missions.gate_beats_revealed(),
             bridgehead: self.bridgehead,
             endgame_since: self.endgame_since,
+            incursions_survived: self.incursions_survived,
+            endgame_outcome: self.endgame_outcome,
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1308,6 +1322,8 @@ impl Sim {
         if let Some(start) = s.endgame_since {
             self.pressure.begin_endgame(start);
         }
+        self.incursions_survived = s.incursions_survived;
+        self.endgame_outcome = s.endgame_outcome;
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1397,6 +1413,11 @@ impl Sim {
     /// foothold. Gated on `pressure.endgame()`, which is off until transit, so the
     /// pre-transit world never enters here.
     fn run_incursions(&mut self, now: u64) {
+        // Once the endgame has resolved (§17, G5) the far side stops pressing — the
+        // journey has reached its end, win or lose.
+        if self.endgame_outcome != EndgameOutcome::Undecided {
+            return;
+        }
         // An unanswered incursion strikes the bridgehead when its window lapses.
         if let Some((severity, deadline)) = self.pending_incursion {
             if now >= deadline {
@@ -1436,7 +1457,42 @@ impl Sim {
         });
         if fell {
             self.events.push(Event::BridgeheadFell);
+            // The bridgehead is overrun — the endgame is lost (§17, G5).
+            if self.endgame_outcome == EndgameOutcome::Undecided {
+                self.endgame_outcome = EndgameOutcome::Fallen;
+                self.events.push(Event::EndgameLost);
+            }
         }
+    }
+
+    /// Check whether the far-side endgame has been won (§17, G5): the bridgehead has
+    /// been grown to [`WIN_BRIDGEHEAD_LEVEL`] *and* held through
+    /// [`WIN_INCURSIONS_SURVIVED`] repelled incursions. Fires once.
+    fn check_endgame_won(&mut self) {
+        if self.endgame_outcome == EndgameOutcome::Undecided
+            && self.bridgehead.level() >= WIN_BRIDGEHEAD_LEVEL
+            && self.incursions_survived >= WIN_INCURSIONS_SURVIVED
+        {
+            self.endgame_outcome = EndgameOutcome::Triumph;
+            self.events.push(Event::EndgameWon);
+            self.complete_op();
+        }
+    }
+
+    /// How the far-side endgame resolved (§17, G5): `Undecided`/`Triumph`/`Fallen`.
+    pub fn endgame_outcome(&self) -> EndgameOutcome {
+        self.endgame_outcome
+    }
+
+    /// Incursions repelled so far (§17, G5) — progress toward the victory threshold.
+    pub fn incursions_survived(&self) -> u64 {
+        self.incursions_survived
+    }
+
+    /// The victory thresholds for the destination panel (§17, G5):
+    /// `(target bridgehead level, target incursions survived)`.
+    pub fn endgame_targets(&self) -> (u32, u64) {
+        (WIN_BRIDGEHEAD_LEVEL, WIN_INCURSIONS_SURVIVED)
     }
 
     /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
@@ -1507,8 +1563,11 @@ impl Sim {
         self.pending_incursion = None;
         self.feed.resolve_incursion();
         if won {
-            // Repelled — the foothold is safe and the win is progress (§0).
+            // Repelled — the foothold is safe, the win is progress (§0), and the
+            // far side has been weathered one more time (§17, G5).
             self.complete_op();
+            self.incursions_survived += 1;
+            self.check_endgame_won();
         } else {
             // The line broke — the incursion reaches the bridgehead.
             self.strike_bridgehead(severity);
@@ -1777,6 +1836,8 @@ impl Sim {
             level: self.bridgehead.level(),
         });
         self.complete_op();
+        // Reaching the target level may clinch the endgame (§17, G5).
+        self.check_endgame_won();
         Ok(())
     }
 
@@ -2532,6 +2593,78 @@ mod tests {
             full,
             "a successful defense costs the bridgehead no integrity"
         );
+    }
+
+    #[test]
+    fn the_endgame_is_won_by_growing_and_holding_the_bridgehead() {
+        // §17/G5: the journey completes when the bridgehead reaches the target level
+        // *and* has weathered the required incursions — a genuine victory state.
+        let mut sim = Sim::new(11);
+        for _ in 0..(3 + 10 + 25) {
+            sim.complete_op();
+        }
+        assert!(sim.transit_gate());
+        assert_eq!(sim.endgame_outcome(), EndgameOutcome::Undecided);
+        sim.corp_mut().credit(50_000_000);
+        assert_eq!(sim.found_bridgehead(), Ok(()));
+        for _ in 0..5 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        let (target_level, target_survived) = sim.endgame_targets();
+        // Grow the bridgehead to (just below) the target — not yet a win without the
+        // incursions weathered.
+        while sim.bridgehead().level() < target_level {
+            assert_eq!(sim.upgrade_bridgehead(), Ok(()));
+        }
+        assert_eq!(
+            sim.endgame_outcome(),
+            EndgameOutcome::Undecided,
+            "level alone does not win — the far side must be held"
+        );
+        // Repel incursions until the threshold is met; the win then fires.
+        let mut guard = 0;
+        while sim.endgame_outcome() == EndgameOutcome::Undecided {
+            sim.step();
+            if sim.incursion_pending() {
+                // Refit if the squadron was thinned, so defenses keep winning.
+                while sim.corp().fleet().len() < 5 {
+                    if sim.commission_ship(ShipClass::Frigate).is_err() {
+                        break;
+                    }
+                }
+                sim.defend_bridgehead(Band::Close);
+            }
+            guard += 1;
+            assert!(guard < 20_000, "the endgame should resolve in bounded time");
+        }
+        assert_eq!(sim.endgame_outcome(), EndgameOutcome::Triumph);
+        assert!(sim.incursions_survived() >= target_survived);
+        // Resolution is terminal — no further incursions press.
+        assert!(!sim.incursion_pending());
+    }
+
+    #[test]
+    fn the_endgame_is_lost_if_the_bridgehead_is_overrun() {
+        // §17/G5: an undefended bridgehead ground to zero is the loss ending.
+        let mut sim = Sim::new(5);
+        for _ in 0..(3 + 10 + 25) {
+            sim.complete_op();
+        }
+        assert!(sim.transit_gate());
+        sim.corp_mut().credit(500_000);
+        assert_eq!(sim.found_bridgehead(), Ok(()));
+        // Never defend — incursions grind the foothold down to nothing.
+        let mut guard = 0;
+        while sim.endgame_outcome() == EndgameOutcome::Undecided {
+            sim.step();
+            guard += 1;
+            assert!(
+                guard < 50_000,
+                "an undefended bridgehead must eventually fall"
+            );
+        }
+        assert_eq!(sim.endgame_outcome(), EndgameOutcome::Fallen);
+        assert!(sim.bridgehead().has_fallen());
     }
 
     #[test]
