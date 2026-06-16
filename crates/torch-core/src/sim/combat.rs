@@ -78,6 +78,11 @@ pub struct Doctrine {
     pub band: Band,
     pub salvo_reload: u64,
     pub target: TargetPriority,
+    /// Retreat threshold in basis points (§9): a fleet **disengages** (keeping its
+    /// survivors, conceding the field) the moment its strength drops below this
+    /// fraction of its starting count. `0` = fight to the death (the cautious vs.
+    /// committed tactical dial). The retreating fleet survives but loses the battle.
+    pub retreat_bp: i64,
 }
 
 impl Default for Doctrine {
@@ -86,6 +91,7 @@ impl Default for Doctrine {
             band: Band::Medium,
             salvo_reload: 6,
             target: TargetPriority::Biggest,
+            retreat_bp: 0,
         }
     }
 }
@@ -111,6 +117,10 @@ pub enum CombatEvent {
     Destroyed {
         side: usize,
         name: String,
+    },
+    /// A fleet broke off below its retreat threshold (§9), keeping its survivors.
+    Retreat {
+        side: usize,
     },
 }
 
@@ -315,8 +325,26 @@ pub fn resolve(a: &Fleet, b: &Fleet, rng: &mut Pcg32) -> BattleOutcome {
     // matched fight is a real coin-flip while a force advantage still decides.
     let initiative = rng.below(2) as usize;
 
+    let initial = [a.ships.len(), b.ships.len()];
+    let mut retreated: Option<usize> = None;
     let mut ticks = 0;
     while ticks < MAX_TICKS && alive_on(&ships, 0) && alive_on(&ships, 1) {
+        // A fleet below its retreat threshold breaks off *before* the next round
+        // (§9), so it keeps the survivors it has rather than being wiped this tick.
+        for side in 0..2 {
+            let surv = ships.iter().filter(|s| s.alive && s.side == side).count();
+            if doctrine[side].retreat_bp > 0
+                && surv > 0
+                && initial[side] > 0
+                && (surv as i64 * BP / initial[side] as i64) < doctrine[side].retreat_bp
+            {
+                retreated = Some(side);
+            }
+        }
+        if let Some(side) = retreated {
+            log.push(CombatEvent::Retreat { side });
+            break;
+        }
         ticks += 1;
         // Both sides' damage is computed on the start-of-tick living set, then
         // applied together — no within-tick ordering bias.
@@ -354,10 +382,14 @@ pub fn resolve(a: &Fleet, b: &Fleet, rng: &mut Pcg32) -> BattleOutcome {
         ships.iter().filter(|s| s.alive && s.side == 0).count(),
         ships.iter().filter(|s| s.alive && s.side == 1).count(),
     ];
-    let winner = match (survivors[0] > 0, survivors[1] > 0) {
-        (true, false) => Some(0),
-        (false, true) => Some(1),
-        _ => None,
+    // A retreating fleet concedes the field even with survivors left.
+    let winner = match retreated {
+        Some(side) => Some(1 - side),
+        None => match (survivors[0] > 0, survivors[1] > 0) {
+            (true, false) => Some(0),
+            (false, true) => Some(1),
+            _ => None,
+        },
     };
     BattleOutcome {
         winner,
@@ -409,8 +441,7 @@ pub fn demo_duel(n_frigates: usize, band: Band, seed: u64) -> BattleOutcome {
     let bs = lone_battleship(50, &mut rng);
     let doctrine = Doctrine {
         band,
-        salvo_reload: 6,
-        target: TargetPriority::Biggest,
+        ..Doctrine::default()
     };
     resolve(
         &Fleet {
@@ -433,9 +464,48 @@ mod tests {
     fn doctrine(band: Band) -> Doctrine {
         Doctrine {
             band,
-            salvo_reload: 6,
-            target: TargetPriority::Biggest,
+            ..Doctrine::default()
         }
+    }
+
+    #[test]
+    fn a_fleet_retreats_below_its_threshold_keeping_survivors() {
+        // An overwhelmed fleet with a retreat threshold breaks off (§9), conceding
+        // the field but saving its survivors — the cautious tactical dial.
+        let mut rng = Pcg32::new(5);
+        let cautious_wing = frigate_wing(10, 50, &mut rng);
+        let foe = frigate_wing(13, 50, &mut rng);
+        let cautious = Doctrine {
+            band: Band::Close,
+            retreat_bp: 9_000, // skittish — break off after the first loss
+            ..Doctrine::default()
+        };
+        let out = resolve(
+            &Fleet {
+                ships: &cautious_wing,
+                doctrine: cautious,
+            },
+            &Fleet {
+                ships: &foe,
+                doctrine: doctrine(Band::Close),
+            },
+            &mut rng,
+        );
+        assert_eq!(
+            out.winner,
+            Some(1),
+            "the overwhelmed side concedes the field"
+        );
+        assert!(
+            out.survivors[0] > 0,
+            "but retreats with survivors, not annihilated"
+        );
+        assert!(
+            out.log
+                .iter()
+                .any(|e| matches!(e, CombatEvent::Retreat { side: 0 })),
+            "the retreat is logged for the diorama"
+        );
     }
 
     fn duel(n: usize, band: Band, seed: u64) -> BattleOutcome {

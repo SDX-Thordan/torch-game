@@ -1020,6 +1020,155 @@ impl TorchSim {
         }
     }
 
+    // ---- combat doctrine + the diorama BattleLog (§9/§22) -------------------
+
+    /// Set the player's target priority (§9): 0 = biggest hull, 1 = most wounded.
+    #[func]
+    fn set_combat_target(&mut self, t: i64) {
+        self.sim.set_combat_target(if t == 1 {
+            sim::combat::TargetPriority::Weakest
+        } else {
+            sim::combat::TargetPriority::Biggest
+        });
+    }
+
+    /// The player's target priority (0 biggest, 1 weakest).
+    #[func]
+    fn combat_target(&self) -> i64 {
+        match self.sim.combat_doctrine().target {
+            sim::combat::TargetPriority::Weakest => 1,
+            _ => 0,
+        }
+    }
+
+    /// Set the player's retreat threshold in percent (§9): break off below this
+    /// fraction of the starting fleet. 0 = fight to the death.
+    #[func]
+    fn set_combat_retreat(&mut self, pct: i64) {
+        self.sim.set_combat_retreat(pct.clamp(0, 100) * 100);
+    }
+
+    /// The player's retreat threshold in percent (§9).
+    #[func]
+    fn combat_retreat(&self) -> i64 {
+        self.sim.combat_doctrine().retreat_bp / 100
+    }
+
+    /// Number of events in the last battle's log (§22 diorama), 0 if none.
+    #[func]
+    fn battle_log_count(&self) -> i64 {
+        self.sim
+            .last_battle()
+            .map(|b| b.2.log.len() as i64)
+            .unwrap_or(0)
+    }
+
+    /// Kind of battle-log event `i`: 0 Salvo, 1 Volley, 2 Destroyed, 3 Retreat.
+    #[func]
+    fn battle_event_kind(&self, i: i64) -> i64 {
+        use sim::combat::CombatEvent::*;
+        self.sim
+            .last_battle()
+            .and_then(|b| b.2.log.get(i as usize))
+            .map(|e| match e {
+                Salvo { .. } => 0,
+                Volley { .. } => 1,
+                Destroyed { .. } => 2,
+                Retreat { .. } => 3,
+            })
+            .unwrap_or(-1)
+    }
+
+    /// Which side (0 player, 1 raiders) battle-log event `i` belongs to.
+    #[func]
+    fn battle_event_side(&self, i: i64) -> i64 {
+        use sim::combat::CombatEvent::*;
+        self.sim
+            .last_battle()
+            .and_then(|b| b.2.log.get(i as usize))
+            .map(|e| match e {
+                Salvo { side, .. }
+                | Volley { side, .. }
+                | Destroyed { side, .. }
+                | Retreat { side } => *side as i64,
+            })
+            .unwrap_or(0)
+    }
+
+    /// The numeric detail of event `i` (salvo leakers, volley damage; else 0).
+    #[func]
+    fn battle_event_value(&self, i: i64) -> i64 {
+        use sim::combat::CombatEvent::*;
+        self.sim
+            .last_battle()
+            .and_then(|b| b.2.log.get(i as usize))
+            .map(|e| match e {
+                Salvo { leakers, .. } => *leakers,
+                Volley { damage, .. } => *damage,
+                _ => 0,
+            })
+            .unwrap_or(0)
+    }
+
+    /// The destroyed ship's name for event `i` (else "").
+    #[func]
+    fn battle_event_name(&self, i: i64) -> GString {
+        use sim::combat::CombatEvent::*;
+        GString::from(
+            self.sim
+                .last_battle()
+                .and_then(|b| b.2.log.get(i as usize))
+                .and_then(|e| match e {
+                    Destroyed { name, .. } => Some(name.as_str()),
+                    _ => None,
+                })
+                .unwrap_or(""),
+        )
+    }
+
+    /// Winner of the last battle: 0 player, 1 raiders, -1 stalemate/none.
+    #[func]
+    fn battle_winner(&self) -> i64 {
+        self.sim
+            .last_battle()
+            .map(|b| match b.2.winner {
+                Some(s) => s as i64,
+                None => -1,
+            })
+            .unwrap_or(-1)
+    }
+
+    /// Starting count for `side` (0 player, 1 raiders) in the last battle.
+    #[func]
+    fn battle_start_count(&self, side: i64) -> i64 {
+        self.sim
+            .last_battle()
+            .map(|b| b.1[(side as usize).min(1)] as i64)
+            .unwrap_or(0)
+    }
+
+    /// Surviving count for `side` in the last battle.
+    #[func]
+    fn battle_survivors(&self, side: i64) -> i64 {
+        self.sim
+            .last_battle()
+            .map(|b| b.2.survivors[(side as usize).min(1)] as i64)
+            .unwrap_or(0)
+    }
+
+    /// The band the last battle was fought at (0 close, 1 medium, 2 long).
+    #[func]
+    fn battle_band(&self) -> i64 {
+        self.sim
+            .last_battle()
+            .map(|b| match b.0 {
+                sim::Band::Close => 0,
+                sim::Band::Medium => 1,
+                sim::Band::Long => 2,
+            })
+            .unwrap_or(1)
+    }
+
     /// Set a Trade Route standing order: buy `commodity` at `origin`, sell at
     /// `dest`, `qty`/trip, while the spread clears `min_margin` (§4).
     #[func]

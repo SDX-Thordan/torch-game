@@ -33,7 +33,7 @@ one place. Each is tagged:
 |---|---|---|---|
 | 1 | Delta-v movement / per-ship position — **warships ✅ done** (freighters + combat-positioning follow) | §2 / §6 | 🟠 (was 🔴) |
 | 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
-| 3 | Combat is non-interactive (no live commands, thin doctrine, no diorama) | §9 / §22 | 🟠 |
+| 3 | Combat command layer + diorama — **✅ done** (engage verb, doctrine knobs, BattleLog playback) | §9 / §22 | 🟡 (was 🟠) |
 | 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
 | 5 | Expressive identity — **corp name + livery ✅ done** (logo deferred) | §14 | 🟡 (was 🟠) |
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
@@ -112,19 +112,26 @@ one place. Each is tagged:
 
 ## B. MVP-scoped gaps (listed "In" per §34, not yet built)
 
-### 3. 🟠 Combat is non-interactive — no live commands, thin doctrine, no diorama — §9, §22
+### 3. 🟡 Combat command layer + diorama — ✅ done (live commands deferred) — §9, §22
 - **GDD:** Doctrine + light tactical input. Doctrine presets: band, torpedo
   discipline, PDC priority, heat ceiling, target priority, retreat threshold. Live
   commands: focus fire, launch salvo, flip-and-burn/retreat, go dark, brace. A
   **watchable voxel diorama** renders the range-band sim (§22).
-- **Built:** `sim::combat::resolve` is a correct, deterministic range-band
-  resolver with a *minimal* `Doctrine` (band + `salvo_reload` + screen fraction).
-  The player's only lever is `engage_raiders(band)` — pick a band, the fight
-  resolves autonomously. No live commands, no per-doctrine PDC/target/retreat
-  settings, no heat, **no diorama** (combat has no on-screen presentation at all).
-- **Status:** The headless resolver (build-order #7, first half) is done and
-  balance-tested; the *command layer* and the *diorama* (§22) are not. Combat
-  command is verb #3 (§0.4) — currently the shallowest of the four verbs.
+- **Built (this pass):** the combat *command layer* + *presentation* are now in.
+  `Doctrine` gained **target priority** (biggest hull / most wounded) and a
+  **retreat threshold** (break off below a chosen fraction); both are pre-engagement
+  doctrine knobs the player sets in the FLEET view (RANGE / TARGET / RETREAT
+  cycles), and the resolver honours them (`CombatEvent::Retreat`, winner credited
+  to the side that holds the field). The **engage verb** is wired to the shell
+  (FLEET-view `◆ ENGAGE` button + `W` key), and resolving a fight opens a
+  full-screen **diorama** (`sim::combat`'s BattleLog played back beat-by-beat —
+  salvos, volleys, kills, retreats — colour-coded by side, ending on a verdict +
+  survivor tally). The world pauses for it; tap to dismiss.
+- **Status:** Combat is now interactive and watchable end-to-end: set doctrine →
+  engage → watch the BattleLog resolve. The remaining GDD texture — **mid-fight
+  live commands** (focus fire / go dark / brace), **heat**, and a true **voxel**
+  diorama (vs. the current text BattleLog) — is deferred to a later combat pass
+  (the heat/facing omissions are tracked separately as #9, 🟡).
 
 ### 4. 🟠 Persistence: a single JSON slot; no multiple slots, no Ironman — §13, §30
 - **GDD:** Free-save / **multiple slots native**; **optional Ironman** mode (§13).
@@ -268,17 +275,20 @@ one place. Each is tagged:
 
 ## Recommended reconciliation order
 
-1. **Delta-v movement (#1, 🔴).** The biggest fidelity gap and the unlock for
-   verb #4, an honest FLEET view, trajectory ghosts/band rings (#13), and real
-   interdiction geometry. Highest leverage.
-2. **Combat command + diorama (#3, 🟠).** Turns verb #3 from a one-button resolve
-   into a played mechanic; also where the §23 combat juice lives.
-3. **Authored gate-mystery thread + opening missions (#2, 🔴).** The #1 design
-   priority's missing half; can proceed in parallel as content, not engine work.
+1. ~~**Delta-v movement (#1, 🔴).**~~ **✅ done (warships).** The biggest fidelity
+   gap and the unlock for verb #4, an honest FLEET view, trajectory ghosts/band
+   rings (#13), and real interdiction geometry. Freighters + combat-positioning
+   follow.
+2. ~~**Combat command + diorama (#3, 🟠).**~~ **✅ done.** Doctrine knobs (target +
+   retreat) + the engage verb + a played-back BattleLog diorama. Mid-fight live
+   commands + heat + a voxel diorama remain a later combat pass.
+3. ~~**Authored gate-mystery thread + opening missions (#2, 🔴).**~~ **✅ done
+   (MVP seed).** The #1 design priority's missing half.
 4. **Reconcile §18 vs. the mockups (#7).** A doc decision, not code: amend §18 to
    bless full-screen views, or make non-map views non-occluding.
-5. **Identity, save-slots/Ironman, data-pipeline breadth (#5, #4, #12).** Smaller,
-   independent fills of named MVP items.
+5. ~~**Identity, save-slots/Ironman (#5, #4).**~~ **✅ done** (corp name + livery;
+   3 slots + Ironman). **Data-pipeline breadth (#12)** — extend the §31 tuning
+   overlay beyond commodities — is the next independent fill.
 
 The remaining simplifications (🟡) and deferrals (🟢) are either intentional
 right-sizing (§0.2) or GDD-sanctioned post-MVP scope, and need no action beyond

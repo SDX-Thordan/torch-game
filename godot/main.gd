@@ -130,6 +130,17 @@ var corp_name_idx := 0
 var save_slot := 0                           # active manual slot, 0..SAVE_SLOTS-1 (§30)
 var ironman := false                         # Ironman: autosave, no manual reloads
 var _autosave_accum := 0.0
+var combat_band := 1                         # 0 close · 1 medium · 2 long (§9)
+var _combat_lbl: Label                       # doctrine readout in the FLEET view
+const DIO_STEP := 0.22                        # seconds between revealed BattleLog beats
+# Diorama (§22): plays the last battle's BattleLog beat by beat.
+var _diorama: CanvasLayer
+var _dio_title: Label
+var _dio_sub: Label
+var _dio_log: RichTextLabel
+var _dio_idx := 0
+var _dio_timer := 0.0
+var _dio_playing := false
 var _fleet_tabs: Array[Button] = []
 
 # Build view.
@@ -174,6 +185,7 @@ func _ready() -> void:
 	_build_fleet_view()
 	_build_build_view()
 	_build_market_view()
+	_build_diorama()
 	_select_view(V_SYSTEMS)
 
 
@@ -779,6 +791,157 @@ func _refuel_fleet() -> void:
 	status = "Refuelled %d ship(s)." % n if n > 0 else "Nothing to refuel."
 
 
+## ---- combat command + the §22 diorama --------------------------------------
+
+## Cycle the engagement range band (§9): close ⇄ medium ⇄ long.
+func _cycle_band() -> void:
+	combat_band = (combat_band + 1) % 3
+	status = "Engagement range: %s." % ["close", "medium", "long"][combat_band]
+
+
+## Flip the fleet's target priority (§9): biggest hull ⇄ most wounded.
+func _cycle_target() -> void:
+	sim.set_combat_target(1 - sim.combat_target())
+	status = "Target priority: %s." % ("most wounded" if sim.combat_target() == 1 else "biggest hull")
+
+
+## Step the retreat threshold (§9): fight-to-death → 25 → 50 → 75 → death.
+func _cycle_retreat() -> void:
+	var steps := [0, 25, 50, 75]
+	var idx := 0
+	for s in steps.size():
+		if steps[s] == sim.combat_retreat():
+			idx = s
+	sim.set_combat_retreat(steps[(idx + 1) % steps.size()])
+	var rt := sim.combat_retreat()
+	status = "Retreat threshold: %s." % ("never (fight to the death)" if rt == 0 else "%d%%" % rt)
+
+
+## Throw the fleet at a raider pack and play back the result (§9/§22).
+func _engage_raiders() -> void:
+	var r := sim.engage(combat_band)
+	if r == -1:
+		status = "No warships to send — commission a hull in BUILD first."
+		return
+	_open_diorama()
+
+
+## Build the full-screen BattleLog playback overlay (§22), hidden until a fight.
+func _build_diorama() -> void:
+	_diorama = CanvasLayer.new()
+	_diorama.layer = 60
+	_diorama.visible = false
+	add_child(_diorama)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.03, 0.06, 0.93)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(e):
+		if (e is InputEventMouseButton and e.pressed) or (e is InputEventScreenTouch and e.pressed):
+			_close_diorama())
+	_diorama.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 90
+	box.offset_right = -90
+	box.offset_top = 44
+	box.offset_bottom = -44
+	box.add_theme_constant_override("separation", 8)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_diorama.add_child(box)
+	box.add_child(UiKit.kicker("Engagement Report"))
+	_dio_title = UiKit.label("", 22, UiKit.ACCENT)
+	box.add_child(_dio_title)
+	_dio_sub = UiKit.label("", 14, UiKit.TEXT_DIM)
+	box.add_child(_dio_sub)
+	box.add_child(UiKit.rule())
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(sc)
+	_dio_log = RichTextLabel.new()
+	_dio_log.bbcode_enabled = true
+	_dio_log.fit_content = true
+	_dio_log.scroll_following = true
+	_dio_log.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dio_log.add_theme_font_size_override("normal_font_size", 14)
+	_dio_log.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sc.add_child(_dio_log)
+	box.add_child(UiKit.label("tap anywhere to dismiss", 11, UiKit.TEXT_DIM))
+
+
+## Pause the world and begin replaying the just-resolved battle.
+func _open_diorama() -> void:
+	speed_idx = 0
+	accum = 0.0
+	_dio_log.text = ""
+	_dio_idx = 0
+	_dio_timer = 0.0
+	_dio_playing = true
+	var bands := ["CLOSE", "MEDIUM", "LONG"]
+	_dio_title.text = "ENGAGEMENT · %s RANGE" % bands[clampi(sim.battle_band(), 0, 2)]
+	_dio_sub.text = "%s — %d hulls    vs    Raiders — %d hulls" % [
+		String(sim.corp_name()), sim.battle_start_count(0), sim.battle_start_count(1)]
+	_diorama.visible = true
+
+
+func _close_diorama() -> void:
+	_dio_playing = false
+	_diorama.visible = false
+
+
+## Reveal one BattleLog beat per DIO_STEP, then the outcome (called each frame).
+func _play_diorama(delta: float) -> void:
+	if not _dio_playing:
+		return
+	_dio_timer += delta
+	var total := sim.battle_log_count()
+	while _dio_timer >= DIO_STEP and _dio_idx < total:
+		_dio_timer -= DIO_STEP
+		_dio_log.append_text(_dio_event_line(_dio_idx) + "\n")
+		_dio_idx += 1
+		if _dio_idx >= total:
+			_dio_log.append_text("\n" + _dio_outcome_line())
+			_dio_playing = false
+
+
+## One BattleLog beat rendered as a bbcode line, coloured by side (§19/§22).
+func _dio_event_line(i: int) -> String:
+	var side := sim.battle_event_side(i)
+	var who := String(sim.corp_name()) if side == 0 else "Raiders"
+	var col := UiKit.GOOD.to_html(false) if side == 0 else UiKit.BAD.to_html(false)
+	match sim.battle_event_kind(i):
+		0:   # Salvo
+			return "[color=#%s]%s[/color] torpedo salvo — %d leaker(s) breach the screen" % [
+				col, who, sim.battle_event_value(i)]
+		1:   # Volley
+			return "[color=#%s]%s[/color] railgun volley — %d damage" % [
+				col, who, sim.battle_event_value(i)]
+		2:   # Destroyed
+			return "    [color=#%s]✖ %s destroyed[/color]" % [
+				UiKit.BAD.to_html(false), String(sim.battle_event_name(i))]
+		3:   # Retreat
+			return "[color=#%s]%s breaks off and retreats[/color]" % [
+				UiKit.ACCENT.to_html(false), who]
+	return ""
+
+
+## The closing verdict + survivor tally for the diorama.
+func _dio_outcome_line() -> String:
+	var head := ""
+	match sim.battle_winner():
+		0:
+			head = "[color=#%s]◆ FIELD HELD — the raiders break and run.[/color]" % UiKit.GOOD.to_html(false)
+		1:
+			head = "[color=#%s]✖ FLEET BROKEN — the raiders hold the field.[/color]" % UiKit.BAD.to_html(false)
+		_:
+			head = "[color=#%s]— STALEMATE — both sides withdraw.[/color]" % UiKit.TEXT_DIM.to_html(false)
+	return "%s\n[color=#%s]Survivors — %s %d/%d  ·  Raiders %d/%d[/color]" % [
+		head, UiKit.TEXT.to_html(false),
+		String(sim.corp_name()), sim.battle_survivors(0), sim.battle_start_count(0),
+		sim.battle_survivors(1), sim.battle_start_count(1)]
+
+
 # ============================================================================
 # FLEET VIEW (roster table)
 # ============================================================================
@@ -813,6 +976,18 @@ func _build_fleet_view() -> void:
 	tabs.add_child(_make_op_button("LIVERY", _cycle_livery_btn))
 	_fleet_count = UiKit.label("", 11, UiKit.TEXT_DIM)
 	v.add_child(_fleet_count)
+	# Combat command (§9): doctrine knobs + the engage verb that opens the diorama.
+	var cmd := HBoxContainer.new()
+	cmd.add_theme_constant_override("separation", 6)
+	v.add_child(cmd)
+	cmd.add_child(UiKit.kicker("Doctrine"))
+	_combat_lbl = UiKit.label("", 12, UiKit.TEXT)
+	_combat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cmd.add_child(_combat_lbl)
+	cmd.add_child(_make_op_button("RANGE", _cycle_band))
+	cmd.add_child(_make_op_button("TARGET", _cycle_target))
+	cmd.add_child(_make_op_button("RETREAT", _cycle_retreat))
+	cmd.add_child(_make_op_button("◆ ENGAGE", _engage_raiders))
 	v.add_child(UiKit.rule())
 	# Header row + grid.
 	var sc := ScrollContainer.new()
@@ -1133,6 +1308,7 @@ func _process(delta: float) -> void:
 		_update_world()
 	if view == V_BUILD and _ship_pivot:
 		_ship_pivot.rotate_y(delta * 0.6)
+	_play_diorama(delta)
 	_sample_prices()
 	_refresh()
 
@@ -1367,6 +1543,12 @@ func _refresh_fleet() -> void:
 	if _corp_lbl:
 		_corp_lbl.text = String(sim.corp_name())
 		_corp_lbl.add_theme_color_override("font_color", sim.corp_livery_color())
+	if _combat_lbl:
+		var bands := ["close", "medium", "long"]
+		var tgt := "wounded" if sim.combat_target() == 1 else "biggest"
+		var rt := sim.combat_retreat()
+		_combat_lbl.text = "range %s · target %s · retreat %s" % [
+			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt)]
 
 
 func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: String, fuel: float, fuelcol: Color) -> void:
@@ -1632,6 +1814,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			status = "Pressure intensity: %s." % INTENSITY_NAMES[nxt]
 		KEY_H:
 			status = "Wreck stripped — haul aboard." if sim.salvage_wreck() else "No derelict in range to salvage."
+		KEY_W:
+			_engage_raiders()
 		KEY_F5:
 			_do_save()
 		KEY_F9:

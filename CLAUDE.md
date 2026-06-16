@@ -153,11 +153,37 @@ Status: [x] done, [~] in progress, [ ] todo.
   always-visible gate ring brightens with approach), live panels + alert feed
   (§18/§19) on a 2D CanvasLayer overlay, verbs on input + click-to-target/select.
   **Save/load (§30)** (F5/F9) and the first juice (act-now + ascension flashes).
-  Audio deferred indefinitely (player choice); deeper console-chrome + richer
-  juice still to come.
+  **Combat command + §22 diorama** in (doctrine knobs + engage verb + played-back
+  BattleLog). Audio deferred indefinitely (player choice); deeper console-chrome +
+  richer juice (a *voxel* diorama, live mid-fight commands) still to come.
 - [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-16 — Combat command + diorama (deviation #3, §9/§22).** Closed the
+  "combat is non-interactive" gap. Two halves: (1) the **command layer** — the §9
+  `Doctrine` gained a **target priority** (biggest hull / most wounded) and a
+  **retreat threshold** (`retreat_bp`; a side that drops below its surviving-hull
+  fraction breaks off, emitting `CombatEvent::Retreat` and conceding the field).
+  Both are pre-engagement knobs the player sets in the FLEET view (RANGE / TARGET /
+  RETREAT cycle buttons) and the resolver honours them. The retreat check sits at
+  the **start** of the resolve loop so survivors are preserved (a fleet that breaks
+  off keeps its hulls); the winner is the side still holding the field. Default
+  `retreat_bp = 0` (fight to the death) keeps every existing combat test + the
+  64-seed balance gate unchanged. (2) the **presentation** — `Sim::engage_raiders`
+  now stores `last_battle: (Band, [start counts], BattleOutcome)`, and the shell
+  plays its `BattleLog` back **beat-by-beat** in a full-screen diorama
+  (`_build_diorama`/`_play_diorama`, DIO_STEP 0.22s): salvos/volleys/kills/retreats
+  colour-coded by side (player GOOD-green, raiders BAD-red), closing on a verdict +
+  survivor tally. The engage verb is wired to the FLEET-view `◆ ENGAGE` button +
+  `W` key; the world pauses for the diorama, tap to dismiss. **No new RNG / no
+  economy touch**, so the §7c gate + QA review body are byte-identical (only the
+  hand-added SAMPLE header line differs, as always). Render-verified under xvfb
+  (fleet doctrine row + the played diorama both read cleanly). *Note:* frigate
+  salvos at Medium show "0 leakers" (they knife-fight Close per the §9 learning) —
+  the diorama faithfully surfaces the doctrine mistake rather than hiding it.
+  Deferred to a later pass: mid-fight live commands (focus fire / go dark / brace),
+  heat, and a true **voxel** diorama (vs. the current text BattleLog).
 
 - **2026-06-14 — Stack pivot to Godot + Rust.** An earlier TypeScript prototype
   (Vite/Canvas + Capacitor) built the deterministic economy (stockpile pricing,
