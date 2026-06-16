@@ -281,6 +281,29 @@ pub fn christen_ship(rng: &mut Pcg32) -> &'static str {
     SHIP_NAMES[rng.below(SHIP_NAMES.len() as u32) as usize]
 }
 
+/// Evocative captain traits (§11) — a flavour identity, right-sized per §0.2 (crew
+/// is *support, not RimWorld-deep*): a stable label, no behaviour sim, no mechanical
+/// effect, so it never perturbs the deterministic core.
+pub const CAPTAIN_TRAITS: [&str; 8] = [
+    "Steady",
+    "Ace Gunner",
+    "Cautious",
+    "Hot-headed",
+    "By-the-book",
+    "Lucky",
+    "Veteran Spacer",
+    "Ice-cold",
+];
+
+/// The captain's trait, derived **deterministically from their name** (no RNG draw)
+/// so it's stable across a run and never moves the economy/combat RNG (§11/§27).
+pub fn captain_trait(captain: &str) -> &'static str {
+    let h = captain
+        .bytes()
+        .fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
+    CAPTAIN_TRAITS[(h as usize) % CAPTAIN_TRAITS.len()]
+}
+
 /// The crew of a ship (§8c): a named captain plus the wider crew as an abstract
 /// quality rating that improves with experience.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -651,6 +674,17 @@ mod tests {
             let name = christen_ship(&mut a);
             assert_eq!(name, christen_ship(&mut b)); // same seed ⇒ same name (§27)
             assert!(SHIP_NAMES.contains(&name));
+        }
+    }
+
+    #[test]
+    fn captain_traits_are_stable_and_from_the_pool() {
+        // §11: a captain's trait is derived from the name (no RNG), so it's stable
+        // and always one of the pool — a flavour identity that can't perturb the core.
+        for name in ["Ana Vega", "Goro Tan", "Fen Cole", ""] {
+            let t = captain_trait(name);
+            assert!(CAPTAIN_TRAITS.contains(&t));
+            assert_eq!(t, captain_trait(name), "same name ⇒ same trait");
         }
     }
 

@@ -306,6 +306,17 @@ impl Corp {
         self.fleet.iter().max_by_key(|s| (s.battles_won, s.battles))
     }
 
+    /// Fleet index of the flagship (the most-decorated hull), or -1 if no ships —
+    /// the handle the shell renames (§14).
+    pub fn flagship_index(&self) -> i64 {
+        self.fleet
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, s)| (s.battles_won, s.battles))
+            .map(|(i, _)| i as i64)
+            .unwrap_or(-1)
+    }
+
     /// Cargo held per commodity (for persistence, §30).
     pub fn warehouse(&self) -> &[i64] {
         &self.warehouse

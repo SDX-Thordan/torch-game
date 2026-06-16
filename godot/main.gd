@@ -800,6 +800,24 @@ func _refuel_fleet() -> void:
 	status = "Refuelled %d ship(s)." % n if n > 0 else "Nothing to refuel."
 
 
+## Rename the flagship, cycling an evocative call-sign pool (§14, mobile-friendly —
+## no text entry). The hero ship gets a player-chosen identity (the Rocinante effect).
+const _SHIP_CALLSIGNS := [
+	"Valkyrie", "Tarrasque", "Sundancer", "Black Mesa", "Wayfarer", "Roci",
+	"Nemesis", "Firebrand", "Pale Horse", "Daybreak", "Old Faithful", "Specter",
+]
+var _callsign_idx := 0
+func _rename_flagship() -> void:
+	var fi: int = sim.flagship_index()
+	if fi < 0:
+		status = "No ship to rename — commission a hull first."
+		return
+	_callsign_idx = (_callsign_idx + 1) % _SHIP_CALLSIGNS.size()
+	var nm: String = _SHIP_CALLSIGNS[_callsign_idx]
+	if sim.rename_ship(fi, nm):
+		status = "Flagship renamed: %s." % String(sim.ship_name(fi))
+
+
 ## ---- combat command + the §22 diorama --------------------------------------
 
 ## Cycle the engagement range band (§9): close ⇄ medium ⇄ long.
@@ -1042,6 +1060,7 @@ func _build_fleet_view() -> void:
 	tabs.add_child(_corp_lbl)
 	tabs.add_child(_make_op_button("RENAME", _cycle_corp_name))
 	tabs.add_child(_make_op_button("LIVERY", _cycle_livery_btn))
+	tabs.add_child(_make_op_button("FLAGSHIP", _rename_flagship))
 	_fleet_count = UiKit.label("", 11, UiKit.TEXT_DIM)
 	v.add_child(_fleet_count)
 	# Combat command (§9): doctrine knobs + the engage verb that opens the diorama.
@@ -1629,7 +1648,8 @@ func _refresh_fleet() -> void:
 			var fuel := float(sim.ship_fuel_bp(i)) / 10000.0
 			var assign := "En route" if moving else ("Refuel needed" if fuel < 0.12 else "Docked")
 			var fcol: Color = UiKit.GOOD if fuel > 0.35 else (UiKit.ACCENT if fuel > 0.12 else UiKit.BAD)
-			_fleet_row(String(sim.ship_name(i)), fuel > 0.05, "Warship", loc, assign, fuel, fcol)
+			var crew := "Capt. %s · %s" % [String(sim.ship_captain(i)), String(sim.ship_trait(i))]
+			_fleet_row(String(sim.ship_name(i)), fuel > 0.05, crew, loc, assign, fuel, fcol)
 			shown += 1
 	# Freighters run the standing routes (§4) — positional on their lanes now (§6).
 	if fleet_tab == 0 or fleet_tab == 2 or fleet_tab == 3:
@@ -1648,8 +1668,13 @@ func _refresh_fleet() -> void:
 	if shown == 0:
 		for _i in 6:
 			_fleet_grid.add_child(UiKit.label("—" if _i == 0 else "", 12, UiKit.TEXT_DIM))
-	_fleet_count.text = "%d ships  ·  flagship: %s" % [
-		fsz + sim.freighters(), String(sim.flagship_name()) if fsz > 0 else "—"]
+	var flag_capt := ""
+	if fsz > 0:
+		var fi: int = sim.flagship_index()
+		if fi >= 0:
+			flag_capt = "  ·  Capt. %s (%s)" % [String(sim.ship_captain(fi)), String(sim.ship_trait(fi))]
+	_fleet_count.text = "%d ships  ·  flagship: %s%s" % [
+		fsz + sim.freighters(), String(sim.flagship_name()) if fsz > 0 else "—", flag_capt]
 	if _corp_lbl:
 		_corp_lbl.text = String(sim.corp_name())
 		_corp_lbl.add_theme_color_override("font_color", sim.corp_livery_color())

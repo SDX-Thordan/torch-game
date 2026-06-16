@@ -383,6 +383,24 @@ impl Sim {
         &mut self.corp
     }
 
+    /// Rename owned ship `idx`'s call-sign (§14 expressive identity), keeping its
+    /// class suffix (e.g. rename to "Valkyrie" → "Valkyrie (Frigate)"). Returns
+    /// whether the rename took. Pure string edit — no RNG, no balance effect.
+    pub fn rename_ship(&mut self, idx: usize, call_sign: &str) -> bool {
+        let call_sign = call_sign.trim();
+        if call_sign.is_empty() {
+            return false;
+        }
+        match self.corp.fleet_mut().get_mut(idx) {
+            Some(s) => {
+                let class = s.loadout.hull().name;
+                s.name = format!("{call_sign} ({class})");
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Skim operating overhead off the treasury each tick (§5 sink). Overhead is
     /// a fraction of holdings *above* a free float, so it bites only runaway
     /// hoarding — the wealth-scaled sink that turns every income strategy into a
@@ -2105,6 +2123,18 @@ mod tests {
             assembly_spend < yard_price,
             "assembling from owned parts ({assembly_spend}) is cheaper than the yard ({yard_price})"
         );
+    }
+
+    #[test]
+    fn a_ship_can_be_renamed_keeping_its_class() {
+        // §14 expressive identity: the player renames a hull's call-sign; the class
+        // suffix is preserved and an empty name is rejected.
+        let mut sim = Sim::new(0);
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        assert!(sim.rename_ship(0, "Valkyrie"));
+        assert_eq!(sim.corp().fleet()[0].name, "Valkyrie (Frigate)");
+        assert!(!sim.rename_ship(0, "   "), "blank names are rejected");
+        assert!(!sim.rename_ship(9, "Ghost"), "no such ship");
     }
 
     #[test]

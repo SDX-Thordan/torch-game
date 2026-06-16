@@ -41,7 +41,7 @@ one place. Each is tagged:
 | 8 | Commodity chain — **✅ deepened to 4 tiers** (Raw→Refined→Components→Assembled, 12 goods) | §7d | 🟢 (was 🟡) |
 | 9 | Combat: **heat / aggressive-fire ✅** + retreat/target doctrine; facing/spinal still pending | §8a / §9 | 🟡 (narrowed) |
 | 10 | Civilian classes partial (no Courier/Salvager/Survey) | §8e | 🟡 |
-| 11 | Crew depth: name + quality only (no portraits/traits/quirks/loyalty/rename) | §11 | 🟡 (right-sized) |
+| 11 | Crew depth: name + quality + **trait + rename** (portraits/quirk-sim deferred) | §11 | 🟡 (right-sized) |
 | 12 | Data pipeline: commodities **+ ship class specs** externalized; factions/curves in code | §31 | 🟡 (narrowed) |
 | 13 | Orrery omits trajectory ghosts, range/band rings, two-finger azimuth | §21 | 🟡 |
 | 14 | No view interpolation (positions snap per tick) | §28 | 🟡 |
@@ -261,14 +261,21 @@ one place. Each is tagged:
   Freighter, Miner, Tanker. **Missing:** Courier/Shuttle, Salvager/Tug,
   Survey/Science (and the freighter size sub-tiers).
 
-### 11. 🟡 Crew depth is name + quality only — §11
+### 11. 🟡 Crew depth — name + quality + **trait + rename** (right-sized) — §11
 - **GDD:** Named characters with **portraits, traits, quirks, loyalty**;
   **rename/personalize**; service history; manager voices.
 - **Built:** Captain = a procedural name; wider crew = an abstract quality rating
-  (§8c) with experience growth; service history + manager-voiced feed are in.
-  **Missing:** portraits, traits, quirks, loyalty, rename/personalize.
-- **Status:** Explicitly **right-sized** per §0.2 (#3 "support, not RimWorld-deep").
-  A sanctioned simplification, listed for completeness.
+  (§8c) with experience growth; service history + manager-voiced feed are in; **plus**
+  (this pass) a captain **trait** (a flavour label — Ace Gunner / Steady / Lucky / …
+  — derived *deterministically from the name*, so no RNG/balance effect) and a
+  **ship rename** verb (`rename_ship`, keeps the class suffix). The FLEET roster
+  shows "Capt. {name} · {trait}" per hull, the flagship line spotlights its captain,
+  and a `FLAGSHIP` button renames the hero ship from an evocative pool (mobile-
+  friendly, no text entry). Tests + the QA review are byte-identical (no RNG drawn).
+- **Status:** Now covers **named identity, traits, and rename** — the §11 essentials
+  at the **right-sized** level (§0.2: "support, not RimWorld-deep"). Still
+  deliberately out of scope: portraits, quirk/loyalty *simulation* (a behaviour
+  layer §0.2 explicitly defers).
 
 ### 12. 🟡 Data/tuning pipeline — extended to ship class specs (faction/economy curves still compiled) — §31
 - **GDD:** Hot-reloadable data (JSON/RON) for **all** tunable values — economy

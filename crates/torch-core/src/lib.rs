@@ -898,6 +898,38 @@ impl TorchSim {
         )
     }
 
+    /// The captain of fleet ship `i` (§11), or "".
+    #[func]
+    fn ship_captain(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .corp()
+                .fleet()
+                .get(i as usize)
+                .map(|s| s.loadout.crew().captain.as_str())
+                .unwrap_or(""),
+        )
+    }
+
+    /// The captain's flavour trait for fleet ship `i` (§11), or "".
+    #[func]
+    fn ship_trait(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .corp()
+                .fleet()
+                .get(i as usize)
+                .map(|s| sim::ships::captain_trait(&s.loadout.crew().captain))
+                .unwrap_or(""),
+        )
+    }
+
+    /// Rename ship `i`'s call-sign (§14), keeping its class suffix. Returns success.
+    #[func]
+    fn rename_ship(&mut self, i: i64, call_sign: GString) -> bool {
+        self.sim.rename_ship(i as usize, &call_sign.to_string())
+    }
+
     /// Ticks ship `i` has been in service (its age, §11).
     #[func]
     fn ship_age(&self, i: i64) -> i64 {
@@ -1009,6 +1041,12 @@ impl TorchSim {
                 .map(|s| s.name.as_str())
                 .unwrap_or(""),
         )
+    }
+
+    /// Fleet index of the flagship (§14), or -1 if the fleet is empty.
+    #[func]
+    fn flagship_index(&self) -> i64 {
+        self.sim.corp().flagship_index()
     }
 
     /// Warehouse cargo held of commodity `c`.
