@@ -38,7 +38,7 @@ one place. Each is tagged:
 | 5 | Expressive identity — **corp name + livery ✅ done** (logo deferred) | §14 | 🟡 (was 🟠) |
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
 | 7 | Multi-view shell vs. §18 slide-over panels — **✅ reconciled** (GDD amended) | §18 | 🟢 (was 🟡) |
-| 8 | Commodity chain truncated to Raw→Refined (no Components/Assembled) | §7d | 🟡 |
+| 8 | Commodity chain — **✅ deepened to 4 tiers** (Raw→Refined→Components→Assembled, 12 goods) | §7d | 🟢 (was 🟡) |
 | 9 | Combat omits heat + facing/spinal-vs-turret (retreat/target doctrine now in, #3) | §8a / §9 | 🟡 |
 | 10 | Civilian classes partial (no Courier/Salvager/Survey) | §8e | 🟡 |
 | 11 | Crew depth: name + quality only (no portraits/traits/quirks/loyalty/rename) | §11 | 🟡 (right-sized) |
@@ -203,16 +203,27 @@ one place. Each is tagged:
   screens. The build matches the player-supplied mockups; the GDD now matches the
   build.
 
-### 8. 🟡 Commodity chain truncated to Raw→Refined — §7d
+### 8. 🟢 Commodity chain — ✅ deepened to four tiers — §7d
 - **GDD:** Raw → Refined → **Components** → **Assembled** (hull plate, frames,
   electronics, munitions; ships/modules/torpedoes). MVP target ~6–8 commodities,
   2–3 tiers.
-- **Built:** 6 commodities (Ice/Ore/Volatiles → Remass/Water/Metals/ReactorFuel)
-  and `sim::industry` does **Raw→Refined only** (output index = input + RAW_COUNT).
-  No Components or Assembled commodity tiers; ships are commissioned for credits +
-  crew, not assembled from a component chain.
-- **Status:** Within the loose MVP "2–3 tiers" band at the low end, but the deeper
-  chain the §7d vision implies is not present.
+- **Built (this pass):** **12 commodities** in a 3-line × **4-tier** grid (§7d):
+  Raw (Ice/Ore/Volatiles) → Refined (Remass/Metals/ReactorFuel) → Components
+  (Composites/Alloys/Circuitry) → Assembled (Habitats/Machinery/Drives), each
+  refining into the one **+3 indices** along its line. `found_refinery` (now any
+  non-top-tier input) lets the player chain factories the full depth
+  (Ore→Metals→Alloys→Machinery). Value rises ~3–4× per tier.
+- **Design note:** the designed NPC producer/consumer spread + demand jitter apply
+  only to the **lower two tiers** — finished goods sit at administered prices (jitter
+  0, neutral setpoints), so they're *produced* by the player up the chain, not an
+  instant-arbitrage faucet (their high absolute prices would otherwise turn tiny
+  jitter into huge spreads — caught by the QA harness). A nice property: jitter 0
+  draws no RNG, so the lower-tier economy stays **byte-identical** — the §7c gate and
+  the QA review are unchanged.
+- **Status:** Exceeds the MVP "2–3 tiers" target. Remaining 🟡 nuance: ships are
+  still commissioned for credits + crew, not *assembled from* the component tiers —
+  a deeper bill-of-materials link (Assembled goods → hull build inputs) is a future
+  follow-up, not a chain-depth gap.
 
 ### 9. 🟡 Combat omits heat + facing (doctrine knobs now partly in) — §8a, §9
 - **GDD:** Fixed/spinal vs. turreted railguns (a **facing** consideration, §8a/§9);

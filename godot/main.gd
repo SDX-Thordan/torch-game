@@ -1829,9 +1829,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			status = "Trade route cleared."
 		KEY_M:
 			if sim.found_refinery(sel_comm, sel_market, sel_market):
-				status = "Refinery founded: %s → refined @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
+				status = "Factory founded: %s → next tier @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
 			else:
-				status = "Can't found refinery — pick a RAW commodity, or short on capital/slots."
+				status = "Can't found factory — pick a non-top-tier commodity, or short on capital/slots."
 		KEY_K:
 			status = "Contract accepted — deliver the goods before it lapses." if sim.accept_first_contract() else "No open contract to accept."
 		KEY_J:
