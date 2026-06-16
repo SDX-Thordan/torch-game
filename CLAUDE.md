@@ -165,6 +165,20 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Crew depth: captain traits + ship rename (deviation #11, §11/§14).**
+  A right-sized crew pass (§0.2: "support, not RimWorld-deep"). Each captain gets a
+  flavour **trait** (Ace Gunner / Steady / Lucky / …) derived **deterministically
+  from the name** (`ships::captain_trait`, a name-hash, **no RNG draw**) — so it's a
+  stable identity that can't perturb the economy/combat RNG → tests + QA review
+  **byte-identical**. Added a **ship rename** verb (`Sim::rename_ship`, keeps the
+  class suffix, pure string edit). Shell: the FLEET roster's TYPE column now reads
+  "Capt. {name} · {trait}" per hull, the flagship line spotlights its captain, and a
+  `FLAGSHIP` button renames the hero ship by cycling an evocative pool (mobile-
+  friendly — no text entry). Bindings `ship_captain`/`ship_trait`/`rename_ship`/
+  `flagship_index`. Render-verified. *Lesson:* derive cosmetic identity from existing
+  deterministic state (the name) rather than a fresh RNG draw, so a "content" feature
+  stays provably balance-neutral.
+
 - **2026-06-16 — Combat heat as opt-in aggressive fire (deviation #9, §8a/§9).**
   Added the §9 heat model without rebalancing the tuned combat suite. Firing
   railguns **hot** (`Doctrine.aggressive_fire`) boosts alpha (`AGGRESSIVE_FIRE_BP`
