@@ -108,6 +108,24 @@ impl SaveState {
     /// Parse a save document, rejecting an unsupported version.
     pub fn from_json(json: &str) -> Result<Self, String> {
         let s: SaveState = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        Self::check_version(s)
+    }
+
+    /// Serialize to the compact **binary** shipping format (§30): bincode over the
+    /// same `SaveState`. Smaller and faster to load than the JSON dev export.
+    pub fn to_bincode(&self) -> Vec<u8> {
+        bincode::serialize(self).expect("SaveState serializes to bincode")
+    }
+
+    /// Parse a binary save, rejecting an unsupported version. Bincode is *not*
+    /// self-describing, so it only reads same-shape saves — cross-version migration
+    /// is the JSON export's job (§30).
+    pub fn from_bincode(bytes: &[u8]) -> Result<Self, String> {
+        let s: SaveState = bincode::deserialize(bytes).map_err(|e| e.to_string())?;
+        Self::check_version(s)
+    }
+
+    fn check_version(s: Self) -> Result<Self, String> {
         if s.version != SAVE_VERSION {
             return Err(format!(
                 "unsupported save version {} (this build reads {})",

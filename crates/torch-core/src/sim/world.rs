@@ -1146,17 +1146,41 @@ impl Sim {
         }
     }
 
-    /// Serialize the run to a JSON save document (§30).
+    /// Serialize the run to a JSON save document (the dev export, §30).
     pub fn save_json(&self) -> String {
         self.to_save().to_json()
     }
 
-    /// Rebuild a [`Sim`] from a JSON save (§30): reconstruct the seeded world,
-    /// re-sim the ambient layer up to the saved tick so its phase lines up, then
-    /// overlay the saved player + economy state. Returns a human-readable error on
-    /// a malformed or version-mismatched document.
+    /// Serialize the run to the compact **binary** shipping save (§30): bincode.
+    pub fn save_bytes(&self) -> Vec<u8> {
+        self.to_save().to_bincode()
+    }
+
+    /// Rebuild a [`Sim`] from a JSON save (§30).
     pub fn load_json(json: &str) -> Result<Self, String> {
-        let save = super::persist::SaveState::from_json(json)?;
+        Self::rebuild_from_save(super::persist::SaveState::from_json(json)?)
+    }
+
+    /// Rebuild a [`Sim`] from a save document, **auto-detecting** the format (§30):
+    /// a leading `{`/whitespace is the JSON dev export, anything else is the binary
+    /// shipping format. So new binary saves and old JSON saves both load.
+    pub fn load_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let looks_json = bytes
+            .iter()
+            .find(|b| !b.is_ascii_whitespace())
+            .is_some_and(|&b| b == b'{');
+        let save = if looks_json {
+            let json = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+            super::persist::SaveState::from_json(json)?
+        } else {
+            super::persist::SaveState::from_bincode(bytes)?
+        };
+        Self::rebuild_from_save(save)
+    }
+
+    /// Reconstruct the seeded world, re-sim the ambient layer up to the saved tick
+    /// so its phase lines up, then overlay the saved player + economy state (§30).
+    fn rebuild_from_save(save: super::persist::SaveState) -> Result<Self, String> {
         let mut sim = Sim::new(save.seed);
         // Advance the ambient world (traffic, pressure, salvage, RNG phase) to the
         // saved tick. Player automation is off in a fresh sim, so these steps add
@@ -1779,15 +1803,32 @@ mod tests {
             a.markets()[0].stocks()[5].price,
             b.markets()[0].stocks()[5].price
         );
+
+        // The binary shipping format round-trips identically, and auto-detect loads
+        // both formats (§30): binary is smaller than the JSON dev export.
+        let bytes = a.save_bytes();
+        let c = Sim::load_bytes(&bytes).expect("a binary save reloads");
+        assert_eq!(a.to_save(), c.to_save(), "bincode round-trips bit-for-bit");
+        assert!(
+            bytes.len() < json.len(),
+            "binary ({}) is more compact than JSON ({})",
+            bytes.len(),
+            json.len()
+        );
+        // load_bytes also accepts the JSON dev export (auto-detected).
+        let d = Sim::load_bytes(json.as_bytes()).expect("auto-detect reads JSON too");
+        assert_eq!(a.to_save(), d.to_save());
     }
 
     #[test]
     fn a_bad_save_is_rejected_cleanly() {
         assert!(Sim::load_json("not json").is_err());
-        // A future version is refused rather than misread.
+        assert!(Sim::load_bytes(b"\x00\x01 not a valid bincode save").is_err());
+        // A future version is refused rather than misread (both formats).
         let mut s = Sim::new(1).to_save();
         s.version = 999;
         assert!(Sim::load_json(&s.to_json()).is_err());
+        assert!(crate::sim::persist::SaveState::from_bincode(&s.to_bincode()).is_err());
     }
 
     #[test]

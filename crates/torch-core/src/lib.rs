@@ -301,25 +301,37 @@ impl TorchSim {
         GString::from(result.err().unwrap_or_default())
     }
 
-    /// Save the run to a JSON file at `path` (§30). Returns "" on success or a
-    /// human-readable error. File I/O lives here in the shell binding, not the core.
+    /// Save the run to `path` in the compact **binary** shipping format (§30).
+    /// Returns "" on success or a human-readable error. File I/O lives here in the
+    /// shell binding, not the core.
     #[func]
     fn save_game(&self, path: GString) -> GString {
+        let path = path.to_string();
+        let result = std::fs::write(&path, self.sim.save_bytes())
+            .map_err(|e| format!("cannot write {path}: {e}"));
+        GString::from(result.err().unwrap_or_default())
+    }
+
+    /// Export the run to `path` as a human-readable **JSON** document (§30 dev
+    /// export — for inspection/debugging). Returns "" or an error.
+    #[func]
+    fn export_save_json(&self, path: GString) -> GString {
         let path = path.to_string();
         let result = std::fs::write(&path, self.sim.save_json())
             .map_err(|e| format!("cannot write {path}: {e}"));
         GString::from(result.err().unwrap_or_default())
     }
 
-    /// Load a run from a JSON save file at `path` (§30), replacing the live sim.
+    /// Load a run from a save file at `path` (§30), replacing the live sim. The
+    /// format (binary or JSON) is auto-detected, so old JSON saves still load.
     /// Returns "" on success or a human-readable error; the live sim is left
     /// untouched on any failure (it parses + rebuilds before swapping).
     #[func]
     fn load_game(&mut self, path: GString) -> GString {
         let path = path.to_string();
-        match std::fs::read_to_string(&path)
+        match std::fs::read(&path)
             .map_err(|e| format!("cannot read {path}: {e}"))
-            .and_then(|json| sim::Sim::load_json(&json))
+            .and_then(|bytes| sim::Sim::load_bytes(&bytes))
         {
             Ok(sim) => {
                 self.sim = sim;
@@ -330,14 +342,25 @@ impl TorchSim {
     }
 
     /// Peek a save slot at `path` (§30): the saved tick, or `-1` if the file is
-    /// missing or unreadable — for the archive UI's slot summaries.
+    /// missing or unreadable — for the archive UI's slot summaries. Reads either
+    /// format.
     #[func]
     fn save_peek(&self, path: GString) -> i64 {
-        std::fs::read_to_string(path.to_string())
-            .ok()
-            .and_then(|json| sim::SaveState::from_json(&json).ok())
-            .map(|s| s.tick as i64)
-            .unwrap_or(-1)
+        let Ok(bytes) = std::fs::read(path.to_string()) else {
+            return -1;
+        };
+        let looks_json = bytes
+            .iter()
+            .find(|b| !b.is_ascii_whitespace())
+            .is_some_and(|&b| b == b'{');
+        let save = if looks_json {
+            std::str::from_utf8(&bytes)
+                .ok()
+                .and_then(|j| sim::SaveState::from_json(j).ok())
+        } else {
+            sim::SaveState::from_bincode(&bytes).ok()
+        };
+        save.map(|s| s.tick as i64).unwrap_or(-1)
     }
 
     /// Price of commodity `c` at market `m`.
