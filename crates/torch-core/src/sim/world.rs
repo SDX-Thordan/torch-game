@@ -204,6 +204,12 @@ pub struct Sim {
     board: ContractBoard,
     salvage: SalvageField,
     missions: super::missions::Missions,
+    /// The player's tactical doctrine for fleet engagements (§9): target priority
+    /// + retreat threshold (band is chosen per engagement).
+    combat_doctrine: Doctrine,
+    /// The last resolved battle (band, starting counts, BattleLog) — for the §22
+    /// diorama. Transient (not saved).
+    last_battle: Option<(Band, [usize; 2], BattleOutcome)>,
     pressure: PressureSystem,
     rng: Pcg32,
     events: Vec<Event>,
@@ -257,6 +263,8 @@ impl Sim {
             board: ContractBoard::new(seed),
             salvage: SalvageField::new(seed, blueprint_count, body_count),
             missions: super::missions::Missions::new(),
+            combat_doctrine: Doctrine::default(),
+            last_battle: None,
             pressure: PressureSystem::new(Intensity::default()),
             markets,
             rng: Pcg32::new(seed),
@@ -1140,19 +1148,24 @@ impl Sim {
                 ships::reference_loadout_quality(ShipClass::Frigate, RAIDER_QUALITY, &mut self.rng)
             })
             .collect();
-        let doctrine = Doctrine {
+        // The player fleet fights under the player's doctrine (target + retreat),
+        // at the band they chose; raiders press the attack to the death (§9).
+        let player_doctrine = Doctrine {
             band,
-            salvo_reload: 6,
-            target: TargetPriority::Biggest,
+            ..self.combat_doctrine
+        };
+        let raider_doctrine = Doctrine {
+            band,
+            ..Doctrine::default()
         };
         let outcome = combat::resolve(
             &Fleet {
                 ships: &player_ships,
-                doctrine,
+                doctrine: player_doctrine,
             },
             &Fleet {
                 ships: &pack,
-                doctrine,
+                doctrine: raider_doctrine,
             },
             &mut self.rng,
         );
@@ -1165,7 +1178,30 @@ impl Sim {
             self.complete_op(); // holding the field is progress on the climb (§0)
         }
         self.events.push(Event::BattleResolved { won, losses });
+        self.last_battle = Some((band, [player_ships.len(), pack.len()], outcome.clone()));
         Some(outcome)
+    }
+
+    /// The most recent resolved engagement, for the diorama (§22): the band, the
+    /// starting `[player, raider]` counts, and the full BattleLog.
+    pub fn last_battle(&self) -> Option<&(Band, [usize; 2], BattleOutcome)> {
+        self.last_battle.as_ref()
+    }
+
+    /// Set the player's target-priority doctrine (§9).
+    pub fn set_combat_target(&mut self, target: TargetPriority) {
+        self.combat_doctrine.target = target;
+    }
+
+    /// Set the player's retreat threshold in basis points (§9): break off below
+    /// this fraction of the starting fleet. `0` = fight to the death.
+    pub fn set_combat_retreat(&mut self, bp: i64) {
+        self.combat_doctrine.retreat_bp = bp.clamp(0, 10_000);
+    }
+
+    /// The player's current tactical doctrine (§9).
+    pub fn combat_doctrine(&self) -> Doctrine {
+        self.combat_doctrine
     }
 
     /// A *player* cut sours relations with the hauler's owner faction (§7b/§10)
