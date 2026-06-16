@@ -142,6 +142,11 @@ const MIN_SPREAD: i64 = 5;
 const CRUISE_SPEED: i64 = 60_000;
 /// Floor on travel time so close markets still take real time (§21).
 const MIN_TRAVEL: u64 = 24;
+/// A standing-route freighter burns Remass scaled by trip length (§6 delta-v as
+/// operating cost): `remass_units = travel_ticks / this`, floored at 1. Tuned so
+/// short inner hauls cost modest fuel and long outer hauls cost a lot — and so
+/// producing your own Remass (the Ice→Remass chain) cheapens the whole network.
+const FREIGHTER_REMASS_DIVISOR: u64 = 10;
 /// Ticks between automated interdiction sorties (§12 patrol cadence).
 const AUTOMATION_INTERVAL: u64 = 12;
 /// Ticks between reputation-decay ticks (§10): grudges fade slowly toward
@@ -709,6 +714,17 @@ impl Sim {
         }
     }
 
+    /// The Remass a freighter burns on route `i`'s current geometry (§6) — the
+    /// distance-scaled fuel load it refuels at the origin port each trip.
+    pub fn route_remass_units(&self, i: usize) -> i64 {
+        match self.routes.get(i) {
+            Some(rt) => {
+                (self.travel_ticks(rt.origin, rt.dest) / FREIGHTER_REMASS_DIVISOR).max(1) as i64
+            }
+            None => 0,
+        }
+    }
+
     /// Trip progress of route `i`'s freighter in basis points (0..=10000), for the
     /// FLEET view's en-route readout.
     pub fn route_progress_bp(&self, i: usize) -> i64 {
@@ -793,14 +809,27 @@ impl Sim {
             let buy = self.markets[rt.origin].price(rt.commodity);
             let spread = self.markets[rt.dest].price(rt.commodity) - buy;
             let cost = buy * rt.qty;
-            let stocked = self.markets[rt.origin].stock(rt.commodity) > rt.qty;
-            if spread >= rt.min_margin && stocked && self.corp.credits() >= cost {
+            // Fuel (§6): the freighter refuels with Remass at the origin port, an
+            // amount scaled by the trip distance. Long outer hauls cost far more
+            // fuel — the delta-v constraint as opex — and a hub that produces cheap
+            // Remass lowers the whole network's running cost.
+            let travel = self.travel_ticks(rt.origin, rt.dest);
+            let remass_units = (travel / FREIGHTER_REMASS_DIVISOR).max(1) as i64;
+            let fuel_cost = remass_units * self.markets[rt.origin].price(REMASS_COMMODITY);
+            let cargo_stocked = self.markets[rt.origin].stock(rt.commodity) > rt.qty;
+            let fuel_stocked = self.markets[rt.origin].stock(REMASS_COMMODITY) >= remass_units;
+            if spread >= rt.min_margin
+                && cargo_stocked
+                && fuel_stocked
+                && self.corp.credits() >= cost + fuel_cost
+            {
                 self.markets[rt.origin].remove_stock(rt.commodity, rt.qty);
-                self.corp.debit(cost);
+                self.markets[rt.origin].remove_stock(REMASS_COMMODITY, remass_units);
+                self.corp.debit(cost + fuel_cost);
                 rt.in_transit = true;
                 rt.carrying = rt.qty;
                 rt.departed = self.tick;
-                rt.arrival = self.tick + self.travel_ticks(rt.origin, rt.dest);
+                rt.arrival = self.tick + travel;
                 in_flight += 1;
             }
         }
@@ -2372,6 +2401,25 @@ mod tests {
                 "the freighter advances along its lane over time"
             );
         }
+    }
+
+    #[test]
+    fn a_route_trip_burns_remass_scaled_by_distance() {
+        // §6 delta-v as opex: a freighter refuels with Remass at the origin port,
+        // an amount scaled by trip length — so a long outer haul burns more fuel
+        // than a short inner hop. (The fuel is debited + drawn from the port at
+        // dispatch in run_logistics; here we assert the distance-scaling that drives
+        // it, which is deterministic — market stock is too noisy to assert on.)
+        let mut sim = Sim::new(0);
+        sim.set_trade_route(1, 0, 1, 20, 1); // inner: Ceres → Mars
+        sim.set_trade_route(1, 0, 5, 20, 1); // outer: Ceres → a frontier hub
+        let inner = sim.route_remass_units(0);
+        let outer = sim.route_remass_units(1);
+        assert!(inner >= 1, "every trip burns at least one unit of fuel");
+        assert!(
+            outer > inner,
+            "the long outer haul ({outer}) burns more fuel than the inner hop ({inner})"
+        );
     }
 
     #[test]

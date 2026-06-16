@@ -1630,7 +1630,7 @@ func _refresh_fleet() -> void:
 			if fleet_tab == 3 and en_route:   # IDLE tab: only docked freighters
 				continue
 			var loc := String(sim.freighter_trip(i)) if en_route else "Ceres Yards"
-			var assign := ("In transit %d%%" % sim.freighter_progress(i)) if en_route else (
+			var assign := ("In transit %d%%  ·  %d fuel" % [sim.freighter_progress(i), sim.freighter_fuel(i)]) if en_route else (
 				String(sim.route_status()) if sim.route_count() > 0 else "Idle")
 			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", loc, assign,
 				1.0, UiKit.GOOD if en_route else UiKit.ACCENT)

@@ -187,6 +187,23 @@ Status: [x] done, [~] in progress, [ ] todo.
   `gut_loader.gd:35` static-init SCRIPT ERROR prints but doesn't affect the run
   (exit 0, all pass). No Rust change → cargo tests + the QA review are untouched.
 
+- **2026-06-16 — Freighter remass: routes burn fuel now (Pillar #2 complete, §6).**
+  The last delta-v nuance. A dispatched standing-route freighter **refuels with
+  Remass at the origin port** — `remass_units = travel_ticks / FREIGHTER_REMASS_
+  DIVISOR(10)`, debited at the local Remass price and drawn from that market's
+  stock. Long outer hauls cost far more fuel than inner hops (the delta-v constraint
+  as opex), and a hub that produces cheap Remass (the Ice→Remass chain) lowers the
+  whole network's running cost — closing the production→logistics loop. A route only
+  dispatches if it can source + afford the fuel (a new exception). FLEET view shows
+  per-trip fuel; binding `freighter_fuel`/`route_remass_units`. **Balance:** the §7c
+  gate is untouched (default Sim has no routes), but the QA **Logistician** now pays
+  fuel so its take dipped (~108k→~107k, still ~4×) — regenerated the sample, **still
+  0 concerns**. With this, **Pillar #2 is complete**: every player ship is positional
+  *and* delta-v-costed. *Test lesson:* asserting on post-dispatch *market stock* is
+  fragile (the 4%/tick stabilizer + jitter swamp the few-unit fuel draw over the
+  ticks-to-dispatch) — test the deterministic distance-scaling (`outer > inner`)
+  instead.
+
 - **2026-06-16 — Combat-diorama juice: live depleting force rosters (§22/§23).** A
   pure-shell juice pass on the #63 diorama: two **pip rosters** (player GOOD-green,
   raiders BAD-red) above the BattleLog that **deplete in real time** as `Destroyed`
