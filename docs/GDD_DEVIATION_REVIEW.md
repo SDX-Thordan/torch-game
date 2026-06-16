@@ -42,7 +42,7 @@ one place. Each is tagged:
 | 9 | Combat omits heat, facing/spinal-vs-turret, retreat/priority doctrine | §8a / §9 | 🟡 |
 | 10 | Civilian classes partial (no Courier/Salvager/Survey) | §8e | 🟡 |
 | 11 | Crew depth: name + quality only (no portraits/traits/quirks/loyalty/rename) | §11 | 🟡 (right-sized) |
-| 12 | Data pipeline: only commodities externalized; specs/factions in code | §31 | 🟡 |
+| 12 | Data pipeline: commodities **+ ship class specs** externalized; factions/curves in code | §31 | 🟡 (narrowed) |
 | 13 | Orrery omits trajectory ghosts, range/band rings, two-finger azimuth | §21 | 🟡 |
 | 14 | No view interpolation (positions snap per tick) | §28 | 🟡 |
 | 15 | No GUT view/integration tests (cargo + headless render only) | §32 | 🟡 |
@@ -220,14 +220,21 @@ one place. Each is tagged:
 - **Status:** Explicitly **right-sized** per §0.2 (#3 "support, not RimWorld-deep").
   A sanctioned simplification, listed for completeness.
 
-### 12. 🟡 Data/tuning pipeline covers only commodities — §31
+### 12. 🟡 Data/tuning pipeline — extended to ship class specs (faction/economy curves still compiled) — §31
 - **GDD:** Hot-reloadable data (JSON/RON) for **all** tunable values — economy
   curves, commodity defs, **class specs, faction params**.
-- **Built:** Only `data/commodities.json` (a per-commodity tuning overlay,
-  `reload_commodities`). Class specs, faction params, economy curves, pressure
-  constants remain compiled-in.
-- **Status:** "numbers in data, logic in Rust" proven for one domain; not yet
-  generalized.
+- **Built (this pass):** the §31 "numbers in data" overlay now covers **ship class
+  specs** too — `data/ships.json` (`reload_ship_data`) tunes the full numeric
+  envelope of every hull (mass/armor/thrust/tankage/drive/power/mounts/crew → and
+  thus build cost + crew bottleneck) and weapon (damage/intercept/mass/power),
+  matched by name with partial-overlay + typo-error + `include_str!` sync-guard
+  (`ship_data_matches_compiled_defaults`) — the exact pattern proven for
+  commodities. A Sim-held `ShipCatalog` makes it take effect: future commissions
+  fit from the tuned numbers. Identity (class/mount-kind) stays code-defined.
+- **Status:** "numbers in data, logic in Rust" now spans the **two highest-leverage
+  domains** (economy + ships). Still compiled-in: faction params, economy *curves*
+  (the pricing math, deliberately code), and pressure constants — a later overlay
+  if they ever need live tuning.
 
 ### 13. 🟡 Orrery omits trajectory ghosts, band rings, two-finger azimuth — §21
 - **GDD:** Schematic overlay incl. **range/band rings** and **trajectory ghosts**;
@@ -288,9 +295,14 @@ one place. Each is tagged:
    (MVP seed).** The #1 design priority's missing half.
 4. ~~**Reconcile §18 vs. the mockups (#7).**~~ **✅ done.** §18 amended to bless the
    map-anchored nav-rail console as the mobile-first realization.
-5. ~~**Identity, save-slots/Ironman (#5, #4).**~~ **✅ done** (corp name + livery;
-   3 slots + Ironman). **Data-pipeline breadth (#12)** — extend the §31 tuning
-   overlay beyond commodities — is the next independent fill.
+5. ~~**Identity, save-slots/Ironman, data-pipeline breadth (#5, #4, #12).**~~
+   **✅ done** (corp name + livery; 3 slots + Ironman; §31 overlay extended to ship
+   class specs via `data/ships.json`). Faction params + economy curves stay
+   compiled by design — a later overlay only if they need live tuning.
+
+**All pillar-level (🔴) and MVP-scoped (🟠) deviations are now reconciled.** The
+remaining items are intentional 🟡 right-sizing (§0.2) or GDD-sanctioned 🟢 post-MVP
+scope (logo/voxel art, endgame arc), tracked above and needing no further action.
 
 The remaining simplifications (🟡) and deferrals (🟢) are either intentional
 right-sizing (§0.2) or GDD-sanctioned post-MVP scope, and need no action beyond

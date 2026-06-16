@@ -4,6 +4,7 @@
 //! deterministic (§27), with placeholder numbers as data (§31).
 
 use super::rng::Pcg32;
+use serde::Deserialize;
 
 /// The three weapon systems (§8a).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -452,21 +453,175 @@ pub fn reference_loadout(class: ShipClass, rng: &mut Pcg32) -> Loadout {
 
 /// A reference fit crewed at `quality` (0..=100) — lets callers field veteran
 /// hulls or low-quality "rabble" (e.g. raider packs) off the same template (§8c).
+/// Uses the compiled catalog; the data-tuned counterpart is
+/// [`ShipCatalog::reference_loadout_quality`].
 pub fn reference_loadout_quality(class: ShipClass, quality: i64, rng: &mut Pcg32) -> Loadout {
-    let h = hull(class);
-    let mut weapons = Vec::new();
-    for _ in 0..h.pdc_mounts {
-        weapons.push(weapon(WeaponKind::Pdc));
+    ShipCatalog::default().reference_loadout_quality(class, quality, rng)
+}
+
+// ============================================================================
+// Data-driven catalog + hot-reloadable tuning (§31)
+// ============================================================================
+
+/// The hull + weapon tables the sim fits ships from. Defaults to the compiled
+/// catalogs; a JSON overlay (`data/ships.json`) can retune the numbers without
+/// a rebuild — the §31 "numbers in data" pipeline, extended beyond commodities.
+/// Identity (hull `class`/`name`, weapon `kind`/`name`) stays code-defined; only
+/// the numeric envelope is data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShipCatalog {
+    pub hulls: Vec<HullDef>,
+    pub weapons: Vec<WeaponDef>,
+}
+
+impl Default for ShipCatalog {
+    fn default() -> Self {
+        Self {
+            hulls: hull_catalog(),
+            weapons: weapon_catalog(),
+        }
     }
-    for _ in 0..h.torpedo_mounts {
-        weapons.push(weapon(WeaponKind::Torpedo));
+}
+
+impl ShipCatalog {
+    /// The hull for `class` (falls back to the compiled catalog if absent).
+    pub fn hull(&self, class: ShipClass) -> HullDef {
+        self.hulls
+            .iter()
+            .find(|h| h.class == class)
+            .cloned()
+            .unwrap_or_else(|| hull(class))
     }
-    for _ in 0..h.railgun_mounts {
-        weapons.push(weapon(WeaponKind::Railgun));
+
+    /// A weapon of `kind` (falls back to the compiled catalog if absent).
+    pub fn weapon(&self, kind: WeaponKind) -> WeaponDef {
+        self.weapons
+            .iter()
+            .find(|w| w.kind == kind)
+            .cloned()
+            .unwrap_or_else(|| weapon(kind))
     }
-    let crew = Crew::recruit(rng, h.crew_required, quality);
-    let remass = h.remass_capacity;
-    Loadout::fit(h, weapons, remass, crew).expect("reference loadout must fit")
+
+    /// A reference fit off this catalog (every mount filled, full tanks), crewed
+    /// at `quality` — the catalog-aware counterpart of [`reference_loadout_quality`].
+    pub fn reference_loadout_quality(
+        &self,
+        class: ShipClass,
+        quality: i64,
+        rng: &mut Pcg32,
+    ) -> Loadout {
+        let h = self.hull(class);
+        let mut weapons = Vec::new();
+        for _ in 0..h.pdc_mounts {
+            weapons.push(self.weapon(WeaponKind::Pdc));
+        }
+        for _ in 0..h.torpedo_mounts {
+            weapons.push(self.weapon(WeaponKind::Torpedo));
+        }
+        for _ in 0..h.railgun_mounts {
+            weapons.push(self.weapon(WeaponKind::Railgun));
+        }
+        let crew = Crew::recruit(rng, h.crew_required, quality);
+        let remass = h.remass_capacity;
+        Loadout::fit(h, weapons, remass, crew).expect("reference loadout must fit")
+    }
+}
+
+/// Per-hull numeric overlay (§31), matched to a compiled hull by `name`. Identity
+/// (`name`/`class`) stays in code; these are the tunable numbers.
+#[derive(Clone, Debug, Deserialize)]
+pub struct HullTuning {
+    pub name: String,
+    pub dry_mass: i64,
+    pub armor: i64,
+    pub max_thrust: i64,
+    pub remass_capacity: i64,
+    pub drive_efficiency: i64,
+    pub power_capacity: i64,
+    pub pdc_mounts: u32,
+    pub torpedo_mounts: u32,
+    pub railgun_mounts: u32,
+    pub utility_mounts: u32,
+    pub crew_required: i64,
+}
+
+/// Per-weapon numeric overlay (§31), matched to a compiled weapon by `name`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct WeaponTuning {
+    pub name: String,
+    pub damage: i64,
+    pub intercept: i64,
+    pub mass: i64,
+    pub power: i64,
+}
+
+/// Top-level shape of `data/ships.json` (a `hulls` array + a `weapons` array;
+/// either may be omitted to tune only one table; other keys are ignored).
+#[derive(Debug, Deserialize)]
+struct ShipFile {
+    #[serde(default)]
+    hulls: Vec<HullTuning>,
+    #[serde(default)]
+    weapons: Vec<WeaponTuning>,
+}
+
+/// The ship numbers shipped in-tree, embedded so a default build needs no
+/// filesystem. `ship_data_matches_compiled_defaults` proves it reproduces the
+/// compiled catalogs exactly (the file and code can't drift).
+pub const DEFAULT_SHIP_JSON: &str = include_str!("../../data/ships.json");
+
+/// Overlay hull numbers, matching by name. Partial lists allowed; an entry naming
+/// no compiled hull is an error (typo protection) — the set stays code-defined.
+pub fn apply_hull_tuning(hulls: &mut [HullDef], tunings: &[HullTuning]) -> Result<(), String> {
+    for t in tunings {
+        let h = hulls
+            .iter_mut()
+            .find(|h| h.name == t.name)
+            .ok_or_else(|| format!("unknown hull '{}'", t.name))?;
+        h.dry_mass = t.dry_mass;
+        h.armor = t.armor;
+        h.max_thrust = t.max_thrust;
+        h.remass_capacity = t.remass_capacity;
+        h.drive_efficiency = t.drive_efficiency;
+        h.power_capacity = t.power_capacity;
+        h.pdc_mounts = t.pdc_mounts;
+        h.torpedo_mounts = t.torpedo_mounts;
+        h.railgun_mounts = t.railgun_mounts;
+        h.utility_mounts = t.utility_mounts;
+        h.crew_required = t.crew_required;
+    }
+    Ok(())
+}
+
+/// Overlay weapon numbers, matching by name (typo = error, as with hulls).
+pub fn apply_weapon_tuning(
+    weapons: &mut [WeaponDef],
+    tunings: &[WeaponTuning],
+) -> Result<(), String> {
+    for t in tunings {
+        let w = weapons
+            .iter_mut()
+            .find(|w| w.name == t.name)
+            .ok_or_else(|| format!("unknown weapon '{}'", t.name))?;
+        w.damage = t.damage;
+        w.intercept = t.intercept;
+        w.mass = t.mass;
+        w.power = t.power;
+    }
+    Ok(())
+}
+
+/// The compiled ship catalog with a JSON tuning overlay applied (§31): code owns
+/// identity, data owns the numbers. Parses fully before mutating, so a bad file
+/// yields an error and never a half-applied catalog.
+pub fn tuned_ship_catalog(json: &str) -> Result<ShipCatalog, String> {
+    let file: ShipFile =
+        serde_json::from_str(json).map_err(|e| format!("invalid ship data: {e}"))?;
+    let mut hulls = hull_catalog();
+    apply_hull_tuning(&mut hulls, &file.hulls)?;
+    let mut weapons = weapon_catalog();
+    apply_weapon_tuning(&mut weapons, &file.weapons)?;
+    Ok(ShipCatalog { hulls, weapons })
 }
 
 #[cfg(test)]
@@ -604,5 +759,67 @@ mod tests {
         let a = Crew::recruit(&mut Pcg32::new(99), 10, 50);
         let b = Crew::recruit(&mut Pcg32::new(99), 10, 50);
         assert_eq!(a.captain, b.captain);
+    }
+
+    #[test]
+    fn ship_data_matches_compiled_defaults() {
+        // The committed data file must reproduce the compiled catalogs exactly, so
+        // the §31 overlay and the code can never silently drift.
+        let cat = tuned_ship_catalog(DEFAULT_SHIP_JSON).expect("default ship data parses");
+        assert_eq!(cat.hulls, hull_catalog(), "hull data drifted from code");
+        assert_eq!(
+            cat.weapons,
+            weapon_catalog(),
+            "weapon data drifted from code"
+        );
+        // The default catalog is the compiled one.
+        assert_eq!(ShipCatalog::default(), cat);
+    }
+
+    #[test]
+    fn ship_tuning_overlays_numbers_and_rejects_typos() {
+        // A partial overlay tunes only what it lists (here: a beefier frigate and a
+        // harder-hitting railgun), leaving everything else at compiled defaults.
+        let json = r#"{
+            "hulls": [
+              { "name": "Frigate", "dry_mass": 1000, "armor": 80, "max_thrust": 900,
+                "remass_capacity": 600, "drive_efficiency": 90, "power_capacity": 140,
+                "pdc_mounts": 2, "torpedo_mounts": 2, "railgun_mounts": 0,
+                "utility_mounts": 1, "crew_required": 12 }
+            ],
+            "weapons": [
+              { "name": "Railgun", "damage": 360, "intercept": 0, "mass": 200, "power": 80 }
+            ]
+        }"#;
+        let cat = tuned_ship_catalog(json).unwrap();
+        assert_eq!(cat.hull(ShipClass::Frigate).armor, 80); // tuned up from 40
+        assert_eq!(cat.weapon(WeaponKind::Railgun).damage, 360); // tuned up from 300
+        assert_eq!(cat.hull(ShipClass::Cruiser).armor, 160); // untouched default
+                                                             // An entry naming no compiled hull is a typo, not a silent no-op.
+        let typo = r#"{ "hulls": [ { "name": "Dreadnought", "dry_mass": 1, "armor": 1,
+            "max_thrust": 1, "remass_capacity": 1, "drive_efficiency": 1,
+            "power_capacity": 1, "pdc_mounts": 0, "torpedo_mounts": 0,
+            "railgun_mounts": 0, "utility_mounts": 0, "crew_required": 1 } ] }"#;
+        assert!(tuned_ship_catalog(typo).is_err());
+        assert!(tuned_ship_catalog("{ not json").is_err());
+    }
+
+    #[test]
+    fn a_tuned_catalog_fits_and_changes_stats() {
+        // Tuning must take effect: a heavier hull + stronger railgun produce a
+        // different, still-fittable reference loadout.
+        let json = r#"{ "weapons": [
+            { "name": "Railgun", "damage": 500, "intercept": 0, "mass": 200, "power": 80 } ] }"#;
+        let cat = tuned_ship_catalog(json).unwrap();
+        let mut a = Pcg32::new(11);
+        let mut b = Pcg32::new(11);
+        let stock = reference_loadout_quality(ShipClass::Battleship, 50, &mut a).stats();
+        let tuned = cat
+            .reference_loadout_quality(ShipClass::Battleship, 50, &mut b)
+            .stats();
+        assert!(
+            tuned.raw_alpha > stock.raw_alpha,
+            "tuned railgun hits harder"
+        );
     }
 }
