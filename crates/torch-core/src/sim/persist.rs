@@ -25,6 +25,11 @@ use serde::{Deserialize, Serialize};
 /// Bumped whenever the on-disk shape changes; load refuses mismatches.
 pub const SAVE_VERSION: u32 = 1;
 
+/// serde default for `gate_revealed` (beat 0 is always shown).
+fn one() -> usize {
+    1
+}
+
 /// One owned hull, captured by class + crew quality + service history (§14). The
 /// loadout is rebuilt from the class on load (content is code, §31).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +74,12 @@ pub struct SaveState {
     pub blueprints_known: Vec<bool>,
     pub ceo_xp: i64,
     pub ceo_branch: Option<Branch>,
+
+    // ---- the authored thread: opening missions + gate mystery (§0.1/§16) ----
+    #[serde(default)]
+    pub mission_done: Vec<bool>,
+    #[serde(default = "one")]
+    pub gate_revealed: usize,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

@@ -160,6 +160,20 @@ impl AlertFeed {
         }
     }
 
+    /// Push an authored, FYI announcement (a mission completion or a gate-mystery
+    /// beat, §0.1/§16) under a named voice. Loud (Critical) so it reads as a story
+    /// beat, not routine noise; never act-now (it's not a demand).
+    pub fn announce(&mut self, voice: &str, message: String, tick: u64) {
+        self.push(Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: voice.to_string(),
+            message,
+            verb: None,
+        });
+    }
+
     fn push(&mut self, alert: Alert) {
         self.alerts.push(alert);
         if self.alerts.len() > MAX_ALERTS {

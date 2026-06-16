@@ -32,7 +32,7 @@ one place. Each is tagged:
 | # | Deviation | GDD | Tag |
 |---|---|---|---|
 | 1 | Delta-v movement / per-ship position — **warships ✅ done** (freighters + combat-positioning follow) | §2 / §6 | 🟠 (was 🔴) |
-| 2 | No authored gate-mystery narrative or opening missions | §0.1 / §16 | 🔴 |
+| 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
 | 3 | Combat is non-interactive (no live commands, thin doctrine, no diorama) | §9 / §22 | 🟠 |
 | 4 | Save = single JSON slot; no multiple slots, no Ironman | §13 / §30 | 🟠 |
 | 5 | Expressive identity partial (ship names only; no corp name/logo/livery) | §14 | 🟠 |
@@ -96,8 +96,17 @@ one place. Each is tagged:
 - **Consequence:** The pull is currently *systemic* (a progress bar to the gate),
   not *narrative* (a mystery you want to chase). The GDD's top-ranked investment is
   the part with the least authored substance.
-- **Status:** MVP §34 lists "opening missions + the gate foreshadowed as a visible
-  far-goal" as In. The visible far-goal is done; the authored thread is not.
+- **Status — ADDRESSED 2026-06-16 (MVP seed).** `sim::missions` adds the authored
+  half: a 5-step **opening-mission** chain that teaches the verbs (First Light →
+  Stand Up a Hull → Standing Orders → Cut a Lane → Climb), each firing once the
+  player does the thing (hooked into `sell`/`commission_ship`/`set_trade_route`/the
+  player-interdict path/`complete_op`); and a **7-beat gate mystery** (`GATE_LORE`)
+  revealed across tier ascents and salvage finds (§15 anomaly → §0.1 lore), each
+  voiced as "The Gate" through the feed (`AlertFeed::announce`). The SYSTEMS overlay
+  now shows the active objective + the latest gate beat + a `mystery N/7` counter;
+  saved via `SaveState`. So the pull is now *narrative* (a mystery you chase), not
+  only *systemic*. **Remaining (deeper, post-MVP):** branching threads, authored
+  characters, and a scripted gate-opening climax (§17 endgame).
 
 ---
 
