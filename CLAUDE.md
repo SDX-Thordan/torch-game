@@ -80,6 +80,11 @@ cargo fmt --all         # / --check in CI
 cargo clippy --all-targets -- -D warnings
 cargo build --release   # produces target/release/libtorch_core.so (the GDExtension)
 # Godot: open godot/ in Godot 4.6 (the .gdextension points at the target/ lib)
+
+# GUT view/integration tests (§32) — boots the gdext core headless:
+cargo build                                   # the debug cdylib the extension loads
+godot --headless --path godot --import        # register the gdextension + GUT class_names
+cd godot && godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit
 ```
 
 ## 6. Roadmap (GDD §35 build order → PRs)
@@ -159,6 +164,28 @@ Status: [x] done, [~] in progress, [ ] todo.
 - [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-16 — GUT view/integration tests (deviation #15, §32).** Added the GUT
+  counterpart to `cargo test`: a vendored **GUT 9.4.0** suite in `godot/test/` (15
+  tests / 108 asserts, 3 scripts) that boots the **real gdext core headless** and
+  exercises the **sim↔view binding contract** main.gd relies on — world/economy/
+  commission/freighter-position/combat-on-station/BOM bindings, the `TorchShipyard`
+  catalog, and the pure `UiKit`/`MiniChart` UI helpers. These catch binding
+  regressions a Rust unit test can't see (wrong arg mapping, a missing `#[func]`, a
+  GDScript-side break). Wired into CI as a `gut` job in `ci.yml`: the
+  `barichello/godot-ci:4.6.3` container, install Rust → `cargo build` (the debug
+  cdylib the extension loads) → `godot --headless --path godot --import` (registers
+  the gdextension **and** GUT's class_names) → `gut_cmdln … -gexit`. GUT exits
+  **non-zero on failure** (verified), so it's a real gate. **Two hard-won setup
+  notes:** (1) **GUT 9.3.0 is incompatible with Godot 4.6** — 4.6 added a native
+  `Logger` class that 9.3.0's `utils.gd` shadows (`"Logger" shadows a native class`
+  → the whole addon fails to compile); **9.4.0** renamed it to `GutLogger`, so pin
+  ≥9.4.0. (2) A **single `--import` pass on a fresh checkout** is enough to register
+  GUT's `GutInputFactory`/`GutInputSender` class_names (without it GUT aborts with
+  "Some GUT class_names have not been imported") — proven on a clean `.godot/`.
+  Headless GUT needs **no xvfb** (unlike the render-capture workflow). A benign
+  `gut_loader.gd:35` static-init SCRIPT ERROR prints but doesn't affect the run
+  (exit 0, all pass). No Rust change → cargo tests + the QA review are untouched.
 
 - **2026-06-16 — Combat-diorama juice: live depleting force rosters (§22/§23).** A
   pure-shell juice pass on the #63 diorama: two **pip rosters** (player GOOD-green,

@@ -36,3 +36,30 @@ jobs:
 
       - name: Test
         run: cargo test --all
+
+  gut:
+    name: Godot — GUT view/integration tests
+    runs-on: ubuntu-latest
+    # Community image with Godot 4.6.3 headless; we add Rust to build the gdext
+    # core the tests load (the sim↔view binding contract, §32).
+    container:
+      image: barichello/godot-ci:4.6.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends build-essential curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the gdext core (debug cdylib the extension loads)
+        run: cargo build
+
+      - name: Import project (registers the gdextension + GUT class_names)
+        run: godot --headless --path godot --import || true
+
+      - name: Run GUT
+        run: godot --headless --path godot -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit
