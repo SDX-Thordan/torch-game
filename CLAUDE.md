@@ -160,6 +160,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Four-tier production chain (deviation #8, §7d).** Deepened the
+  economy from 6 commodities (Raw→Refined) to **12 in a 3-line × 4-tier grid**: Raw
+  (Ice/Ore/Volatiles) → Refined (Remass/Metals/ReactorFuel) → Components
+  (Composites/Alloys/Circuitry) → Assembled (Habitats/Machinery/Drives). The order is
+  **tier-major** so the existing `output = input + RAW_COUNT` (+3) recipe means "next
+  tier in the same line" (Ore→Metals→Alloys→Machinery); `found_refinery` is
+  generalized from raw-only to **any non-top-tier input**. **Indices 0–5 are
+  unchanged** (RAW=[0,1,2], REMASS=3 for refuel), so no index-based code moved.
+  **Two balance lessons, the second caught by the QA harness:** (1) the designed NPC
+  producer/consumer spread keys off `RAW`, so new upper-tier goods are auto-treated as
+  "non-raw" (dear at producer / cheap at consumer) — *too* good, because (2) the
+  upper tiers' high *absolute* prices (Drives base 2100) turn even tiny demand jitter
+  into huge absolute spreads, so the instant-arbitrage Arbitrageur ran away ~30×
+  (a fresh CONCERN). Fix matching the design philosophy: **finished goods are
+  *produced*, not NPC-arbitraged** — upper tiers get **neutral setpoints + demand
+  jitter 0** (administered prices). Bonus: `Market::step` short-circuits the jitter
+  RNG draw when `jitter == 0`, so the **lower-tier RNG stream is byte-identical** →
+  the §7c gate *and* the QA review body are **unchanged** (Arbitrageur back to the
+  exact 113888 cr). *Lesson:* when adding high-value commodities, watch absolute
+  spread × qty, not just relative spread — and keep value-add tiers as production
+  surfaces, not speculation surfaces. Shell: MARKET ticker scrolls 12 rows cleanly
+  (raw shows green spreads, finished goods "—"); render-verified.
+
 - **2026-06-16 — Freighters are positional on their lanes (Pillar #2, §6).** Closed
   the last positional gap: a freighter running a standing `TradeRoute` now has a
   **live map position**, interpolated along its orbital lane (origin → dest market

@@ -118,7 +118,8 @@ pub enum ContractError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FoundError {
     CantAfford,
-    NotARawCommodity,
+    /// The input has no higher tier to refine into (it's a top-tier finished good).
+    NotProcessable,
     TooManyStations,
 }
 
@@ -754,12 +755,16 @@ impl Sim {
     /// `sell_market` (§3.1 Produce + sell-surplus). Costs capital.
     pub fn found_refinery(
         &mut self,
-        raw: usize,
+        input: usize,
         buy_market: usize,
         sell_market: usize,
     ) -> Result<(), FoundError> {
-        if raw >= RAW_COUNT {
-            return Err(FoundError::NotARawCommodity);
+        // A station refines `input` into the next tier in its line (`input + 3`),
+        // so any non-top-tier commodity can host one (§7d): Ore→Metals→Alloys→
+        // Machinery, etc. Only the top-tier finished goods have nowhere to go.
+        let output = input + RAW_COUNT;
+        if output >= self.markets[0].defs().len() {
+            return Err(FoundError::NotProcessable);
         }
         if self.stations.len() >= self.campaign.tier().station_cap() {
             return Err(FoundError::TooManyStations);
@@ -770,8 +775,8 @@ impl Sim {
         self.corp.debit(STATION_COST);
         self.stations.push(Station {
             body: self.markets[buy_market].body(),
-            input: raw,
-            output: raw + RAW_COUNT,
+            input,
+            output,
             rate: REFINERY_RATE,
             buy_market,
             sell_market,
@@ -2087,12 +2092,52 @@ mod tests {
     }
 
     #[test]
+    fn the_production_chain_runs_four_tiers_deep() {
+        // §7d: the chain is Raw → Refined → Components → Assembled. A station can be
+        // founded at any non-top tier, refining into the next tier up its line —
+        // Ore(1) → Metals(4) → Alloys(7) → Machinery(10). Each step is a real
+        // value-add: the output anchors dearer than the input.
+        let defs = super::super::economy::default_commodities();
+        // The line is contiguous +3 and strictly climbs in price.
+        for &i in &[1usize, 4, 7] {
+            assert!(
+                defs[i + 3].base_price > defs[i].base_price,
+                "tier {i} refines into a dearer good"
+            );
+        }
+        // A component factory (Metals → Alloys) is a valid recipe and produces its
+        // tier-2 output hands-off.
+        let mut sim = Sim::new(0);
+        sim.found_refinery(4, 0, 0).unwrap(); // Metals → Alloys at Ceres
+        assert_eq!(sim.stations()[0].output, 7, "Metals refines into Alloys");
+        // Seed some Metals into the source market so the factory has feedstock.
+        for _ in 0..2_000 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().cargo(7) > 0 || sim.markets()[0].stock(7) > 0,
+            "the component factory should have produced Alloys somewhere"
+        );
+        // The top tier has nothing higher to refine into.
+        assert_eq!(
+            sim.found_refinery(10, 0, 0),
+            Err(FoundError::NotProcessable)
+        );
+    }
+
+    #[test]
     fn refineries_are_guarded() {
         let mut sim = Sim::new(0);
-        // A refined commodity is not a valid input recipe.
+        // A top-tier finished good has no higher tier to refine into (§7d).
+        let top = sim.markets()[0].defs().len() - 1; // Drives
         assert_eq!(
-            sim.found_refinery(5, 0, 0),
-            Err(FoundError::NotARawCommodity)
+            sim.found_refinery(top, 0, 0),
+            Err(FoundError::NotProcessable)
+        );
+        // ...but a mid-chain commodity (Metals → Alloys) now *is* a valid recipe.
+        assert!(
+            sim.found_refinery(4, 0, 0).is_ok(),
+            "components are producible"
         );
         // Found stations until a guard fires. Founding is an op that climbs the
         // spine, and the cap *widens* with the tier (§0.3), so the count is never

@@ -1352,13 +1352,14 @@ impl TorchSim {
         }
     }
 
-    /// Found a refinery turning raw commodity `raw` (0..2) into its refined
-    /// product, sourcing at `buy_market` and selling surplus at `sell_market`
-    /// (§3.1). Returns whether it was built.
+    /// Found a factory refining `input` into the next tier up its production line
+    /// (§7d: Raw → Refined → Components → Assembled), sourcing at `buy_market` and
+    /// selling surplus at `sell_market` (§3.1). Any non-top-tier commodity works.
+    /// Returns whether it was built.
     #[func]
-    fn found_refinery(&mut self, raw: i64, buy_market: i64, sell_market: i64) -> bool {
+    fn found_refinery(&mut self, input: i64, buy_market: i64, sell_market: i64) -> bool {
         self.sim
-            .found_refinery(raw as usize, buy_market as usize, sell_market as usize)
+            .found_refinery(input as usize, buy_market as usize, sell_market as usize)
             .is_ok()
     }
 
