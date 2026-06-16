@@ -160,6 +160,17 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Combat-diorama juice: live depleting force rosters (§22/§23).** A
+  pure-shell juice pass on the #63 diorama: two **pip rosters** (player GOOD-green,
+  raiders BAD-red) above the BattleLog that **deplete in real time** as `Destroyed`
+  beats reveal (`▰` filled → `▱` spent, `N/Total`), so a fight reads at a glance —
+  who's winning, how lopsided. Tracked by decrementing the victim side's count on
+  each kind-2 (Destroyed) event during playback (`_dio_surv`, `_dio_refresh_forces`).
+  No Rust change → all tests + the QA review untouched. Render-verified: a Close-band
+  frigate brawl shows the raider roster empty to `▱▱▱▱▱ 0/5` while the player holds
+  `▰▰▰▰▰ 5/5`. (Re-confirmed the §9 doctrine lesson on the way: the same fight at
+  *Medium* is a 0-leaker stalemate — the diorama surfaces the mistake faithfully.)
+
 - **2026-06-16 — Bill-of-materials: assemble warships from your own goods (§7d/§5).**
   Closed the economy→fleet loop the four-tier chain set up. Alongside the buy-for-
   credits `commission_ship`, new `assemble_ship(class)` builds the same hull from the

@@ -138,6 +138,10 @@ var _diorama: CanvasLayer
 var _dio_title: Label
 var _dio_sub: Label
 var _dio_log: RichTextLabel
+var _dio_force_a: RichTextLabel   # player force roster (depletes as kills play)
+var _dio_force_b: RichTextLabel   # raider force roster
+var _dio_surv := [0, 0]           # live surviving counts during playback
+var _dio_start := [0, 0]          # starting counts (pip denominators)
 var _dio_idx := 0
 var _dio_timer := 0.0
 var _dio_playing := false
@@ -863,6 +867,14 @@ func _build_diorama() -> void:
 	box.add_child(_dio_title)
 	_dio_sub = UiKit.label("", 14, UiKit.TEXT_DIM)
 	box.add_child(_dio_sub)
+	# Live force rosters — two pip bars that deplete as kills play (§22 juice).
+	var forces := HBoxContainer.new()
+	forces.add_theme_constant_override("separation", 40)
+	box.add_child(forces)
+	_dio_force_a = _dio_force_label()
+	_dio_force_b = _dio_force_label()
+	forces.add_child(_dio_force_a)
+	forces.add_child(_dio_force_b)
 	box.add_child(UiKit.rule())
 	var sc := ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -879,6 +891,29 @@ func _build_diorama() -> void:
 	box.add_child(UiKit.label("tap anywhere to dismiss", 11, UiKit.TEXT_DIM))
 
 
+## A roster label (bbcode) for one side's depleting force pips.
+func _dio_force_label() -> RichTextLabel:
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.fit_content = true
+	r.scroll_active = false
+	r.custom_minimum_size = Vector2(360, 0)
+	r.add_theme_font_size_override("normal_font_size", 16)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+
+## Render one side's force as filled/spent pips + a tally (§22 juice).
+func _dio_set_force(label: RichTextLabel, who: String, alive: int, total: int, col: Color) -> void:
+	var pips := ""
+	for i in mini(total, 16):
+		pips += "▰" if i < alive else "▱"
+	label.text = "[color=#%s]%s[/color]\n[color=#%s]%s[/color]  [color=#%s]%d/%d[/color]" % [
+		UiKit.TEXT_HI.to_html(false), who,
+		col.to_html(false), pips,
+		UiKit.TEXT.to_html(false), alive, total]
+
+
 ## Pause the world and begin replaying the just-resolved battle.
 func _open_diorama() -> void:
 	speed_idx = 0
@@ -891,7 +926,17 @@ func _open_diorama() -> void:
 	_dio_title.text = "ENGAGEMENT · %s RANGE" % bands[clampi(sim.battle_band(), 0, 2)]
 	_dio_sub.text = "%s — %d hulls    vs    Raiders — %d hulls" % [
 		String(sim.corp_name()), sim.battle_start_count(0), sim.battle_start_count(1)]
+	# Rosters start at full strength and deplete as kills reveal.
+	_dio_start = [sim.battle_start_count(0), sim.battle_start_count(1)]
+	_dio_surv = [_dio_start[0], _dio_start[1]]
+	_dio_refresh_forces()
 	_diorama.visible = true
+
+
+## Repaint both force rosters from the live surviving counts.
+func _dio_refresh_forces() -> void:
+	_dio_set_force(_dio_force_a, String(sim.corp_name()), _dio_surv[0], _dio_start[0], UiKit.GOOD)
+	_dio_set_force(_dio_force_b, "Raiders", _dio_surv[1], _dio_start[1], UiKit.BAD)
 
 
 func _close_diorama() -> void:
@@ -908,6 +953,11 @@ func _play_diorama(delta: float) -> void:
 	while _dio_timer >= DIO_STEP and _dio_idx < total:
 		_dio_timer -= DIO_STEP
 		_dio_log.append_text(_dio_event_line(_dio_idx) + "\n")
+		# A kill depletes the victim side's roster live (§22 juice).
+		if sim.battle_event_kind(_dio_idx) == 2:
+			var side := sim.battle_event_side(_dio_idx)
+			_dio_surv[side] = maxi(0, _dio_surv[side] - 1)
+			_dio_refresh_forces()
 		_dio_idx += 1
 		if _dio_idx >= total:
 			_dio_log.append_text("\n" + _dio_outcome_line())
