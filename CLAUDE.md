@@ -917,6 +917,23 @@ Status: [x] done, [~] in progress, [ ] todo.
   player-facing economy, but a distance-aware or round-robin dispatcher would spread
   NPC traffic more evenly if that ever matters.
 
+- **2026-06-16 — Mobile fixes: landscape orientation + real pinch-zoom (device
+  feedback).** Two device bugs from running on a phone: (a) **the UI wasn't
+  landscape** — `project.godot` had `window/handheld/orientation=1` (= *Portrait*
+  in Godot's enum `Landscape,Portrait,…,Sensor Landscape=4`), so the 1280×720
+  landscape HUD rendered portrait and the right-edge zoom buttons fell off-screen.
+  Set it to **4 (sensor-landscape)** + `window/stretch/aspect="expand"` so the HUD
+  fills the screen at any phone aspect. (b) **Pinch-zoom didn't work** — it used
+  `InputEventMagnifyGesture`, which is a *trackpad* gesture, **not** mobile touch.
+  Replaced with proper **multitouch tracking**: a `_touches` dict updated on
+  `InputEventScreenTouch`/`InputEventScreenDrag`, zooming by the ratio of the
+  two-finger distance between frames. Kept `emulate_mouse_from_touch` ON (so the
+  on-screen `[+]/[–]/[◉]` `Button`s and single-tap focus still work via the emulated
+  mouse), and moved tap-pick to the mouse-**up** with a `_was_multitouch` guard so a
+  pinch's first finger doesn't focus a world mid-zoom. `MagnifyGesture` kept as a
+  desktop-trackpad bonus. *Can't xvfb-verify orientation/touch* (desktop has neither)
+  — render only confirmed the buttons sit correctly; the device is the real test.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target
