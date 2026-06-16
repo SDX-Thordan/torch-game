@@ -40,11 +40,16 @@ jobs:
   gut:
     name: Godot — GUT view/integration tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     # Community image with Godot 4.6.3 headless; we add Rust to build the gdext
     # core the tests load (the sim↔view binding contract, §32).
     container:
       image: barichello/godot-ci:4.6.3
+    # gdext's generated bindings make debuginfo enormous and memory-heavy — on a
+    # 2-core runner a full debug build thrashes for 30+ min. We don't need debug
+    # symbols to run GUT, so drop them: the cold build comes down to a few minutes.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +62,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build the gdext core (debug cdylib the extension loads)
-        run: cargo build
+        run: cargo build -p torch-core
 
       # Godot can hang headless if it grabs a display/audio device — force the dummy
       # drivers, and timeout each step so a hang fails fast (observable) instead of
