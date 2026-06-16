@@ -165,6 +165,19 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — View interpolation: orrery markers glide between ticks (#14, §28).**
+  Pure-shell polish: the sim is a fixed 6-tick/s clock, so in-flight markers used to
+  *snap* each tick. `_smooth_to` now lerps each hauler/warship/freighter marker
+  toward its latest sim position every frame (framerate-scaled at `VIEW_LERP=9`),
+  snapping only on a big jump (respawn / pooled-slot reuse). **Two consistency
+  catches:** the lane trails now start from the *smoothed marker* position (not the
+  raw sim position) so trail + dot agree mid-interpolation, and tap-picking projects
+  the **rendered** marker position (`_hauler_pool[i].position`) rather than the sim
+  position — preserving the "render + pick can't disagree" rule. No Rust change →
+  determinism (§27) and the QA review are untouched. *Lesson:* when you decouple
+  render position from sim position, every consumer of "where is it" (trails,
+  picking) must read the *rendered* position, or they drift apart for a frame.
+
 - **2026-06-16 — Crew depth: captain traits + ship rename (deviation #11, §11/§14).**
   A right-sized crew pass (§0.2: "support, not RimWorld-deep"). Each captain gets a
   flavour **trait** (Ace Gunner / Steady / Lucky / …) derived **deterministically
