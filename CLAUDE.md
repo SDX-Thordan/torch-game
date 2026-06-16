@@ -165,6 +165,27 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Combat heat as opt-in aggressive fire (deviation #9, §8a/§9).**
+  Added the §9 heat model without rebalancing the tuned combat suite. Firing
+  railguns **hot** (`Doctrine.aggressive_fire`) boosts alpha (`AGGRESSIVE_FIRE_BP`
+  130%) but builds heat (`HEAT_PER_RAILGUN` × mounts/tick); over a per-ship radiator
+  ceiling the fleet **vents** — skips a railgun volley (`CombatEvent::Overheat`, a
+  gold diorama beat) and sheds heat. **Key non-breaking move:** `aggressive_fire`
+  defaults **false**, and the heat branch in `volley_damage` is skipped entirely
+  when off → the railgun/pdc sum + the jitter RNG draw are unchanged, so a default
+  fight is **byte-identical** (all 64-seed/§8a-saturation combat tests + the QA
+  review pass untouched — verified). The knob is exposed as a FLEET-view `FIRE`
+  toggle + `set_combat_aggressive` binding; `engage_raiders` reads it off
+  `self.combat_doctrine`. *Design lesson:* combat is **decisive/short** (§13, 2–3
+  ticks), so heat-venting can't be a clean tradeoff in a typical fight — it never
+  triggers (pure upside) or, if tuned to trigger fast, makes aggressive strictly
+  worse. So heat is framed as **front-loaded upside** that only vents in *prolonged*
+  engagements (a squadron grinding a big swarm) — the test
+  `aggressive_fire_eventually_vents_in_a_prolonged_fight` needs a 3-battleship vs
+  40-frigate Long-range fight to drag long enough to see an `Overheat`. The §8b
+  axis, §8a saturation, target/retreat, and now heat are modeled; facing/spinal is
+  the last combat-texture gap.
+
 - **2026-06-16 — GUT view/integration tests (deviation #15, §32).** Added the GUT
   counterpart to `cargo test`: a vendored **GUT 9.4.0** suite in `godot/test/` (15
   tests / 108 asserts, 3 scripts) that boots the **real gdext core headless** and

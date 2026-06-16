@@ -1147,6 +1147,19 @@ impl TorchSim {
         self.sim.combat_doctrine().retreat_bp / 100
     }
 
+    /// Toggle aggressive (hot) railgun fire (§9 heat): more alpha, but builds heat
+    /// that periodically vents.
+    #[func]
+    fn set_combat_aggressive(&mut self, on: bool) {
+        self.sim.set_combat_aggressive(on);
+    }
+
+    /// Whether the fleet fires railguns aggressively (§9).
+    #[func]
+    fn combat_aggressive(&self) -> bool {
+        self.sim.combat_doctrine().aggressive_fire
+    }
+
     /// Number of events in the last battle's log (§22 diorama), 0 if none.
     #[func]
     fn battle_log_count(&self) -> i64 {
@@ -1168,6 +1181,7 @@ impl TorchSim {
                 Volley { .. } => 1,
                 Destroyed { .. } => 2,
                 Retreat { .. } => 3,
+                Overheat { .. } => 4,
             })
             .unwrap_or(-1)
     }
@@ -1183,7 +1197,8 @@ impl TorchSim {
                 Salvo { side, .. }
                 | Volley { side, .. }
                 | Destroyed { side, .. }
-                | Retreat { side } => *side as i64,
+                | Retreat { side }
+                | Overheat { side } => *side as i64,
             })
             .unwrap_or(0)
     }

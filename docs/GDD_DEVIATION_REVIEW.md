@@ -39,7 +39,7 @@ one place. Each is tagged:
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
 | 7 | Multi-view shell vs. §18 slide-over panels — **✅ reconciled** (GDD amended) | §18 | 🟢 (was 🟡) |
 | 8 | Commodity chain — **✅ deepened to 4 tiers** (Raw→Refined→Components→Assembled, 12 goods) | §7d | 🟢 (was 🟡) |
-| 9 | Combat omits heat + facing/spinal-vs-turret (retreat/target doctrine now in, #3) | §8a / §9 | 🟡 |
+| 9 | Combat: **heat / aggressive-fire ✅** + retreat/target doctrine; facing/spinal still pending | §8a / §9 | 🟡 (narrowed) |
 | 10 | Civilian classes partial (no Courier/Salvager/Survey) | §8e | 🟡 |
 | 11 | Crew depth: name + quality only (no portraits/traits/quirks/loyalty/rename) | §11 | 🟡 (right-sized) |
 | 12 | Data pipeline: commodities **+ ship class specs** externalized; factions/curves in code | §31 | 🟡 (narrowed) |
@@ -237,17 +237,22 @@ one place. Each is tagged:
 - **Status:** Exceeds the MVP "2–3 tiers" target, and the economy→fleet
   bill-of-materials link is now in. Fully closed.
 
-### 9. 🟡 Combat omits heat + facing (doctrine knobs now partly in) — §8a, §9
+### 9. 🟡 Combat heat now in; facing/spinal still pending — §8a, §9
 - **GDD:** Fixed/spinal vs. turreted railguns (a **facing** consideration, §8a/§9);
   **heat** ceiling + heat-soaked radiators (§9, §23a); retreat threshold, target
   priority, PDC priority doctrine.
-- **Built:** Railguns are a flat per-class count with band-based effectiveness; no
-  facing/spinal model, no heat model. Doctrine is band + salvo-reload + screen
-  **plus target priority + retreat threshold** (added with the #3 command layer).
-- **Status:** The §8b escalation axis (railgun count), the §8a torpedo-saturation
-  equalizer, and the **target/retreat doctrine** are modeled; still missing are the
-  **heat** model, **facing/spinal-vs-turret**, and PDC-priority doctrine — the finer
-  combat texture, deferred to a later combat pass.
+- **Built:** Railguns are a flat per-class count with band-based effectiveness +
+  **target priority + retreat threshold** (#3) + a **heat / aggressive-fire model**
+  (this pass): firing railguns *hot* (`aggressive_fire`) boosts alpha
+  (`AGGRESSIVE_FIRE_BP`) but builds heat that periodically forces a **vent**
+  (`CombatEvent::Overheat`, a diorama beat) once the radiators saturate. It's an
+  opt-in doctrine knob (FLEET-view `FIRE` toggle), so **default fights are
+  byte-identical** — the §7c gate and the QA review are unchanged. *Design note:*
+  combat is decisive (§13), so in a quick fight aggressive is mostly front-loaded
+  upside; the vent bites in *prolonged* engagements (a squadron grinding a swarm).
+- **Status:** The §8b escalation axis, the §8a torpedo-saturation equalizer, the
+  target/retreat doctrine, and now **heat discipline** are modeled. Still missing:
+  **facing/spinal-vs-turret** and PDC-priority doctrine — the last combat texture.
 
 ### 10. 🟡 Civilian classes partial — §8e
 - **GDD:** Courier/Shuttle, Freighter (light→bulk→ore), Miner/Prospector, Tanker,
