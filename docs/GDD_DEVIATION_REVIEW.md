@@ -45,7 +45,7 @@ one place. Each is tagged:
 | 12 | Data pipeline: commodities **+ ship class specs** externalized; factions/curves in code | §31 | 🟡 (narrowed) |
 | 13 | Orrery omits trajectory ghosts, range/band rings, two-finger azimuth | §21 | 🟡 |
 | 14 | No view interpolation (positions snap per tick) | §28 | 🟡 |
-| 15 | No GUT view/integration tests (cargo + headless render only) | §32 | 🟡 |
+| 15 | GUT view/integration tests — **✅ added** (15 tests in CI, the sim↔view contract) | §32 | 🟢 (was 🟡) |
 | 16 | Audio dropped; juice partial | §23 | 🟢 (audio player-chosen) |
 | 17 | Voxel art + procedural assembly tool not built (primitive meshes) | §24 / §25 | 🟢 (roadmap #11) |
 | 18 | Endgame arc (gate/colonization/empire/incursions) not built | §17 | 🟢 (post-MVP) |
@@ -291,12 +291,20 @@ one place. Each is tagged:
   interpolation between ticks. At 6 ticks/s this can look slightly stepped at 1×.
 - **Status:** Minor; cosmetic.
 
-### 15. 🟡 No GUT view/integration tests — §32
+### 15. 🟢 GUT view/integration tests — ✅ added — §32
 - **GDD:** Native cargo tests **+ GUT** for the Godot/view + integration layer.
-- **Built:** Native cargo tests (139) + a headless render-capture workflow (xvfb)
-  used during development. **No GUT suite** exists.
-- **Status:** View correctness is currently verified by manual render captures, not
-  automated GUT tests.
+- **Built:** Native cargo tests (149) **+ a GUT 9.4.0 suite** (`godot/test/`, 15
+  tests / 108 asserts) that boots the real gdext core headless and exercises the
+  **sim↔view binding contract** main.gd depends on — world/economy/commission/
+  freighter-position/combat-on-station/BOM bindings + the `TorchShipyard` catalog +
+  the `UiKit`/`MiniChart` UI helpers. Runs in CI (`ci.yml` `gut` job: a Godot-4.6.3
+  container, builds the debug cdylib, `--import`, `gut_cmdln -gexit`) and exits
+  non-zero on any failure, so view-layer regressions a Rust unit test can't see are
+  now caught automatically (not just by manual render captures).
+- **Note:** vendored GUT **9.4.0** specifically — 9.3.0 shadows Godot 4.6's new
+  native `Logger` class and won't load; 9.4.0 renamed it to `GutLogger`.
+- **Status:** The §32 GUT counterpart now exists alongside cargo + the (still useful)
+  xvfb render workflow.
 
 ---
 
