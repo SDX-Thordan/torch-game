@@ -22,6 +22,11 @@ pub struct TradeRoute {
     pub in_transit: bool,
     pub arrival: u64,
     pub carrying: i64,
+    /// Tick the current trip departed — lets the freighter's live position be
+    /// interpolated along its orbital path (§6 positional logistics). `#[serde(default)]`
+    /// so saves from before this field still load.
+    #[serde(default)]
+    pub departed: u64,
 }
 
 impl TradeRoute {
@@ -36,6 +41,7 @@ impl TradeRoute {
             in_transit: false,
             arrival: 0,
             carrying: 0,
+            departed: 0,
         }
     }
 }

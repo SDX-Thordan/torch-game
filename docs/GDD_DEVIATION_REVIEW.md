@@ -31,7 +31,7 @@ one place. Each is tagged:
 
 | # | Deviation | GDD | Tag |
 |---|---|---|---|
-| 1 | Delta-v movement / per-ship position — **warships ✅ + combat positioning ✅** (freighters follow) | §2 / §6 | 🟠 (was 🔴) |
+| 1 | Delta-v movement / per-ship position — **warships ✅ + combat positioning ✅ + freighters ✅** (per-ship remass for freighters is finer 🟡) | §2 / §6 | 🟡 (was 🔴) |
 | 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
 | 3 | Combat command layer + diorama — **✅ done** (engage verb, doctrine knobs, BattleLog playback) | §9 / §22 | 🟡 (was 🟠) |
 | 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
@@ -89,8 +89,18 @@ one place. Each is tagged:
   `warships_on_station()` drives an accurate shell readout (FLEET doctrine line +
   "recall the fleet" message). Backward-compatible (fresh hulls dock at the core →
   on station), so all tests + the QA review are unchanged.
-- **Remaining for full Pillar-#2 coverage:** player **freighters** (still
-  pooled-count + route timer) — the last positional follow-up, hence still 🟠.
+- **Freighters positional ADDRESSED 2026-06-16.** A freighter running a standing
+  route now has a **live map position**, interpolated along its orbital lane
+  (origin → dest market body) by trip progress — the same lane model the NPC haulers
+  use (`route_freighter_pos`/`flying_routes`, a `departed` tick on `TradeRoute`).
+  Freighters render as a distinct muted-green marker with a lane trail on the orrery,
+  and the FLEET view shows each one's **real trip + progress** ("Mars Colony → Ceres
+  Yards · In transit 44%"). The pool-dispatch semantics are unchanged, so the route
+  tests + the QA review stay byte-identical. **Pillar #2 (delta-v / positional fleet)
+  is now substantially complete** — every player ship (warship + freighter) is a
+  located asset. Remaining 🟡 nuance: freighters don't yet spend a *per-ship remass
+  budget* (they fly a route-timed lane, not a delta-v-costed burn) — a finer-grain
+  follow-up, not a positional gap.
 
 ### 2. 🔴 No authored gate-mystery narrative or opening missions — §0.1, §16
 - **GDD:** The destination pull is the **#1 over-invest priority** (§0.2). The gate

@@ -610,6 +610,54 @@ impl Sim {
         self.routes.first().copied()
     }
 
+    /// Indices into [`routes`](Self::routes) whose freighter is **in flight** right
+    /// now (§6 positional logistics) — one flying freighter per in-transit route.
+    pub fn flying_routes(&self) -> Vec<usize> {
+        self.routes
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.in_transit)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Live position of route `i`'s freighter, interpolated along its orbital path
+    /// (origin → dest market body) by trip progress — the same lane model the NPC
+    /// haulers use, so the logistics wing is a real positional asset on the map (§6).
+    pub fn route_freighter_pos(&self, i: usize) -> (i64, i64) {
+        match self.routes.get(i) {
+            Some(rt) if rt.in_transit => {
+                let o = orbit::position_of(&self.bodies, self.markets[rt.origin].body(), self.tick);
+                let d = orbit::position_of(&self.bodies, self.markets[rt.dest].body(), self.tick);
+                let span = rt.arrival.saturating_sub(rt.departed).max(1) as i64;
+                let t = (self.tick.saturating_sub(rt.departed) as i64).clamp(0, span);
+                (o.0 + (d.0 - o.0) * t / span, o.1 + (d.1 - o.1) * t / span)
+            }
+            _ => (0, 0),
+        }
+    }
+
+    /// The destination body position for route `i` (for the freighter's lane trail).
+    pub fn route_dest_pos(&self, i: usize) -> (i64, i64) {
+        match self.routes.get(i) {
+            Some(rt) => orbit::position_of(&self.bodies, self.markets[rt.dest].body(), self.tick),
+            None => (0, 0),
+        }
+    }
+
+    /// Trip progress of route `i`'s freighter in basis points (0..=10000), for the
+    /// FLEET view's en-route readout.
+    pub fn route_progress_bp(&self, i: usize) -> i64 {
+        match self.routes.get(i) {
+            Some(rt) if rt.in_transit => {
+                let span = rt.arrival.saturating_sub(rt.departed).max(1) as i64;
+                let t = (self.tick.saturating_sub(rt.departed) as i64).clamp(0, span);
+                t * 10_000 / span
+            }
+            _ => 0,
+        }
+    }
+
     /// Add a parameterized Trade Route standing order to the table — buy
     /// `commodity` at `origin`, sell at `dest`, `qty` per trip, only while the
     /// spread clears `min_margin` (§4). Many routes run concurrently against the
@@ -687,6 +735,7 @@ impl Sim {
                 self.corp.debit(cost);
                 rt.in_transit = true;
                 rt.carrying = rt.qty;
+                rt.departed = self.tick;
                 rt.arrival = self.tick + self.travel_ticks(rt.origin, rt.dest);
                 in_flight += 1;
             }
@@ -2142,6 +2191,44 @@ mod tests {
         );
         assert!(max_in_flight >= 2, "both freighters should get used");
         assert!(sim.corp().credits() > start, "the table should bank profit");
+    }
+
+    #[test]
+    fn a_flying_freighter_has_a_real_position_on_its_lane() {
+        // §6 positional logistics: a freighter running a standing route is a located
+        // asset — its position sits between the origin and destination market bodies
+        // and advances along the lane as the trip progresses.
+        let mut sim = Sim::new(0);
+        sim.commission_freighter().unwrap();
+        sim.set_trade_route(5, 1, 0, 20, 1); // ReactorFuel, Earth → Ceres
+                                             // Step until a freighter is dispatched.
+        let mut flying = Vec::new();
+        for _ in 0..2_000 {
+            sim.step();
+            flying = sim.flying_routes();
+            if !flying.is_empty() {
+                break;
+            }
+        }
+        assert!(!flying.is_empty(), "the route should dispatch a freighter");
+        let r = flying[0];
+        let p0 = sim.route_freighter_pos(r);
+        let early = sim.route_progress_bp(r);
+        // Position is a real point (not the origin-only placeholder of the old model).
+        assert!(p0 != (0, 0), "a flying freighter has a position");
+        // Advance and confirm the trip progresses toward the destination.
+        for _ in 0..30 {
+            sim.step();
+            if !sim.routes()[r].in_transit {
+                break;
+            }
+        }
+        if sim.routes()[r].in_transit {
+            assert!(
+                sim.route_progress_bp(r) > early,
+                "the freighter advances along its lane over time"
+            );
+        }
     }
 
     #[test]

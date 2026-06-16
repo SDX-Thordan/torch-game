@@ -163,14 +163,17 @@ var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []
 var _hauler_pool: Array[MeshInstance3D] = []
 var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
+var _freighter_pool: Array[MeshInstance3D] = []  # §6 player freighters on the lanes
 var _wreck_pool: Array[MeshInstance3D] = []
 var _gate_ring: MeshInstance3D
 var _lane_mesh: ImmediateMesh
 var _hauler_mat: StandardMaterial3D
 var _ship_mat: StandardMaterial3D
+var _freighter_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
 var _wreck_mat: StandardMaterial3D
 var _gate_mat: StandardMaterial3D
+const FREIGHTER_COL := Color(0.45, 0.78, 0.62)  # muted green — player logistics wing
 
 
 func _ready() -> void:
@@ -235,6 +238,7 @@ func _build_world() -> void:
 
 	_hauler_mat = _emissive_mat(HAULER_COL)
 	_ship_mat = _emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
+	_freighter_mat = _emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
 	_select_mat = _emissive_mat(SELECT_COL)
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
 
@@ -1363,12 +1367,28 @@ func _update_world() -> void:
 			sship.scale = Vector3.ONE * (1.4 if sim.ship_in_transit(si) else 1.0)
 		else:
 			sship.visible = false
+	# Player freighters — positional on their standing-route lanes now (§6).
+	var fn_ := sim.freighter_count()
+	while _freighter_pool.size() < fn_:
+		var fm := _sphere(0.07, _freighter_mat)
+		_orrery_root.add_child(fm)
+		_freighter_pool.append(fm)
+	for fi in _freighter_pool.size():
+		var fnode := _freighter_pool[fi]
+		if fi < fn_:
+			fnode.visible = true
+			fnode.position = _world3d(sim.freighter_x(fi), sim.freighter_y(fi))
+		else:
+			fnode.visible = false
 	_lane_mesh.clear_surfaces()
-	if n > 0:
+	if n > 0 or fn_ > 0:
 		_lane_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 		for i in n:
 			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_x(i), sim.hauler_y(i)))
 			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_dest_x(i), sim.hauler_dest_y(i)))
+		for i in fn_:
+			_lane_mesh.surface_add_vertex(_world3d(sim.freighter_x(i), sim.freighter_y(i)))
+			_lane_mesh.surface_add_vertex(_world3d(sim.freighter_dest_x(i), sim.freighter_dest_y(i)))
 		_lane_mesh.surface_end()
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
@@ -1531,13 +1551,19 @@ func _refresh_fleet() -> void:
 			var fcol: Color = UiKit.GOOD if fuel > 0.35 else (UiKit.ACCENT if fuel > 0.12 else UiKit.BAD)
 			_fleet_row(String(sim.ship_name(i)), fuel > 0.05, "Warship", loc, assign, fuel, fcol)
 			shown += 1
-	# Freighters run the standing routes (§4) — the abstract logistics wing.
+	# Freighters run the standing routes (§4) — positional on their lanes now (§6).
 	if fleet_tab == 0 or fleet_tab == 2 or fleet_tab == 3:
 		var fr := sim.freighters()
+		var flying := sim.freighter_count()
 		for i in fr:
-			var assign := String(sim.route_status()) if sim.route_count() > 0 else "Idle"
-			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", "Lanes", assign,
-				1.0, UiKit.ACCENT)
+			var en_route := i < flying
+			if fleet_tab == 3 and en_route:   # IDLE tab: only docked freighters
+				continue
+			var loc := String(sim.freighter_trip(i)) if en_route else "Ceres Yards"
+			var assign := ("In transit %d%%" % sim.freighter_progress(i)) if en_route else (
+				String(sim.route_status()) if sim.route_count() > 0 else "Idle")
+			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", loc, assign,
+				1.0, UiKit.GOOD if en_route else UiKit.ACCENT)
 			shown += 1
 	if shown == 0:
 		for _i in 6:
