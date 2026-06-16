@@ -143,10 +143,12 @@ var _orrery_root: Node3D
 var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []
 var _hauler_pool: Array[MeshInstance3D] = []
+var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
 var _wreck_pool: Array[MeshInstance3D] = []
 var _gate_ring: MeshInstance3D
 var _lane_mesh: ImmediateMesh
 var _hauler_mat: StandardMaterial3D
+var _ship_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
 var _wreck_mat: StandardMaterial3D
 var _gate_mat: StandardMaterial3D
@@ -212,6 +214,7 @@ func _build_world() -> void:
 	_orrery_root.add_child(key)
 
 	_hauler_mat = _emissive_mat(HAULER_COL)
+	_ship_mat = _emissive_mat(Color(0.4, 0.95, 1.0))   # player warships: bright cyan
 	_select_mat = _emissive_mat(SELECT_COL)
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
 
@@ -586,6 +589,20 @@ func _build_systems_view() -> void:
 	mc.add_child(_make_map_button("–", func(): _zoom_by(1.25)))
 	mc.add_child(_make_map_button("◉", _reset_view))
 
+	# Fleet ops (§6): send the docked warships to the focused world, or refuel them.
+	var fo := HBoxContainer.new()
+	fo.add_theme_constant_override("separation", 6)
+	fo.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fo.anchor_left = 1
+	fo.anchor_top = 1
+	fo.offset_left = -470
+	fo.offset_top = -126
+	fo.offset_right = -250
+	fo.offset_bottom = -94
+	root.add_child(fo)
+	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
+	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
+
 
 func _add_toggle(col: VBoxContainer, text: String, cb: Callable) -> CheckButton:
 	var row := UiKit.toggle_row(text, false)
@@ -607,6 +624,53 @@ func _make_map_button(label: String, cb: Callable) -> Button:
 	btn.add_theme_color_override("font_color", UiKit.ACCENT)
 	btn.pressed.connect(cb)
 	return btn
+
+
+## A wider labelled touch button for fleet ops (§6).
+func _make_op_button(label: String, cb: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = label
+	btn.custom_minimum_size = Vector2(104, 32)
+	btn.add_theme_font_size_override("font_size", 12)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_stylebox_override("normal", UiKit.panel_box(UiKit.BG_BAR, UiKit.LINE, 6))
+	btn.add_theme_stylebox_override("hover", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+	btn.add_theme_stylebox_override("pressed", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+	btn.add_theme_color_override("font_color", UiKit.TEXT_HI)
+	btn.pressed.connect(cb)
+	return btn
+
+
+## Send every docked warship on a committed trajectory to the focused world (§6).
+func _dispatch_fleet_to_focus() -> void:
+	if _focus_body <= 0 or sim.body_kind(_focus_body) == 5:
+		status = "Tap a world first, then SEND FLEET."
+		return
+	var sent := 0
+	var blocked := ""
+	for i in sim.fleet_size():
+		if sim.ship_in_transit(i):
+			continue
+		var err := String(sim.move_ship(i, _focus_body, false))
+		if err == "":
+			sent += 1
+		elif err != "already docked there":
+			blocked = err
+	if sent > 0:
+		status = "%d ship(s) burning for %s." % [sent, String(sim.body_name(_focus_body))]
+	elif blocked != "":
+		status = "Can't dispatch: %s." % blocked
+	else:
+		status = "No docked warships to send (or already there)."
+
+
+## Refuel every docked warship to a full tank (§6).
+func _refuel_fleet() -> void:
+	var n := 0
+	for i in sim.fleet_size():
+		if sim.refuel_ship(i):
+			n += 1
+	status = "Refuelled %d ship(s)." % n if n > 0 else "Nothing to refuel."
 
 
 # ============================================================================
@@ -985,6 +1049,20 @@ func _update_world() -> void:
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
 		else:
 			node.visible = false
+	# Player warships — positional now (§6); a moving one swells slightly.
+	var sn := sim.fleet_size()
+	while _ship_pool.size() < sn:
+		var sm := _sphere(0.08, _ship_mat)
+		_orrery_root.add_child(sm)
+		_ship_pool.append(sm)
+	for si in _ship_pool.size():
+		var sship := _ship_pool[si]
+		if si < sn:
+			sship.visible = true
+			sship.position = _world3d(sim.ship_x(si), sim.ship_y(si))
+			sship.scale = Vector3.ONE * (1.4 if sim.ship_in_transit(si) else 1.0)
+		else:
+			sship.visible = false
 	_lane_mesh.clear_surfaces()
 	if n > 0:
 		_lane_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
@@ -1135,26 +1213,25 @@ func _refresh_fleet() -> void:
 		_fleet_grid.add_child(UiKit.label(h, 10, UiKit.ACCENT))
 	var shown := 0
 	var fsz := sim.fleet_size()
-	# Warships.
+	# Warships — real position + fuel from the sim (§6).
 	if fleet_tab != 2:   # not "single ships only"
 		for i in fsz:
-			if fleet_tab == 3 and (i % 2 == 0):   # IDLE: a deterministic subset
+			var moving := sim.ship_in_transit(i)
+			if fleet_tab == 3 and moving:   # IDLE tab: only docked ships
 				continue
-			var assign := "Patrol Sector" if sim.patrol_enabled() else "Standby"
-			var loc := String(sim.market_name(i % sim.market_count()))
-			var fuel := 0.45 + 0.5 * absf(sin(float(i) * 1.7 + 1.0))
-			_fleet_row(String(sim.ship_name(i)), true, "Warship", loc, assign,
-				fuel, UiKit.GOOD)
+			var loc := String(sim.ship_location(i))
+			var fuel := float(sim.ship_fuel_bp(i)) / 10000.0
+			var assign := "En route" if moving else ("Refuel needed" if fuel < 0.12 else "Docked")
+			var fcol: Color = UiKit.GOOD if fuel > 0.35 else (UiKit.ACCENT if fuel > 0.12 else UiKit.BAD)
+			_fleet_row(String(sim.ship_name(i)), fuel > 0.05, "Warship", loc, assign, fuel, fcol)
 			shown += 1
-	# Freighters.
+	# Freighters run the standing routes (§4) — the abstract logistics wing.
 	if fleet_tab == 0 or fleet_tab == 2 or fleet_tab == 3:
 		var fr := sim.freighters()
 		for i in fr:
 			var assign := String(sim.route_status()) if sim.route_count() > 0 else "Idle"
-			var loc := String(sim.market_name((i + 1) % sim.market_count()))
-			var fuel := 0.4 + 0.55 * absf(cos(float(i) * 2.1))
-			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", loc, assign,
-				fuel, UiKit.ACCENT)
+			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", "Lanes", assign,
+				1.0, UiKit.ACCENT)
 			shown += 1
 	if shown == 0:
 		for _i in 6:

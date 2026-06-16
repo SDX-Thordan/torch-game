@@ -792,6 +792,74 @@ impl TorchSim {
             .unwrap_or(0)
     }
 
+    /// Where warship `i` is (§6): the dock body name, or "→ Dest" in transit.
+    #[func]
+    fn ship_location(&self, i: i64) -> GString {
+        let fleet = self.sim.corp().fleet();
+        let Some(s) = fleet.get(i as usize) else {
+            return GString::new();
+        };
+        let body = |b: usize| self.sim.bodies().get(b).map(|x| x.name).unwrap_or("?");
+        if s.nav.in_transit(self.sim.tick()) {
+            GString::from(format!("→ {}", body(s.nav.dest)))
+        } else {
+            GString::from(body(s.nav.location))
+        }
+    }
+
+    /// Warship `i`'s remass (fuel) as basis points of tankage, 0..=10000 (§6).
+    #[func]
+    fn ship_fuel_bp(&self, i: i64) -> i64 {
+        self.sim
+            .corp()
+            .fleet()
+            .get(i as usize)
+            .map(|s| s.nav.fuel_bp())
+            .unwrap_or(0)
+    }
+
+    /// Whether warship `i` is mid-trajectory (§6).
+    #[func]
+    fn ship_in_transit(&self, i: i64) -> bool {
+        self.sim
+            .corp()
+            .fleet()
+            .get(i as usize)
+            .map(|s| s.nav.in_transit(self.sim.tick()))
+            .unwrap_or(false)
+    }
+
+    /// Absolute orrery position of warship `i` (§6/§21) — for drawing it on the map.
+    #[func]
+    fn ship_x(&self, i: i64) -> i64 {
+        self.sim.ship_position(i as usize).0
+    }
+
+    #[func]
+    fn ship_y(&self, i: i64) -> i64 {
+        self.sim.ship_position(i as usize).1
+    }
+
+    /// Order warship `i` to fly to `dest` body at an economical or hard burn (§6).
+    /// Returns "" on success, else a short reason (busy / no fuel / already there).
+    #[func]
+    fn move_ship(&mut self, i: i64, dest: i64, hard_burn: bool) -> GString {
+        use sim::world::MoveError::*;
+        match self.sim.move_ship(i as usize, dest as usize, hard_burn) {
+            Ok(()) => GString::new(),
+            Err(Busy) => GString::from("ship is already under way"),
+            Err(InsufficientRemass) => GString::from("not enough remass — refuel first"),
+            Err(AlreadyThere) => GString::from("already docked there"),
+            Err(NoSuchShip) | Err(BadDestination) => GString::from("no such ship/destination"),
+        }
+    }
+
+    /// Refuel docked warship `i` to a full tank, buying remass (§6). Returns success.
+    #[func]
+    fn refuel_ship(&mut self, i: i64) -> bool {
+        self.sim.refuel_ship(i as usize)
+    }
+
     #[func]
     fn ship_battles_won(&self, i: i64) -> i64 {
         self.sim

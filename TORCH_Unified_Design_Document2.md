@@ -125,15 +125,15 @@ The three-way cold war is a living tension meter; flashpoints create embargoes, 
 > fleet a positional, logistical asset (and a real interdiction target) rather than
 > an abstract roster.
 >
-> **Current MVP gap (to close).** Today `delta_v` is computed per fit and used only
-> for *combat* range/mobility and the shipyard readout; the **movement layer does
-> not consume it**. NPC haulers move at a flat `CRUISE_SPEED` (positions tracked,
-> rendered); player freighters are an abstract **pooled count** with an in-transit
-> timer (no individual position); player **warships have no position at all** and
-> never traverse the map (combat is the abstract `engage_raiders` verb). Closing
-> this — per-ship position + a spent delta-v/remass budget + stranding/refuel —
-> is the next major sim step toward Pillar #2, and unblocks an honest FLEET view
-> (location/fuel are currently synthesized in the shell because the sim lacks them).
+> **Status — closed 2026-06-16 (warships).** `sim::movement` now gives every owned
+> **warship** a tracked position + remass budget (`OwnedShip.nav`): `move_ship`
+> commits a trajectory at the live orbital distance, spends remass, and takes time
+> from the ship's drive and the chosen burn (economical vs. hard); a dry tank
+> **strands** the ship until `refuel_ship` buys remass at a dock. Ships render on the
+> orrery and the FLEET view shows **real** location/fuel (no longer synthesized).
+> *Remaining:* player **freighters** are still the abstract pooled-count + route
+> timer (not yet per-ship positional), and combat (`engage_raiders`) is not yet
+> gated on fleet position — both follow-ups toward full Pillar-#2 coverage.
 
 ## 7. Economy & Industry
 

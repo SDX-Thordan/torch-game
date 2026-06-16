@@ -17,6 +17,7 @@ use super::faction::Relations;
 use super::industry::Station;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::logistics::TradeRoute;
+use super::movement;
 use super::orbit::{self, default_system, Body};
 use super::pressure::{Intensity, PressureKind, PressureSystem};
 use super::progression::Progression;
@@ -50,6 +51,11 @@ const REFINERY_SELL_ABOVE: i64 = 80;
 const REFINERY_TARGET: i64 = 160;
 /// Number of raw commodities (raw `i` refines to refined `i + RAW_COUNT`).
 const RAW_COUNT: usize = 3;
+/// The commodity that *is* reaction mass (refuel buys this): "Remass" (index 3).
+const REMASS_COMMODITY: usize = 3;
+/// Remass units bought per unit of the Remass commodity (a discount vs. raw price
+/// so refuelling is affordable mid-campaign, §6).
+const REMASS_PER_FUEL: i64 = 5;
 /// Crew quality of a raider pack (§13). Matched to the player's reference 50: a
 /// same-count pack is a genuine coin-flip (the gameplay-QA balance target), so
 /// committing warships is a real risk — your fleet can be lost (§13 attrition).
@@ -86,6 +92,18 @@ pub enum TradeError {
 pub enum CommissionError {
     CantAfford,
     NotEnoughCrew,
+}
+
+/// Why a warship could not be ordered to move (§6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveError {
+    NoSuchShip,
+    BadDestination,
+    /// Already mid-trajectory.
+    Busy,
+    AlreadyThere,
+    /// Not enough remass to make the burn — refuel first (stranding is real).
+    InsufficientRemass,
 }
 
 /// Why a faction contract could not be accepted or fulfilled (§3.3/§16).
@@ -427,11 +445,107 @@ impl Sim {
         let loadout = ships::reference_loadout(class, &mut self.rng);
         self.corp.debit(price);
         self.corp.assign_crew(hull.crew_required);
-        // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14).
+        // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14). It rolls
+        // off the line docked at Ceres Yards (the shipyard) with a full tank (§6).
         let name = format!("{} ({})", ships::christen_ship(&mut self.rng), hull.name);
-        self.corp.add_ship(OwnedShip::new(name, loadout, self.tick));
+        let home = self.markets[0].body();
+        self.corp
+            .add_ship(OwnedShip::new(name, loadout, self.tick, home));
         self.complete_op(); // building the fleet is progress on the climb (§0)
         Ok(())
+    }
+
+    /// Order warship `idx` to fly to `dest` body (§6): commit a trajectory at the
+    /// live orbital distance, spend remass, and take time derived from the ship's
+    /// drive and the chosen burn (economical vs. hard). Fails if the ship is busy,
+    /// already there, or lacks the remass to make the burn (stranding is real).
+    pub fn move_ship(&mut self, idx: usize, dest: usize, hard_burn: bool) -> Result<(), MoveError> {
+        if dest >= self.bodies.len() {
+            return Err(MoveError::BadDestination);
+        }
+        let ship = self.corp.fleet().get(idx).ok_or(MoveError::NoSuchShip)?;
+        if ship.nav.in_transit(self.tick) {
+            return Err(MoveError::Busy);
+        }
+        if ship.nav.location == dest {
+            return Err(MoveError::AlreadyThere);
+        }
+        let here = orbit::position_of(&self.bodies, ship.nav.location, self.tick);
+        let there = orbit::position_of(&self.bodies, dest, self.tick);
+        let (dx, dy) = (there.0 - here.0, there.1 - here.1);
+        let distance = (dx * dx + dy * dy).isqrt();
+        let plan = movement::plan(&ship.loadout, distance, hard_burn);
+        let nav = ship.nav; // `Nav` is `Copy`; ends the immutable borrow of `ship`
+        if nav.remass < plan.remass_cost {
+            return Err(MoveError::InsufficientRemass);
+        }
+        self.corp.fleet_mut()[idx].nav = movement::Nav {
+            location: nav.location,
+            dest,
+            depart_tick: self.tick,
+            arrival_tick: self.tick + plan.travel_ticks,
+            remass: nav.remass - plan.remass_cost,
+            remass_max: nav.remass_max,
+        };
+        Ok(())
+    }
+
+    /// Refuel docked warship `idx` to a full tank (§6), buying the reaction mass at
+    /// the cheapest market price for ReactorFuel. Returns whether it refuelled.
+    pub fn refuel_ship(&mut self, idx: usize) -> bool {
+        let nav = match self.corp.fleet().get(idx) {
+            Some(s) => s.nav, // `Copy` — ends the borrow of `self.corp`
+            None => return false,
+        };
+        if nav.in_transit(self.tick) {
+            return false;
+        }
+        let need = nav.remass_max - nav.remass;
+        if need <= 0 {
+            return false;
+        }
+        let unit = self
+            .markets
+            .iter()
+            .map(|m| m.price(REMASS_COMMODITY))
+            .min()
+            .unwrap_or(1);
+        let cost = (need * unit / REMASS_PER_FUEL).max(0);
+        if !self.corp.debit(cost) {
+            return false;
+        }
+        self.corp.fleet_mut()[idx].nav.remass = nav.remass_max;
+        true
+    }
+
+    /// Advance in-flight ships: any whose trajectory has completed docks at its
+    /// destination (§6). Called each tick.
+    fn run_fleet_nav(&mut self) {
+        let tick = self.tick;
+        for s in self.corp.fleet_mut() {
+            if s.nav.dest != s.nav.location && tick >= s.nav.arrival_tick {
+                s.nav.location = s.nav.dest;
+            }
+        }
+    }
+
+    /// Absolute position of owned ship `idx` (§6/§21): its dock body when docked,
+    /// or interpolated along its trajectory when in transit.
+    pub fn ship_position(&self, idx: usize) -> (i64, i64) {
+        let Some(s) = self.corp.fleet().get(idx) else {
+            return (0, 0);
+        };
+        let from = orbit::position_of(&self.bodies, s.nav.location, self.tick);
+        if !s.nav.in_transit(self.tick) {
+            return from;
+        }
+        let to = orbit::position_of(&self.bodies, s.nav.dest, self.tick);
+        let span = (s.nav.arrival_tick - s.nav.depart_tick).max(1) as i64;
+        let t = (self.tick - s.nav.depart_tick) as i64;
+        (
+            from.0 + (to.0 - from.0) * t / span,
+            from.1 + (to.1 - from.1) * t / span,
+        )
     }
 
     /// Commission a civilian freighter to run trade-route standing orders (§4).
@@ -791,6 +905,7 @@ impl Sim {
                 battles: s.battles,
                 battles_won: s.battles_won,
                 crew_quality: s.loadout.crew().quality,
+                nav: s.nav,
             })
             .collect();
         let markets = self
@@ -859,9 +974,15 @@ impl Sim {
             .map(|sh| {
                 let loadout =
                     ships::reference_loadout_quality(sh.class, sh.crew_quality, &mut self.rng);
-                let mut ship = OwnedShip::new(sh.name.clone(), loadout, sh.commissioned_tick);
+                let mut ship = OwnedShip::new(
+                    sh.name.clone(),
+                    loadout,
+                    sh.commissioned_tick,
+                    sh.nav.location,
+                );
                 ship.battles = sh.battles;
                 ship.battles_won = sh.battles_won;
+                ship.nav = sh.nav;
                 ship
             })
             .collect();
@@ -909,6 +1030,7 @@ impl Sim {
         self.run_automation();
         self.run_logistics();
         self.run_industry();
+        self.run_fleet_nav();
         self.run_contracts();
         // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
         // keeps the economy bit-identical whether or not anyone salvages.
@@ -1266,6 +1388,54 @@ mod tests {
     use super::*;
     use crate::sim::pressure::Intensity;
     use crate::sim::ships::ShipClass;
+
+    #[test]
+    fn a_warship_flies_a_committed_trajectory_and_refuels() {
+        // §6 / Pillar #2: a move commits a trajectory, spends remass, takes time,
+        // and the ship is positional — it can't be re-tasked mid-flight, and a tank
+        // refuels at a dock.
+        let mut sim = Sim::new(0);
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        let full = sim.corp().fleet()[0].nav.remass;
+        assert!(
+            !sim.corp().fleet()[0].nav.in_transit(sim.tick()),
+            "starts docked"
+        );
+
+        // Order it from Ceres Yards to Earth (body 3).
+        sim.move_ship(0, 3, false)
+            .expect("a frigate can reach Earth");
+        assert!(
+            sim.corp().fleet()[0].nav.in_transit(sim.tick()),
+            "now en route"
+        );
+        assert!(
+            sim.corp().fleet()[0].nav.remass < full,
+            "spent remass on the burn"
+        );
+        assert_eq!(
+            sim.move_ship(0, 5, false),
+            Err(MoveError::Busy),
+            "can't re-task mid-flight"
+        );
+
+        // Fly it out; it arrives at Earth.
+        for _ in 0..3_000 {
+            sim.step();
+            if !sim.corp().fleet()[0].nav.in_transit(sim.tick()) {
+                break;
+            }
+        }
+        assert_eq!(sim.corp().fleet()[0].nav.location, 3, "docked at Earth");
+
+        // Refuel tops the tank (costs credits).
+        let before = sim.corp().fleet()[0].nav.remass;
+        let credits = sim.corp().credits();
+        assert!(sim.refuel_ship(0));
+        assert_eq!(sim.corp().fleet()[0].nav.remass, full, "tank full again");
+        assert!(sim.corp().fleet()[0].nav.remass > before);
+        assert!(sim.corp().credits() < credits, "fuel costs money");
+    }
 
     #[test]
     fn a_run_round_trips_through_a_json_save() {
