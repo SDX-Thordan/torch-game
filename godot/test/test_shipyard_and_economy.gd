@@ -56,3 +56,12 @@ func test_warships_must_be_on_station_to_engage() -> void:
 	sim.move_ship(0, 3, false)
 	assert_eq(sim.warships_on_station(), 0, "a departed hull is off station")
 	assert_eq(sim.engage(1), -1, "no on-station warship ⇒ can't defend")
+
+
+func test_gate_transit_is_gated_until_the_open_ring() -> void:
+	# §0.1/§17: the endgame transit verb is unavailable until the gate is reached,
+	# and the player hasn't transited at the start.
+	assert_false(sim.can_transit_gate(), "can't transit from The Station")
+	assert_false(sim.gate_transited(), "not through the gate at the start")
+	assert_false(sim.transit_gate(), "transit is refused before the open gate")
+	assert_eq(sim.gate_progress_pct(), 0, "the gate is far off at the start")

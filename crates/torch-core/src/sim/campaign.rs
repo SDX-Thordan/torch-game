@@ -8,12 +8,14 @@
 //! milestones, and the gate's approach is always visible.
 
 /// The tiers of play (§0.3) — each a different *kind* of game, not just bigger.
+/// `Beyond` is the post-gate endgame (§17), reached by *transiting* the open ring.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tier {
     Station,
     Region,
     Sol,
     Gate,
+    Beyond,
 }
 
 impl Tier {
@@ -23,6 +25,7 @@ impl Tier {
             Tier::Region => "The Region",
             Tier::Sol => "Sol & the Cold War",
             Tier::Gate => "The Gate",
+            Tier::Beyond => "Beyond the Gate",
         }
     }
 
@@ -31,17 +34,20 @@ impl Tier {
             0 => Tier::Station,
             1 => Tier::Region,
             2 => Tier::Sol,
-            _ => Tier::Gate,
+            3 => Tier::Gate,
+            _ => Tier::Beyond,
         }
     }
 
-    /// Player operations needed to climb to the next tier, or `None` at the top.
+    /// Player operations needed to climb to the next tier, or `None` at a summit.
+    /// The Gate is **not** auto-advanced — crossing it is the deliberate
+    /// [`transit`](Campaign::transit) verb, the payoff of the whole climb (§0.1).
     fn ops_to_advance(self) -> Option<i64> {
         match self {
             Tier::Station => Some(3),
             Tier::Region => Some(10),
             Tier::Sol => Some(25),
-            Tier::Gate => None,
+            Tier::Gate | Tier::Beyond => None,
         }
     }
 
@@ -51,7 +57,8 @@ impl Tier {
             Tier::Station => "Disrupt the lanes and prove the operation.",
             Tier::Region => "Extend your network across the Belt.",
             Tier::Sol => "Turn the great powers against each other.",
-            Tier::Gate => "The ring-gate is open — seize the frontier.",
+            Tier::Gate => "The ring is open. When you are ready — transit the gate.",
+            Tier::Beyond => "You are through. Hold the bridgehead on the far side.",
         }
     }
 
@@ -69,7 +76,10 @@ impl Tier {
                 "Tier 3 — Sol & the Cold War. The whole system and its politics. Play the powers against each other and earn dominance."
             }
             Tier::Gate => {
-                "Tier 4 — The Gate. The ring opens onto a larger, deadlier game. Seize the frontier."
+                "Tier 4 — The Gate. The ring is open and counting. Everything you built was to reach this. Transit when you are ready — there is no coming back the same."
+            }
+            Tier::Beyond => {
+                "Tier 5 — Beyond the Gate. A new sky, a new economy, and whatever was counting on the far side. The larger game begins here."
             }
         }
     }
@@ -83,6 +93,7 @@ impl Tier {
             Tier::Region => 6,
             Tier::Sol => 8,
             Tier::Gate => 12,
+            Tier::Beyond => 16,
         }
     }
 
@@ -93,6 +104,7 @@ impl Tier {
             Tier::Station => 4,
             Tier::Region => 6,
             Tier::Sol | Tier::Gate => 8,
+            Tier::Beyond => 10,
         }
     }
 }
@@ -130,14 +142,33 @@ impl Campaign {
     }
 
     /// The *far* goal: how close the ring-gate is to opening, in basis points —
-    /// foreshadowed from minute one (§0.1).
+    /// foreshadowed from minute one (§0.1). Caps at 100% (the Gate); transiting it
+    /// (`Beyond`) is past the bar, not more of it.
     pub fn gate_progress_bp(&self) -> i64 {
-        self.tier_index as i64 * BP / ASCENTS
+        (self.tier_index as i64 * BP / ASCENTS).min(BP)
     }
 
-    /// Whether the gate has opened (the summit of the MVP climb).
+    /// Whether the gate has opened (the summit of the MVP climb — Gate or Beyond).
     pub fn gate_open(&self) -> bool {
-        self.tier() == Tier::Gate
+        self.tier_index >= 3
+    }
+
+    /// Whether the player has **transited** the gate into the endgame (§17).
+    pub fn transited(&self) -> bool {
+        self.tier() == Tier::Beyond
+    }
+
+    /// Transit the open ring-gate (§0.1/§17) — the climactic, deliberate act that
+    /// crosses from the Gate into `Beyond`. Only possible standing at the open gate;
+    /// returns the new tier's name on success (the arrival fanfare), else `None`.
+    pub fn transit(&mut self) -> Option<&'static str> {
+        if self.tier() == Tier::Gate {
+            self.tier_index += 1; // → Beyond
+            self.ops_in_tier = 0;
+            Some(self.tier().name())
+        } else {
+            None
+        }
     }
 
     /// The current tier's briefing (the "different kind of game" framing, §0.3).
@@ -211,9 +242,40 @@ mod tests {
             assert!(now.0 >= prev.0 && now.1 >= prev.1, "caps must never shrink");
             prev = now;
         }
-        // At the summit the network is at its widest.
+        // At the gate the network is at its widest *of the MVP climb*.
         assert_eq!(c.tier(), Tier::Gate);
         assert_eq!((c.station_cap(), c.route_cap()), (12, 8));
+    }
+
+    #[test]
+    fn transiting_the_open_gate_reaches_the_endgame() {
+        // §0.1/§17: the climb summits at the open Gate; *transiting* it is the
+        // deliberate climactic act into Beyond. It's only possible at the gate.
+        let mut c = Campaign::new();
+        assert!(
+            c.transit().is_none(),
+            "can't transit before reaching the gate"
+        );
+        for _ in 0..(3 + 10 + 25) {
+            c.record_op();
+        }
+        assert_eq!(c.tier(), Tier::Gate);
+        assert_eq!(c.gate_progress_bp(), BP, "the gate is fully open at 100%");
+        assert!(!c.transited());
+        // Ops never auto-cross the gate — transit is a deliberate verb.
+        for _ in 0..50 {
+            assert_eq!(c.record_op(), None, "the gate does not auto-advance");
+        }
+        assert_eq!(c.tier(), Tier::Gate);
+        // The deliberate transit crosses into the endgame.
+        assert_eq!(c.transit(), Some("Beyond the Gate"));
+        assert_eq!(c.tier(), Tier::Beyond);
+        assert!(c.transited());
+        assert!(c.gate_open());
+        // Gate progress stays capped at 100% (Beyond is past the bar, not more of it).
+        assert_eq!(c.gate_progress_bp(), BP);
+        // No double transit.
+        assert!(c.transit().is_none());
     }
 
     #[test]

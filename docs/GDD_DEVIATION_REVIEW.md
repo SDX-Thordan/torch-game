@@ -48,7 +48,7 @@ one place. Each is tagged:
 | 15 | GUT view/integration tests — **✅ added** (15 tests in CI, the sim↔view contract) | §32 | 🟢 (was 🟡) |
 | 16 | Audio dropped; juice partial | §23 | 🟢 (audio player-chosen) |
 | 17 | Voxel art + procedural assembly tool not built (primitive meshes) | §24 / §25 | 🟢 (roadmap #11) |
-| 18 | Endgame arc (gate/colonization/empire/incursions) not built | §17 | 🟢 (post-MVP) |
+| 18 | Endgame arc — **started**: gate transit + mystery answer (post-gate sandbox to come) | §17 | 🟢 (in progress) |
 
 ---
 
@@ -350,10 +350,19 @@ one place. Each is tagged:
   battle damage, and the offline procedural-assembly tool are **roadmap item #11
   (todo)** — explicitly post-foundation. Not a silent deviation.
 
-### 18. 🟢 Endgame arc not built — §17
-- The gate opening, multi-system procedural frontier, colonization race, empire,
-  and incursions are **§17 "Post-MVP"** and roadmap #15. Salvage (§15 seed) is in;
-  excursions/boarding/anomalies are post-MVP. As specified.
+### 18. 🟢 Endgame arc — **started**: gate transit + the mystery's answer — §17
+- **Started (2026-06-16):** the climactic moment is in. A new **`Tier::Beyond`** sits
+  past the Gate, reached by a deliberate **`transit_gate`** verb (not an auto-ascent)
+  available only standing at the open ring. Transit tells the rest of the gate
+  mystery, voices the gate's **answer** (`GATE_ANSWER` — the §0.1 payoff that the
+  seven mystery beats build toward), emits `Event::GateTransited`, and crosses into
+  the endgame (wider caps, new briefing/objective). The shell lights a
+  `⟁ TRANSIT GATE` verb at the open gate and reframes the destination panel to
+  "Beyond the Gate". Because transit is a deliberate verb (personas never call it),
+  the §7c gate + the QA review stay **byte-identical**.
+- **Still post-MVP (the rest of §17):** the multi-system procedural frontier *content*
+  beyond the ring, the colonization race, empire, and incursions. The transit gives
+  the arc its **destination payoff**; the post-gate sandbox is the next phase.
 
 ---
 

@@ -116,6 +116,7 @@ var _sys_queues: VBoxContainer
 var _sys_now: Label
 var _sys_gate: ProgressBar
 var _sys_gate_lbl: Label
+var _transit_btn: Button
 var _sys_mission: Label
 var _sys_lore: Label
 var _tg_patrol: CheckButton
@@ -643,6 +644,10 @@ func _build_systems_view() -> void:
 	root.add_child(fo)
 	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
 	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
+	# The climactic endgame verb (§0.1/§17) — only lit when standing at the open gate.
+	_transit_btn = _make_op_button("⟁ TRANSIT GATE", _transit_gate)
+	_transit_btn.visible = false
+	fo.add_child(_transit_btn)
 
 	# Archive (§30): numbered save slots + load. (Ironman toggle lives in settings.)
 	var ar := HBoxContainer.new()
@@ -799,6 +804,13 @@ func _refuel_fleet() -> void:
 		if sim.refuel_ship(i):
 			n += 1
 	status = "Refuelled %d ship(s)." % n if n > 0 else "Nothing to refuel."
+
+
+## Transit the open ring-gate into the endgame (§0.1/§17) — the climax of the climb.
+func _transit_gate() -> void:
+	if sim.transit_gate():
+		ascend_flash = 1.0
+		status = "⟁ You transited the ring. There is no coming back the same."
 
 
 ## Rename the flagship, cycling an evocative call-sign pool (§14, mobile-friendly —
@@ -1621,8 +1633,14 @@ func _refresh_systems() -> void:
 	_sys_now.text = "NOW: %s (%d/%d)" % [
 		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
 	_sys_lore.text = "✦ %s" % String(sim.gate_lore())
-	_sys_gate_lbl.text = "RING-GATE  %d%%   ·   mystery %d/7" % [sim.gate_progress_pct(), sim.gate_beats()]
+	if sim.gate_transited():
+		_sys_gate_lbl.text = "BEYOND THE GATE  ·  the larger game"
+	else:
+		_sys_gate_lbl.text = "RING-GATE  %d%%   ·   mystery %d/7" % [sim.gate_progress_pct(), sim.gate_beats()]
 	_sys_gate.value = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
+	# The endgame transit verb lights up only at the open gate (§0.1/§17).
+	if _transit_btn:
+		_transit_btn.visible = sim.can_transit_gate()
 	# Feed.
 	var feed := ""
 	for a in mini(sim.alert_count(), 3):

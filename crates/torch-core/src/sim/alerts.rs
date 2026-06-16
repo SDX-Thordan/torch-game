@@ -148,6 +148,7 @@ impl AlertFeed {
             Event::Scarcity { market, commodity } => Some(self.scarcity(*market, *commodity, tick)),
             Event::HaulerInterdicted { .. } => Some(self.raid(tick)),
             Event::TierAscended { tier } => Some(Self::milestone(tier, tick)),
+            Event::GateTransited => Some(Self::milestone("Beyond the Gate", tick)),
             Event::BattleResolved { won, losses } => Some(self.battle(*won, *losses, tick)),
             Event::ThreatForecast { eta, .. } => Some(self.forecast(*eta, tick)),
             Event::WreckSighted { .. } => Some(self.wreck_sighted(tick)),

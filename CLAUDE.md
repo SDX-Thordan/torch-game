@@ -161,9 +161,30 @@ Status: [x] done, [~] in progress, [ ] todo.
   **Combat command + §22 diorama** in (doctrine knobs + engage verb + played-back
   BattleLog). Audio deferred indefinitely (player choice); deeper console-chrome +
   richer juice (a *voxel* diorama, live mid-fight commands) still to come.
-- [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
+- [~] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
+  **Endgame started:** the `Tier::Beyond` post-gate tier + the deliberate
+  `transit_gate` verb + the gate-mystery *answer* (`GATE_ANSWER`) are in — the
+  destination payoff lands. The post-gate procedural sandbox (frontier content,
+  colonization, empire, incursions) is the next phase.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-16 — Endgame: gate transit + the mystery's answer (post-MVP #18/§17/§0.1).**
+  Started the post-MVP arc with its climax: a new `Tier::Beyond` past the Gate, reached
+  by a **deliberate `transit_gate` verb** (not an ops auto-ascent). It tells the rest
+  of the gate mystery, voices the gate's **answer** (`GATE_ANSWER` — the payoff the 7
+  mystery beats build toward), emits `Event::GateTransited`, and crosses into the
+  endgame (wider caps + new briefing/objective). Shell: a `⟁ TRANSIT GATE` op-button
+  that lights only at the open gate, and the destination panel reframes to "Beyond the
+  Gate". **Key non-breaking design:** making transit a *deliberate verb* (rather than
+  giving the Gate tier an `ops_to_advance`) means personas — several of which reach the
+  Gate — never cross it, so the §7c gate + the QA review stay **byte-identical**.
+  **Two churn catches the new `Event::GateTransited` variant forced:** torch-qa's two
+  exhaustive `Event` matches (`harness.rs` tally + `event_kind_bit`) needed the arm —
+  and I folded its variety-bit into the existing `TierAscended` bit (rather than adding
+  a 10th kind) so `EVENT_KIND_COUNT` stays 9 and the engagement *variety* facet is
+  unchanged → QA byte-identical. `gate_progress_bp` clamps at 100% (Beyond is past the
+  bar, not more of it). 156 core + 8 QA + 17 GUT green.
 
 - **2026-06-16 — Binary save format: bincode shipping save + JSON dev export (#6, §30).**
   Closed the last 🟡: the shipping save is now **bincode** (`SaveState::to_bincode`/
