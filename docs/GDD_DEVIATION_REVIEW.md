@@ -39,7 +39,7 @@ one place. Each is tagged:
 | 6 | Persistence is JSON, not binary bincode | §30 | 🟡 (intentional) |
 | 7 | Multi-view shell vs. §18 slide-over panels — **✅ reconciled** (GDD amended) | §18 | 🟢 (was 🟡) |
 | 8 | Commodity chain truncated to Raw→Refined (no Components/Assembled) | §7d | 🟡 |
-| 9 | Combat omits heat, facing/spinal-vs-turret, retreat/priority doctrine | §8a / §9 | 🟡 |
+| 9 | Combat omits heat + facing/spinal-vs-turret (retreat/target doctrine now in, #3) | §8a / §9 | 🟡 |
 | 10 | Civilian classes partial (no Courier/Salvager/Survey) | §8e | 🟡 |
 | 11 | Crew depth: name + quality only (no portraits/traits/quirks/loyalty/rename) | §11 | 🟡 (right-sized) |
 | 12 | Data pipeline: commodities **+ ship class specs** externalized; factions/curves in code | §31 | 🟡 (narrowed) |
@@ -195,14 +195,17 @@ one place. Each is tagged:
 - **Status:** Within the loose MVP "2–3 tiers" band at the low end, but the deeper
   chain the §7d vision implies is not present.
 
-### 9. 🟡 Combat omits heat, facing, and most doctrine knobs — §8a, §9
+### 9. 🟡 Combat omits heat + facing (doctrine knobs now partly in) — §8a, §9
 - **GDD:** Fixed/spinal vs. turreted railguns (a **facing** consideration, §8a/§9);
   **heat** ceiling + heat-soaked radiators (§9, §23a); retreat threshold, target
   priority, PDC priority doctrine.
 - **Built:** Railguns are a flat per-class count with band-based effectiveness; no
-  facing/spinal model, no heat model, doctrine is band + salvo-reload + screen only.
-- **Status:** The §8b escalation axis (railgun count) and the §8a torpedo-saturation
-  equalizer *are* modeled and emergent; the finer combat texture is not.
+  facing/spinal model, no heat model. Doctrine is band + salvo-reload + screen
+  **plus target priority + retreat threshold** (added with the #3 command layer).
+- **Status:** The §8b escalation axis (railgun count), the §8a torpedo-saturation
+  equalizer, and the **target/retreat doctrine** are modeled; still missing are the
+  **heat** model, **facing/spinal-vs-turret**, and PDC-priority doctrine — the finer
+  combat texture, deferred to a later combat pass.
 
 ### 10. 🟡 Civilian classes partial — §8e
 - **GDD:** Courier/Shuttle, Freighter (light→bulk→ore), Miner/Prospector, Tanker,
