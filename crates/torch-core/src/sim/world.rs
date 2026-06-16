@@ -203,6 +203,7 @@ pub struct Sim {
     stations: Vec<Station>,
     board: ContractBoard,
     salvage: SalvageField,
+    missions: super::missions::Missions,
     pressure: PressureSystem,
     rng: Pcg32,
     events: Vec<Event>,
@@ -255,6 +256,7 @@ impl Sim {
             stations: Vec::new(),
             board: ContractBoard::new(seed),
             salvage: SalvageField::new(seed, blueprint_count, body_count),
+            missions: super::missions::Missions::new(),
             pressure: PressureSystem::new(Intensity::default()),
             markets,
             rng: Pcg32::new(seed),
@@ -392,6 +394,7 @@ impl Sim {
         self.corp.unstore(c, qty);
         self.markets[m].add_stock(c, qty);
         self.corp.credit(net);
+        self.note_mission(super::missions::Trigger::FirstTrade); // §16 tutorial
         Ok(net)
     }
 
@@ -451,6 +454,7 @@ impl Sim {
         let home = self.markets[0].body();
         self.corp
             .add_ship(OwnedShip::new(name, loadout, self.tick, home));
+        self.note_mission(super::missions::Trigger::FirstWarship); // §16 tutorial
         self.complete_op(); // building the fleet is progress on the climb (§0)
         Ok(())
     }
@@ -591,6 +595,7 @@ impl Sim {
         if self.routes.len() < self.campaign.tier().route_cap() {
             self.routes
                 .push(TradeRoute::new(commodity, origin, dest, qty, min_margin));
+            self.note_mission(super::missions::Trigger::FirstRoute); // §16 tutorial
         }
     }
 
@@ -871,6 +876,8 @@ impl Sim {
             }
         }
         self.events.push(Event::WreckSalvaged { id });
+        // Salvaged data sometimes seeds the gate mystery (§15 anomaly → §0.1 lore).
+        self.reveal_gate_beat();
         self.complete_op();
         true
     }
@@ -932,6 +939,8 @@ impl Sim {
             blueprints_known: self.progression.blueprints.flags().to_vec(),
             ceo_xp: self.progression.ceo.xp(),
             ceo_branch: self.progression.ceo.branch(),
+            mission_done: self.missions.done_flags(),
+            gate_revealed: self.missions.gate_beats_revealed(),
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1002,6 +1011,7 @@ impl Sim {
             .blueprints
             .restore(s.blueprints_known.clone());
         self.progression.ceo.restore(s.ceo_xp, s.ceo_branch);
+        self.missions.restore(&s.mission_done, s.gate_revealed);
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1160,6 +1170,7 @@ impl Sim {
     fn ripple_reputation(&mut self, h: &Hauler) {
         let faction = self.markets[h.origin].faction();
         self.relations.on_player_interdict(faction);
+        self.note_mission(super::missions::Trigger::FirstCut); // §16 tutorial
         self.complete_op();
     }
 
@@ -1176,7 +1187,33 @@ impl Sim {
         self.progression.research.add_points(OP_RESEARCH_POINTS);
         if let Some(tier) = self.campaign.record_op() {
             self.events.push(Event::TierAscended { tier });
+            // The climb teaches the spine and advances the authored thread (§0.1):
+            // each ascent voices the next gate-mystery beat.
+            self.note_mission(super::missions::Trigger::FirstAscent);
+            self.reveal_gate_beat();
         }
+    }
+
+    /// Voice a completed opening mission (§16) through the feed.
+    fn note_mission(&mut self, trigger: super::missions::Trigger) {
+        if let Some(title) = self.missions.note(trigger) {
+            let tick = self.tick;
+            self.feed
+                .announce("The Board", format!("Objective complete — {title}."), tick);
+        }
+    }
+
+    /// Reveal the next gate-mystery beat (§0.1), voiced as "The Gate".
+    fn reveal_gate_beat(&mut self) {
+        if let Some(beat) = self.missions.reveal_gate() {
+            let tick = self.tick;
+            self.feed.announce("The Gate", beat.to_string(), tick);
+        }
+    }
+
+    /// The authored thread — opening missions + the gate mystery (§0.1/§16).
+    pub fn missions(&self) -> &super::missions::Missions {
+        &self.missions
     }
 
     /// Remove the hauler at `index`, denying its delivery and tagging the

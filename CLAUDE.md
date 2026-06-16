@@ -1032,6 +1032,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   `fleet_mut()`/`debit()` mutation to dodge the borrow checker. Freighters
   (pooled-count) and combat-positioning are the remaining Pillar-#2 follow-ups.
 
+- **2026-06-16 — Gate-mystery thread + opening missions (§0.1/§16, deviation #2).**
+  The other 🔴 pillar gap: the destination pull existed *systemically* (tiers, gate
+  %, voiced ascents) but had **no authored content** — the GDD's #1 over-invest
+  priority (§0.2) was the part with least substance. `sim::missions` adds it: a
+  5-step **opening-mission** chain teaching the verbs (First Light → Stand Up a Hull
+  → Standing Orders → Cut a Lane → Climb), each firing once via hooks in
+  `sell`/`commission_ship`/`set_trade_route`/`ripple_reputation`/`complete_op`; and a
+  **7-beat gate mystery** (`GATE_LORE`) revealed across tier ascents + salvage finds
+  (the §15 anomaly → §0.1 lore link), voiced as "The Gate" via a new
+  `AlertFeed::announce` (Critical/FYI — a story beat, not act-now noise). The SYSTEMS
+  overlay shows the active objective + hint + the latest gate beat + a `mystery N/7`
+  counter; persisted in `SaveState` (`#[serde(default)]` so old saves load).
+  **Determinism/QA:** mission notes + lore reveals draw **no RNG**, so the economy is
+  bit-identical and the QA review is **unchanged** (the announce alerts are FYI, not
+  act-now, so they don't move the pacing metrics). Both 🔴 pillar deviations (#1
+  delta-v, #2 gate mystery) are now addressed. *Lesson:* route all the
+  player-attributed mission triggers through the existing centralized paths
+  (`ripple_reputation` for any player cut, `complete_op` for any ascent) — one hook
+  covers manual + managed, no per-call-site sprinkling.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

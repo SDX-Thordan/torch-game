@@ -717,6 +717,41 @@ impl TorchSim {
         self.sim.campaign().gate_progress_bp() / 100
     }
 
+    /// The active opening-mission title (§16), or "" once the tutorial is done.
+    #[func]
+    fn mission_title(&self) -> GString {
+        GString::from(self.sim.missions().active().map(|m| m.title).unwrap_or(""))
+    }
+
+    /// The active opening-mission hint (§16), or "".
+    #[func]
+    fn mission_hint(&self) -> GString {
+        GString::from(self.sim.missions().active().map(|m| m.hint).unwrap_or(""))
+    }
+
+    /// Opening missions completed, and the total (§16).
+    #[func]
+    fn mission_done_count(&self) -> i64 {
+        self.sim.missions().opening_progress().0 as i64
+    }
+
+    #[func]
+    fn mission_total(&self) -> i64 {
+        self.sim.missions().opening_progress().1 as i64
+    }
+
+    /// The latest revealed gate-mystery beat (§0.1) — the authored destination pull.
+    #[func]
+    fn gate_lore(&self) -> GString {
+        GString::from(self.sim.missions().latest_gate())
+    }
+
+    /// How many gate-mystery beats have been revealed so far (§0.1).
+    #[func]
+    fn gate_beats(&self) -> i64 {
+        self.sim.missions().gate_beats_revealed() as i64
+    }
+
     /// The current tier's "different kind of game" briefing (§0.3).
     #[func]
     fn tier_briefing(&self) -> GString {

@@ -114,6 +114,8 @@ var _sys_queues: VBoxContainer
 var _sys_now: Label
 var _sys_gate: ProgressBar
 var _sys_gate_lbl: Label
+var _sys_mission: Label
+var _sys_lore: Label
 var _tg_patrol: CheckButton
 var _tg_research: CheckButton
 var _tg_pause: CheckButton
@@ -531,11 +533,12 @@ func _build_systems_view() -> void:
 	_tg_research = _add_toggle(col, "Auto-research", func(on): sim.toggle_auto_research())
 	_tg_pause = _add_toggle(col, "Auto-pause on alert", func(on): auto_pause = on)
 
-	# Bottom-left overlay panel: NOW goal + the always-visible gate progress (§0.1).
+	# Bottom-left overlay panel: NOW goal + the active mission + the gate mystery +
+	# the always-visible gate progress (§0.1 — the authored destination pull, §16).
 	var goal := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
 	goal.set_anchors_preset(Control.PRESET_FULL_RECT)
 	goal.anchor_top = 1
-	goal.offset_top = -124
+	goal.offset_top = -214
 	goal.offset_left = 0
 	goal.offset_right = 360
 	goal.offset_bottom = 0
@@ -543,11 +546,20 @@ func _build_systems_view() -> void:
 	var gv := VBoxContainer.new()
 	gv.add_theme_constant_override("separation", 4)
 	goal.add_child(gv)
-	gv.add_child(UiKit.kicker("Now"))
-	_sys_now = UiKit.label("", 12, UiKit.TEXT)
+	gv.add_child(UiKit.kicker("Objective"))
+	_sys_mission = UiKit.label("", 12, UiKit.ACCENT)
+	_sys_mission.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sys_mission.custom_minimum_size = Vector2(338, 0)
+	gv.add_child(_sys_mission)
+	_sys_now = UiKit.label("", 11, UiKit.TEXT_DIM)
 	_sys_now.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_sys_now.custom_minimum_size = Vector2(338, 0)
 	gv.add_child(_sys_now)
+	# The gate mystery — the one authored thread (§0.1).
+	_sys_lore = UiKit.label("", 10, UiKit.GOLD)
+	_sys_lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sys_lore.custom_minimum_size = Vector2(338, 0)
+	gv.add_child(_sys_lore)
 	_sys_gate_lbl = UiKit.label("", 10, UiKit.GOLD)
 	gv.add_child(_sys_gate_lbl)
 	_sys_gate = UiKit.gauge(0.0, UiKit.GOLD, 338, 8)
@@ -1178,10 +1190,16 @@ func _refresh_systems() -> void:
 	_tg_patrol.set_pressed_no_signal(sim.patrol_enabled())
 	_tg_research.set_pressed_no_signal(sim.auto_research_enabled())
 	_tg_pause.set_pressed_no_signal(auto_pause)
-	# NOW goal + gate.
-	_sys_now.text = "%s  (%d/%d)\n%s" % [
-		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target(), sim.tier_briefing()]
-	_sys_gate_lbl.text = "RING-GATE  %d%%" % sim.gate_progress_pct()
+	# Active opening mission (§16), the NOW goal, and the gate mystery (§0.1).
+	var mt := String(sim.mission_title())
+	if mt != "":
+		_sys_mission.text = "%s  ·  %s" % [mt, String(sim.mission_hint())]
+	else:
+		_sys_mission.text = "Tutorial complete — the company is yours to run."
+	_sys_now.text = "NOW: %s (%d/%d)" % [
+		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
+	_sys_lore.text = "✦ %s" % String(sim.gate_lore())
+	_sys_gate_lbl.text = "RING-GATE  %d%%   ·   mystery %d/7" % [sim.gate_progress_pct(), sim.gate_beats()]
 	_sys_gate.value = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
 	# Feed.
 	var feed := ""
