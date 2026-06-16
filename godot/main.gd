@@ -148,6 +148,7 @@ var _build_list: VBoxContainer
 var _build_caption: Label
 var _build_stats: Label
 var _build_cost: Label
+var _bom_lbl: Label
 var _build_queue: VBoxContainer
 var _ship_pivot: Node3D
 
@@ -1092,9 +1093,14 @@ func _build_build_view() -> void:
 	centre.add_child(_build_stats)
 	_build_cost = UiKit.label("", 12, UiKit.TEXT)
 	centre.add_child(_build_cost)
+	_bom_lbl = UiKit.label("", 11, UiKit.TEXT_DIM)
+	centre.add_child(_bom_lbl)
 	var commission := UiKit.action_button("◆  COMMISSION HULL")
 	commission.pressed.connect(_commission_selected)
 	centre.add_child(commission)
+	var assemble := UiKit.action_button("⚙  ASSEMBLE FROM PARTS")
+	assemble.pressed.connect(_assemble_selected)
+	centre.add_child(assemble)
 
 	# Right: construction queue.
 	var right := VBoxContainer.new()
@@ -1149,6 +1155,20 @@ func _commission_selected() -> void:
 		status = "%s commissioned into the fleet." % String(shipyard.class_name(build_pick))
 	else:
 		status = "Can't build — short on crew or credits."
+
+
+## Assemble the selected hull from the player's own component stock (§7d payoff).
+func _assemble_selected() -> void:
+	var cls := String(shipyard.class_name(build_pick))
+	match sim.assemble_ship(build_pick):
+		0:
+			status = "%s assembled from parts — the chain pays off." % cls
+		1:
+			status = "Missing components — need %s (build them up the chain)." % String(sim.ship_bom_desc(build_pick))
+		3:
+			status = "Not enough trained crew to assemble a %s." % cls
+		_:
+			status = "Can't assemble — short on the labour fee."
 
 
 # ============================================================================
@@ -1601,6 +1621,12 @@ func _refresh_build() -> void:
 	var tier := build_pick + 1
 	_build_cost.text = "Metal %s   ·   Electronics %s   ·   Crew %d   ·   ~%d days" % [
 		_commas(2000 * tier), _commas(800 * tier), 12 * tier, 6 * tier]
+	# §7d bill of materials for the assemble-from-parts path, lit green if held.
+	if _bom_lbl:
+		var have: bool = sim.can_assemble_ship(build_pick)
+		_bom_lbl.text = "Assemble from: %s%s" % [
+			String(sim.ship_bom_desc(build_pick)), "  ✓ in stock" if have else ""]
+		_bom_lbl.add_theme_color_override("font_color", UiKit.GOOD if have else UiKit.TEXT_DIM)
 	# Queue = active standing orders, presented as "projects".
 	for c in _build_queue.get_children():
 		c.queue_free()

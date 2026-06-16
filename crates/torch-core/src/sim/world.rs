@@ -26,8 +26,15 @@ use super::salvage::{SalvageField, SalvageReward};
 use super::ships::{self, Loadout, ShipCatalog, ShipClass};
 use super::traffic::Hauler;
 
-/// Credits charged per unit of a commissioned hull's dry mass (§5 sink).
+/// Credits charged per unit of a commissioned hull's dry mass (§5 sink) — the
+/// "buy a finished hull off the yard" price.
 const SHIP_PRICE_PER_MASS: i64 = 5;
+/// Credits per unit dry mass to **assemble** a hull from your own component stock
+/// (§7d) — labour only, far below the off-the-yard price, since you supplied the
+/// Assembled-tier goods yourself. The chain's payoff: produce the parts, build
+/// cheaper. Top-tier commodity indices in the 4-tier grid: Habitats 9 / Machinery
+/// 10 / Drives 11.
+const ASSEMBLY_FEE_PER_MASS: i64 = 1;
 /// CEO experience earned per completed player operation (§10 earned through play).
 const OP_XP: i64 = 200;
 /// Research points earned per completed player operation.
@@ -92,6 +99,8 @@ pub enum TradeError {
 pub enum CommissionError {
     CantAfford,
     NotEnoughCrew,
+    /// Assembling from parts (§7d), but the warehouse lacks the required goods.
+    MissingParts,
 }
 
 /// Why a warship could not be ordered to move (§6).
@@ -363,6 +372,12 @@ impl Sim {
         &self.corp
     }
 
+    /// Mutable corporation access — for seeding/adjusting holdings (e.g. crediting
+    /// produced goods into the warehouse).
+    pub fn corp_mut(&mut self) -> &mut Corp {
+        &mut self.corp
+    }
+
     /// Skim operating overhead off the treasury each tick (§5 sink). Overhead is
     /// a fraction of holdings *above* a free float, so it bites only runaway
     /// hoarding — the wealth-scaled sink that turns every income strategy into a
@@ -474,10 +489,59 @@ impl Sim {
         if self.corp.trained_crew() < hull.crew_required {
             return Err(CommissionError::NotEnoughCrew);
         }
+        self.corp.debit(price);
+        self.stand_up_hull(class);
+        Ok(())
+    }
+
+    /// Assemble a warship of `class` from the player's **own component stock** (§7d):
+    /// consumes the Assembled-tier goods in [`ship_bom`] from the warehouse plus a
+    /// small labour fee + crew — far cheaper than buying a finished hull, the payoff
+    /// of building out the production chain. Fails if any part or the crew is short.
+    pub fn assemble_ship(&mut self, class: ShipClass) -> Result<(), CommissionError> {
+        let hull = self.catalog.hull(class);
+        let fee = hull.dry_mass * ASSEMBLY_FEE_PER_MASS;
+        if self.corp.credits() < fee {
+            return Err(CommissionError::CantAfford);
+        }
+        if self.corp.trained_crew() < hull.crew_required {
+            return Err(CommissionError::NotEnoughCrew);
+        }
+        let bom = Self::ship_bom(class);
+        if bom.iter().any(|&(c, q)| self.corp.cargo(c) < q) {
+            return Err(CommissionError::MissingParts);
+        }
+        for &(c, q) in bom {
+            self.corp.unstore(c, q);
+        }
+        self.corp.debit(fee);
+        self.stand_up_hull(class);
+        Ok(())
+    }
+
+    /// The Assembled-tier bill of materials to build a hull of `class` from parts
+    /// (§7d): `(commodity index, quantity)`. Bigger hulls need more Machinery (10)
+    /// and Drives (11); capitals also need Habitats (9) for their crew.
+    pub fn ship_bom(class: ShipClass) -> &'static [(usize, i64)] {
+        match class {
+            ShipClass::Frigate => &[(10, 2), (11, 1)],
+            ShipClass::Destroyer => &[(10, 4), (11, 2)],
+            ShipClass::Cruiser => &[(10, 7), (11, 3), (9, 1)],
+            ShipClass::Battleship => &[(10, 12), (11, 5), (9, 2)],
+            ShipClass::QShip => &[(10, 2), (11, 1)],
+            ShipClass::Freighter => &[(10, 3)],
+            ShipClass::Miner => &[(10, 2)],
+            ShipClass::Tanker => &[(10, 2)],
+        }
+    }
+
+    /// Shared tail of commission/assemble: fit the hull off the catalog, draw its
+    /// crew, christen it (§14), dock it at the yard (§6), and count the op (§0/§16).
+    fn stand_up_hull(&mut self, class: ShipClass) {
+        let hull = self.catalog.hull(class);
         let loadout = self
             .catalog
             .reference_loadout_quality(class, 50, &mut self.rng);
-        self.corp.debit(price);
         self.corp.assign_crew(hull.crew_required);
         // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14). It rolls
         // off the line docked at Ceres Yards (the shipyard) with a full tank (§6).
@@ -487,7 +551,6 @@ impl Sim {
             .add_ship(OwnedShip::new(name, loadout, self.tick, home));
         self.note_mission(super::missions::Trigger::FirstWarship); // §16 tutorial
         self.complete_op(); // building the fleet is progress on the climb (§0)
-        Ok(())
     }
 
     /// Order warship `idx` to fly to `dest` body (§6): commit a trajectory at the
@@ -1972,6 +2035,41 @@ mod tests {
         for m in sim.markets() {
             assert!(sim.relations().standing(m.faction()) >= 0);
         }
+    }
+
+    #[test]
+    fn a_warship_can_be_assembled_from_produced_components() {
+        // §7d payoff: a player who has built up the production chain can *assemble*
+        // a warship from their own Assembled-tier stock for a fraction of the
+        // off-the-yard credit price — the bill-of-materials link from economy to fleet.
+        let mut sim = Sim::new(0);
+        // Empty warehouse ⇒ no parts ⇒ can't assemble.
+        assert_eq!(
+            sim.assemble_ship(ShipClass::Frigate),
+            Err(CommissionError::MissingParts)
+        );
+        // Stock the frigate's bill of materials (2 Machinery #10, 1 Drives #11).
+        for &(c, q) in Sim::ship_bom(ShipClass::Frigate) {
+            sim.corp_mut().store(c, q);
+        }
+        let credits_before = sim.corp().credits();
+        let fleet_before = sim.corp().fleet().len();
+        sim.assemble_ship(ShipClass::Frigate).unwrap();
+        assert_eq!(
+            sim.corp().fleet().len(),
+            fleet_before + 1,
+            "hull joined the fleet"
+        );
+        // The parts were consumed...
+        assert_eq!(sim.corp().cargo(10), 0, "Machinery consumed");
+        assert_eq!(sim.corp().cargo(11), 0, "Drives consumed");
+        // ...and assembling cost far less than buying the hull off the yard.
+        let assembly_spend = credits_before - sim.corp().credits();
+        let yard_price = ships::hull(ShipClass::Frigate).dry_mass * SHIP_PRICE_PER_MASS;
+        assert!(
+            assembly_spend < yard_price,
+            "assembling from owned parts ({assembly_spend}) is cheaper than the yard ({yard_price})"
+        );
     }
 
     #[test]

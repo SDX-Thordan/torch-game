@@ -52,7 +52,7 @@ pub use progression::{Blueprints, Branch, Buff, Ceo, Progression, Research};
 pub use salvage::{SalvageField, SalvageReward, Wreck};
 pub use ships::{Crew, FitError, HullDef, Loadout, ShipClass, ShipStats, WeaponDef, WeaponKind};
 pub use traffic::Hauler;
-pub use world::{BodyState, Sim, Snapshot};
+pub use world::{BodyState, CommissionError, Sim, Snapshot};
 
 use rng::Pcg32;
 

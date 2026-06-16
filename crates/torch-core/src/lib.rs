@@ -1039,13 +1039,41 @@ impl TorchSim {
     /// into the fleet; returns whether it was built (§5/§8c).
     #[func]
     fn commission_ship(&mut self, class: i64) -> bool {
-        let class = match class {
-            1 => sim::ShipClass::Destroyer,
-            2 => sim::ShipClass::Cruiser,
-            3 => sim::ShipClass::Battleship,
-            _ => sim::ShipClass::Frigate,
-        };
-        self.sim.commission_ship(class).is_ok()
+        self.sim.commission_ship(warship_class(class)).is_ok()
+    }
+
+    /// Assemble a warship of `class` from the player's own Assembled-tier component
+    /// stock (§7d) — the production-chain payoff. Returns 0 on success, or an error
+    /// code: 1 = missing parts, 2 = can't afford the labour fee, 3 = not enough crew.
+    #[func]
+    fn assemble_ship(&mut self, class: i64) -> i64 {
+        match self.sim.assemble_ship(warship_class(class)) {
+            Ok(()) => 0,
+            Err(sim::CommissionError::MissingParts) => 1,
+            Err(sim::CommissionError::CantAfford) => 2,
+            Err(sim::CommissionError::NotEnoughCrew) => 3,
+        }
+    }
+
+    /// A one-line bill of materials for assembling `class` (§7d), e.g.
+    /// "2 Machinery, 1 Drives" — for the BUILD view.
+    #[func]
+    fn ship_bom_desc(&self, class: i64) -> GString {
+        let defs = self.sim.markets()[0].defs();
+        let parts: Vec<String> = sim::Sim::ship_bom(warship_class(class))
+            .iter()
+            .map(|&(c, q)| format!("{q} {}", defs.get(c).map(|d| d.name).unwrap_or("?")))
+            .collect();
+        GString::from(parts.join(", "))
+    }
+
+    /// Whether the player currently holds the full bill of materials to assemble
+    /// `class` (§7d) — drives the BUILD view's assemble button state.
+    #[func]
+    fn can_assemble_ship(&self, class: i64) -> bool {
+        sim::Sim::ship_bom(warship_class(class))
+            .iter()
+            .all(|&(c, q)| self.sim.corp().cargo(c) >= q)
     }
 
     /// Freighters owned, for running trade-route standing orders (§4).
@@ -1520,6 +1548,17 @@ impl TorchSim {
     fn nudge_alert_threshold(&mut self, delta: i64) {
         let level = (self.alert_threshold() + delta).clamp(0, 3);
         self.set_alert_threshold(level);
+    }
+}
+
+/// Map a shell class index (0 Frigate, 1 Destroyer, 2 Cruiser, 3 Battleship) to a
+/// `ShipClass`, defaulting to Frigate (§8b).
+fn warship_class(class: i64) -> sim::ShipClass {
+    match class {
+        1 => sim::ShipClass::Destroyer,
+        2 => sim::ShipClass::Cruiser,
+        3 => sim::ShipClass::Battleship,
+        _ => sim::ShipClass::Frigate,
     }
 }
 

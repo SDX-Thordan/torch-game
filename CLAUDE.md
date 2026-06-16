@@ -160,6 +160,23 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Bill-of-materials: assemble warships from your own goods (§7d/§5).**
+  Closed the economy→fleet loop the four-tier chain set up. Alongside the buy-for-
+  credits `commission_ship`, new `assemble_ship(class)` builds the same hull from the
+  player's **own Assembled-tier stock** (`Sim::ship_bom`: Machinery 10 / Drives 11 /
+  Habitats 9, scaled by hull) plus a small labour fee (`ASSEMBLY_FEE_PER_MASS = 1` vs
+  the off-the-yard `SHIP_PRICE_PER_MASS = 5`) — so building out the production chain
+  *pays off* (make the parts, build warships cheap). Extracted the shared
+  `stand_up_hull` tail so commission + assemble share the fit/crew/christen/op logic
+  with the **same RNG order** → `commission_ship` is byte-identical (149 tests, QA
+  review unchanged). `CommissionError::MissingParts`; bindings `assemble_ship` (0 ok /
+  1 missing / 2 fee / 3 crew), `ship_bom_desc`, `can_assemble_ship`; the BUILD view
+  shows the BOM (green when in stock) with an `⚙ ASSEMBLE FROM PARTS` button.
+  **Backward-compatible by construction:** an empty warehouse can't assemble but can
+  still buy, and personas don't produce finished goods, so every test + the QA review
+  are unchanged. *Lesson:* keep the new path *additive* next to the old verb (don't
+  gate the existing one) when a feature must not perturb the established balance.
+
 - **2026-06-16 — Four-tier production chain (deviation #8, §7d).** Deepened the
   economy from 6 commodities (Raw→Refined) to **12 in a 3-line × 4-tier grid**: Raw
   (Ice/Ore/Volatiles) → Refined (Remass/Metals/ReactorFuel) → Components

@@ -220,10 +220,17 @@ one place. Each is tagged:
   jitter into huge spreads — caught by the QA harness). A nice property: jitter 0
   draws no RNG, so the lower-tier economy stays **byte-identical** — the §7c gate and
   the QA review are unchanged.
-- **Status:** Exceeds the MVP "2–3 tiers" target. Remaining 🟡 nuance: ships are
-  still commissioned for credits + crew, not *assembled from* the component tiers —
-  a deeper bill-of-materials link (Assembled goods → hull build inputs) is a future
-  follow-up, not a chain-depth gap.
+- **Bill-of-materials link ADDED 2026-06-16.** The chain now *pays off* in the
+  fleet: alongside the buy-for-credits `commission_ship`, `assemble_ship(class)`
+  builds a hull from the player's **own Assembled-tier stock** (`ship_bom`: Machinery
+  10 / Drives 11 / Habitats 9, scaled by hull) for a small labour fee — far below the
+  off-the-yard price. So the full industrial loop closes: mine → refine → make
+  components → make finished goods → **assemble warships**. The BUILD view shows the
+  BOM (lit green when in stock) with an `⚙ ASSEMBLE FROM PARTS` button next to
+  `◆ COMMISSION HULL`. Backward-compatible (empty warehouse ⇒ can't assemble, but
+  buying still works), so all tests + the QA review are unchanged.
+- **Status:** Exceeds the MVP "2–3 tiers" target, and the economy→fleet
+  bill-of-materials link is now in. Fully closed.
 
 ### 9. 🟡 Combat omits heat + facing (doctrine knobs now partly in) — §8a, §9
 - **GDD:** Fixed/spinal vs. turreted railguns (a **facing** consideration, §8a/§9);
