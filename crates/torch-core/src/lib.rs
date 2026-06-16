@@ -1380,6 +1380,15 @@ impl TorchSim {
         }
     }
 
+    /// Remass the in-flight freighter at `index` burns on its trip (§6 fuel cost).
+    #[func]
+    fn freighter_fuel(&self, index: i64) -> i64 {
+        match self.sim.flying_routes().get(index as usize) {
+            Some(&r) => self.sim.route_remass_units(r),
+            None => 0,
+        }
+    }
+
     /// Found a factory refining `input` into the next tier up its production line
     /// (§7d: Raw → Refined → Components → Assembled), sourcing at `buy_market` and
     /// selling surplus at `sell_market` (§3.1). Any non-top-tier commodity works.

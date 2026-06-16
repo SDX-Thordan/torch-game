@@ -31,7 +31,7 @@ one place. Each is tagged:
 
 | # | Deviation | GDD | Tag |
 |---|---|---|---|
-| 1 | Delta-v movement / per-ship position — **warships ✅ + combat positioning ✅ + freighters ✅** (per-ship remass for freighters is finer 🟡) | §2 / §6 | 🟡 (was 🔴) |
+| 1 | Delta-v movement / per-ship position — **✅ complete** (warships + combat positioning + freighters, all delta-v-costed) | §2 / §6 | 🟢 (was 🔴) |
 | 2 | Authored gate-mystery thread + opening missions — **✅ done** (MVP seed) | §0.1 / §16 | 🟢 (was 🔴) |
 | 3 | Combat command layer + diorama — **✅ done** (engage verb, doctrine knobs, BattleLog playback) | §9 / §22 | 🟡 (was 🟠) |
 | 4 | Save slots + Ironman — **✅ done** (3 slots + Ironman autosave) | §13 / §30 | 🟢 (was 🟠) |
@@ -96,11 +96,16 @@ one place. Each is tagged:
   Freighters render as a distinct muted-green marker with a lane trail on the orrery,
   and the FLEET view shows each one's **real trip + progress** ("Mars Colony → Ceres
   Yards · In transit 44%"). The pool-dispatch semantics are unchanged, so the route
-  tests + the QA review stay byte-identical. **Pillar #2 (delta-v / positional fleet)
-  is now substantially complete** — every player ship (warship + freighter) is a
-  located asset. Remaining 🟡 nuance: freighters don't yet spend a *per-ship remass
-  budget* (they fly a route-timed lane, not a delta-v-costed burn) — a finer-grain
-  follow-up, not a positional gap.
+  tests + the QA review stay byte-identical.
+- **Freighter remass ADDED 2026-06-16.** The last delta-v nuance: a dispatched
+  route freighter now **refuels with Remass at the origin port**, an amount scaled
+  by the trip distance (`route_remass_units = travel_ticks / 10`). Long outer hauls
+  cost far more fuel than inner hops (the delta-v constraint as opex), and a hub
+  that produces cheap Remass (the Ice→Remass chain) lowers the whole network's
+  running cost — closing the production→logistics loop. A route only dispatches if
+  it can source + afford the fuel. The FLEET view shows the per-trip fuel; the QA
+  Logistician still profits (~4×). **Pillar #2 (delta-v / positional fleet) is now
+  complete** — every player ship is positional *and* delta-v-costed.
 
 ### 2. 🔴 No authored gate-mystery narrative or opening missions — §0.1, §16
 - **GDD:** The destination pull is the **#1 over-invest priority** (§0.2). The gate
