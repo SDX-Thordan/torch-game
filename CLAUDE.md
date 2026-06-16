@@ -170,6 +170,25 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Post-gate sandbox plan + G1: the far side is a place (§17).** Wrote
+  `docs/POST_GATE_PLAN.md` — the §17 endgame sequenced into G1–G5 PRs (place → economy
+  → bridgehead → incursions → win-state) + an art track, every step **transit-gated**
+  so it stays QA-neutral by construction. **G1 shipped:** a `BodyKind::FarSide` cluster
+  (the dead star **Erebus** + **Threshold** + **The Tally**) **appended** to
+  `default_system()` past the Ring-Gate, so every inner index (Earth=3/Ceres=5/Gate=11
+  + markets/colonies) is **unmoved**. The bodies exist always (determinism) but the
+  shell hides them until `far_side_revealed()` (= `transited()`), then reveals them and
+  jumps the camera through. Bindings `body_is_far_side`/`far_side_revealed`. **Two
+  catches:** (1) adding bodies grows `body_count()`, which reseeds the §15 salvage RNG
+  → the QA review shifts (benign, 0 concerns) → regenerate the sample. (2) The QA review
+  has a **UI-wiring facet that scans `main.gd`** for `sim.X()` calls vs. the binding
+  list, so *any* shell binding-call change shifts it — regenerate **after** the shell
+  edits, not before (I regenerated too early and got a mismatch on the wiring counts).
+  *Render note:* couldn't xvfb-capture the *revealed* far side (software GL is too slow
+  to route to the gate in-frame); relied on the orbit unit test
+  (`the_far_side_lies_beyond_the_gate`) + a clean headless run exercising the visibility
+  branch. 157 core + QA + 17 GUT green.
+
 - **2026-06-16 — Endgame: gate transit + the mystery's answer (post-MVP #18/§17/§0.1).**
   Started the post-MVP arc with its climax: a new `Tier::Beyond` past the Gate, reached
   by a **deliberate `transit_gate` verb** (not an ops auto-ascent). It tells the rest

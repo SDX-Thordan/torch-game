@@ -360,9 +360,12 @@ one place. Each is tagged:
   `⟁ TRANSIT GATE` verb at the open gate and reframes the destination panel to
   "Beyond the Gate". Because transit is a deliberate verb (personas never call it),
   the §7c gate + the QA review stay **byte-identical**.
-- **Still post-MVP (the rest of §17):** the multi-system procedural frontier *content*
-  beyond the ring, the colonization race, empire, and incursions. The transit gives
-  the arc its **destination payoff**; the post-gate sandbox is the next phase.
+- **Post-gate sandbox started (plan: `docs/POST_GATE_PLAN.md`, sequenced G1–G5):**
+  **G1 ✅** — the far side is now a *place*: a far-side body cluster (Erebus +
+  Threshold + The Tally) past the ring, hidden until transit then revealed on the
+  orrery. Still to come: G2 far-side economy, G3 the bridgehead (colonization), G4
+  incursions (the far-side enemy), G5 the empire/win-state — plus the art track
+  (voxel assembly tool + voxel diorama). Each is transit-gated, so it stays QA-neutral.
 
 ---
 

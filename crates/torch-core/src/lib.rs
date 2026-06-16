@@ -145,8 +145,26 @@ impl TorchSim {
                 DwarfPlanet => 3,
                 Moon => 4,
                 Gate => 5,
+                FarSide => 6,
             })
             .unwrap_or(1)
+    }
+
+    /// Whether body `index` is on the **far side** of the gate (§17) — the shell
+    /// hides these until the player transits.
+    #[func]
+    fn body_is_far_side(&self, index: i64) -> bool {
+        self.sim
+            .bodies()
+            .get(index as usize)
+            .map(|b| b.kind == sim::orbit::BodyKind::FarSide)
+            .unwrap_or(false)
+    }
+
+    /// Whether the far side has been revealed (the player transited, §17).
+    #[func]
+    fn far_side_revealed(&self) -> bool {
+        self.sim.campaign().transited()
     }
 
     /// The orbital radius of body `index` about its parent, in sim units — for
