@@ -414,6 +414,51 @@ impl TorchSim {
             .unwrap_or(0)
     }
 
+    /// Number of the player's freighters currently flying a standing route (§6),
+    /// each a positional asset on the lanes.
+    #[func]
+    fn freighter_count(&self) -> i64 {
+        self.sim.flying_routes().len() as i64
+    }
+
+    /// Position of the in-flight freighter at `index` (for the orrery, §6/§21).
+    #[func]
+    fn freighter_x(&self, index: i64) -> i64 {
+        self.sim
+            .flying_routes()
+            .get(index as usize)
+            .map(|&r| self.sim.route_freighter_pos(r).0)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn freighter_y(&self, index: i64) -> i64 {
+        self.sim
+            .flying_routes()
+            .get(index as usize)
+            .map(|&r| self.sim.route_freighter_pos(r).1)
+            .unwrap_or(0)
+    }
+
+    /// The destination position of the in-flight freighter at `index`, for its lane.
+    #[func]
+    fn freighter_dest_x(&self, index: i64) -> i64 {
+        self.sim
+            .flying_routes()
+            .get(index as usize)
+            .map(|&r| self.sim.route_dest_pos(r).0)
+            .unwrap_or(0)
+    }
+
+    #[func]
+    fn freighter_dest_y(&self, index: i64) -> i64 {
+        self.sim
+            .flying_routes()
+            .get(index as usize)
+            .map(|&r| self.sim.route_dest_pos(r).1)
+            .unwrap_or(0)
+    }
+
     /// Cut the in-flight hauler with `id`; returns whether one was interdicted.
     #[func]
     fn interdict(&mut self, id: i64) -> bool {
@@ -1279,6 +1324,32 @@ impl TorchSim {
             }
         };
         GString::from(format!("{commodity} {origin}→{dest} ×{} [{state}]", r.qty))
+    }
+
+    /// A "Origin → Dest" trip label for the in-flight freighter at `index` (§6),
+    /// for the FLEET view's real en-route readout.
+    #[func]
+    fn freighter_trip(&self, index: i64) -> GString {
+        match self.sim.flying_routes().get(index as usize) {
+            Some(&r) => {
+                let rt = &self.sim.routes()[r];
+                GString::from(format!(
+                    "{} → {}",
+                    self.sim.markets()[rt.origin].name(),
+                    self.sim.markets()[rt.dest].name()
+                ))
+            }
+            None => GString::new(),
+        }
+    }
+
+    /// Trip progress (0..=100%) of the in-flight freighter at `index` (§6).
+    #[func]
+    fn freighter_progress(&self, index: i64) -> i64 {
+        match self.sim.flying_routes().get(index as usize) {
+            Some(&r) => self.sim.route_progress_bp(r) / 100,
+            None => 0,
+        }
     }
 
     /// Found a refinery turning raw commodity `raw` (0..2) into its refined

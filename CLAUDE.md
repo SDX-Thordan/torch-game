@@ -160,6 +160,23 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Freighters are positional on their lanes (Pillar #2, §6).** Closed
+  the last positional gap: a freighter running a standing `TradeRoute` now has a
+  **live map position**, interpolated along its orbital lane (origin → dest market
+  body) by trip progress — the same model the NPC haulers use. Added a `departed`
+  tick to `TradeRoute` (`#[serde(default)]` so old saves load) set on dispatch;
+  `Sim::flying_routes()` + `route_freighter_pos(i)`/`route_dest_pos(i)`/
+  `route_progress_bp(i)` expose it. Bound for the shell as `freighter_count` +
+  `freighter_x/y` + `freighter_dest_x/y` + `freighter_trip`/`freighter_progress`.
+  Freighters render as a distinct **muted-green** marker with a lane trail on the
+  orrery (vs. orange NPC haulers + livery warships), and the FLEET view shows each
+  one's real trip + "In transit N%". **The pool-dispatch semantics are untouched**
+  (one flying freighter per in-transit route), so the route tests + the QA review
+  stay **byte-identical** — this is a *visibility/position* layer over the existing
+  logistics, not a rewrite. With this, **every player ship (warship + freighter) is a
+  located asset** — Pillar #2 is substantially complete. Finer follow-up: freighters
+  fly a route-timed lane, not a per-ship remass-costed burn (a 🟡 nuance, not a gap).
+
 - **2026-06-16 — Combat is positional now (Pillar #2, §6/§9/§13).** Made the
   delta-v movement layer *consequential* for combat: raiders muster on the inner
   lanes at the **home core** (`markets[0]`'s body, where hulls commission), and
