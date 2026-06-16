@@ -49,7 +49,7 @@ const CAM_DIR := Vector3(0.0, 1.15, 0.9)
 const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
 # 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf, 4 Moon, 5 Gate.
-const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0]
+const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0, 0.20]  # 6 = far-side (§17)
 const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
@@ -264,12 +264,18 @@ func _build_world() -> void:
 			_body_nodes.append(ph)
 			continue
 		var body := _sphere(BODY_RADIUS[kind], _lit_mat(_body_colour_kind(b, kind)))
+		# Far-side worlds (§17) exist always but stay hidden until the gate is transited.
+		if sim.body_is_far_side(b):
+			body.visible = false
 		_orrery_root.add_child(body)
 		_body_nodes.append(body)
 		var parent := sim.body_parent(b)
 		if parent == 0:
-			var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-			_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+			# The far-side anchor's ring is drawn in _update_world (toggled with the
+			# reveal); inner-system bodies keep their static orbit ring here.
+			if not sim.body_is_far_side(b):
+				var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
+				_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
 		else:
 			var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
 			var mrm := _emissive_mat(Color(0.32, 0.36, 0.42))
@@ -811,6 +817,12 @@ func _transit_gate() -> void:
 	if sim.transit_gate():
 		ascend_flash = 1.0
 		status = "⟁ You transited the ring. There is no coming back the same."
+		# Jump the camera through to the far side — its first revealed world (§17).
+		for b in sim.body_count():
+			if sim.body_is_far_side(b):
+				_focus_body = b
+				_zoom = 8.0
+				break
 
 
 ## Rename the flagship, cycling an evocative call-sign pool (§14, mobile-friendly —
@@ -1457,9 +1469,13 @@ func _smooth_to(node: Node3D, target: Vector3, delta: float, fresh: bool) -> voi
 
 func _update_world(delta: float) -> void:
 	_update_camera()
+	var beyond: bool = sim.far_side_revealed()
 	for b in sim.body_count():
 		if b < _body_nodes.size():
 			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
+			# Reveal the far side only once the gate is transited (§17).
+			if sim.body_is_far_side(b):
+				_body_nodes[b].visible = beyond
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
 		var mi := _sphere(0.06, _hauler_mat)
@@ -2094,5 +2110,7 @@ func _body_colour_kind(b: int, kind: int) -> Color:
 			return Color(0.72, 0.66, 0.6)
 		4:
 			return Color(0.7, 0.72, 0.76)
+		6:
+			return Color(0.56, 0.44, 0.72)   # cold violet — the far side of the gate
 		_:
 			return _body_colour(b)
