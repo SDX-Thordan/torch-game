@@ -69,6 +69,33 @@ pub fn market_colonies() -> Vec<Colony> {
         .collect()
 }
 
+/// The **far-side** markets (§17 endgame) — the first footholds the colonists who
+/// went through the ring have scratched out, on the worlds of the dead star. They
+/// trade only post-transit (the shell hides them until then); held by the
+/// Independents (whoever reached the far side first). Resolved by body name so they
+/// survive any re-layout. *These are appended after the inner markets and stepped
+/// with a separate RNG, so the pre-transit economy is byte-identical.*
+pub fn far_side_market_colonies() -> Vec<Colony> {
+    use Faction::*;
+    let bodies = default_system();
+    let on = |world: &str, name: &'static str| -> Colony {
+        let body = bodies
+            .iter()
+            .position(|b| b.name == world)
+            .unwrap_or_else(|| panic!("no body named {world}"));
+        Colony {
+            body,
+            faction: Independents,
+            name,
+            is_market: true,
+        }
+    };
+    vec![
+        on("Threshold", "Threshold"), // the bridgehead world
+        on("The Tally", "The Tally"), // where the count is kept
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

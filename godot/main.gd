@@ -1299,7 +1299,7 @@ func _build_market_view() -> void:
 	_flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flowp.add_child(_flow)
 	var names := PackedStringArray()
-	for m in sim.market_count():
+	for m in _visible_market_count():
 		names.append(String(sim.market_name(m)))
 	_flow.set_markets(names)
 
@@ -1776,6 +1776,18 @@ func _refresh_build() -> void:
 		_build_queue.add_child(UiKit.label("Queue empty.", 11, UiKit.TEXT_DIM))
 
 
+func _visible_market_count() -> int:
+	# Far-side markets (§17) are contiguous at the end and hidden until the gate is
+	# transited; the board, ticker, and selection cycle only the visible ones.
+	if sim.far_side_revealed():
+		return sim.market_count()
+	var n := 0
+	for m in sim.market_count():
+		if not sim.market_is_far_side(m):
+			n += 1
+	return n
+
+
 func _refresh_market() -> void:
 	# Ticker grid.
 	for c in _ticker_grid.get_children():
@@ -1787,7 +1799,7 @@ func _refresh_market() -> void:
 		# Best spread = the dearest other market vs. here (the arbitrage you'd work).
 		var best := 0
 		var best_m := sel_market
-		for m in sim.market_count():
+		for m in _visible_market_count():
 			if m == sel_market:
 				continue
 			var d := sim.price(m, ci) - price
@@ -1819,7 +1831,7 @@ func _refresh_market() -> void:
 func _nearest_market(x: int, y: int) -> int:
 	var best := 0
 	var best_d := INF
-	for m in sim.market_count():
+	for m in _visible_market_count():
 		var bb := sim.market_body(m)
 		var d := Vector2(sim.body_x(bb) - x, sim.body_y(bb) - y).length()
 		if d < best_d:
@@ -1864,7 +1876,7 @@ func _pick_body(pos: Vector2) -> void:
 	_focus_body = best
 	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(best) == 2 else _zoom
 	var note := ""
-	for m in sim.market_count():
+	for m in _visible_market_count():
 		if sim.market_body(m) == best:
 			sel_market = m
 			note = " — trade cursor here"
@@ -1940,7 +1952,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_DOWN:
 			sel_comm = (sel_comm + 1) % sim.commodity_count()
 		KEY_LEFT, KEY_RIGHT:
-			sel_market = (sel_market + 1) % sim.market_count()
+			sel_market = (sel_market + 1) % _visible_market_count()
 		KEY_BRACKETLEFT:
 			trade_qty = maxi(QTY_STEP, trade_qty - QTY_STEP)
 		KEY_BRACKETRIGHT:
@@ -1983,7 +1995,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_F:
 			status = "Freighter commissioned." if sim.commission_freighter() else "Can't afford a freighter / no crew."
 		KEY_D:
-			var dest := (sel_market + 1) % sim.market_count()
+			var dest := (sel_market + 1) % _visible_market_count()
 			sim.set_trade_route(sel_comm, sel_market, dest, trade_qty, 1)
 			status = "Trade route set: %s %s→%s ×%d." % [
 				sim.commodity_name(sel_comm), sim.market_name(sel_market), sim.market_name(dest), trade_qty]

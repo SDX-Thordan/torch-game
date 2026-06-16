@@ -204,7 +204,15 @@ pub struct Sim {
     seed: u64,
     tick: u64,
     bodies: Vec<Body>,
+    /// All markets: the inner economy `[0..far_market_start]`, then the far-side
+    /// endgame markets `[far_market_start..]` (§17). Far-side markets are stepped
+    /// with `far_rng` and excluded from NPC routing, so the inner game is unchanged.
     markets: Vec<Market>,
+    far_market_start: usize,
+    /// A dedicated RNG for the far-side markets so they never perturb the shared
+    /// `rng` — keeping the pre-transit economy byte-identical (the contract-board /
+    /// salvage pattern, §27).
+    far_rng: Pcg32,
     haulers: Vec<Hauler>,
     next_hauler_id: u64,
     pirate: Interceptor,
@@ -248,7 +256,14 @@ impl Sim {
 
     /// Create a sim seeded for determinism (§27). Same seed ⇒ same run.
     pub fn new(seed: u64) -> Self {
-        let markets = default_markets();
+        let mut markets = default_markets();
+        let far_market_start = markets.len();
+        // Append the far-side endgame markets (§17). They exist always (so route /
+        // trade verbs work on them by index post-transit) but step on `far_rng` and
+        // are excluded from NPC routing, so the inner economy is byte-identical.
+        markets.extend(super::economy::far_side_markets(
+            super::economy::default_commodities(),
+        ));
         let market_names = markets.iter().map(|m| m.name().to_string()).collect();
         let commodity_names = markets[0]
             .defs()
@@ -287,6 +302,8 @@ impl Sim {
             catalog: ShipCatalog::default(),
             pressure: PressureSystem::new(Intensity::default()),
             markets,
+            far_market_start,
+            far_rng: Pcg32::new(seed ^ 0xFA5_FACE),
             rng: Pcg32::new(seed),
             events: Vec::new(),
             returned: 0,
@@ -306,6 +323,12 @@ impl Sim {
     /// The markets (§7a).
     pub fn markets(&self) -> &[Market] {
         &self.markets
+    }
+
+    /// Whether market `m` is a **far-side** endgame market (§17) — the shell hides
+    /// these from the board until the player transits the gate.
+    pub fn is_far_side_market(&self, m: usize) -> bool {
+        m >= self.far_market_start
     }
 
     /// Hot-reload commodity numbers from a JSON tuning document (§31): re-tune
@@ -955,7 +978,10 @@ impl Sim {
         {
             return;
         }
-        let market = self.board.rng().below(self.markets.len() as u32) as usize;
+        // Contracts target the inner markets only (the far side trades post-transit
+        // via its own verbs) — and bounding to the inner count keeps the board's RNG
+        // draw byte-identical to before the far-side markets existed.
+        let market = self.board.rng().below(self.far_market_start as u32) as usize;
         let commodity_count = self.markets[market].defs().len();
         let commodity = self.board.rng().below(commodity_count as u32) as usize;
         let qty = CONTRACT_QTY_MIN + self.board.rng().below(CONTRACT_QTY_SPAN as u32) as i64;
@@ -1252,8 +1278,14 @@ impl Sim {
         // player too, not just for pirate/automation cuts).
         self.events.drain(0..self.returned);
         self.tick += 1;
-        for m in self.markets.iter_mut() {
+        // Inner markets step on the shared rng exactly as before (byte-identical);
+        // the far-side markets step on their own `far_rng` so they never perturb it.
+        let split = self.far_market_start;
+        for m in self.markets[..split].iter_mut() {
             m.step(&mut self.rng);
+        }
+        for m in self.markets[split..].iter_mut() {
+            m.step(&mut self.far_rng);
         }
         self.deliver_arrivals();
         self.spawn_traffic();
@@ -1657,7 +1689,9 @@ impl Sim {
     /// where the origin has surplus and the destination has room.
     fn best_route(&self) -> Option<(usize, usize, usize, i64)> {
         let n = self.markets[0].defs().len();
-        let m = self.markets.len();
+        // NPC haulers route only the **inner** economy — the far-side markets (§17)
+        // are unreachable to ambient traffic, so the inner game is unchanged.
+        let m = self.far_market_start;
         let mut best: Option<(usize, usize, usize, i64)> = None;
         let mut best_spread = MIN_SPREAD;
         for c in 0..n {
@@ -2152,6 +2186,52 @@ mod tests {
         let events = sim.step().to_vec();
         // (The event was pushed before this step; the feed voices the answer.)
         let _ = events;
+    }
+
+    #[test]
+    fn the_far_side_markets_exist_in_deep_scarcity_without_perturbing_the_inner_economy() {
+        // §17 endgame: the far-side markets are appended after the inner economy and
+        // step on a dedicated RNG, so the pre-transit world is byte-identical. Prove
+        // (a) they're present and correctly partitioned, (b) they sit deeper in
+        // scarcity than the inner markets, and (c) running the world for a while
+        // leaves the inner markets bit-identical to a sim that never reads them.
+        let mut a = Sim::new(9);
+        let mut b = Sim::new(9);
+        let split = a.far_market_start;
+        assert!(split > 0 && split < a.markets.len(), "far side is appended");
+        for m in 0..a.markets.len() {
+            assert_eq!(a.is_far_side_market(m), m >= split);
+        }
+        // Far-side raw/refined tiers start in deep scarcity (so prices ride high) —
+        // dearer than the matching inner consumer market on the same good.
+        let raw = 0usize;
+        let far_price = a.markets[split].price(raw);
+        let inner_dearest = a.markets[..split]
+            .iter()
+            .map(|m| m.price(raw))
+            .max()
+            .unwrap();
+        assert!(
+            far_price > inner_dearest,
+            "the far side should be dearer ({far_price} vs {inner_dearest})"
+        );
+        // Drive both worlds; `a` polls the far side every tick, `b` never does.
+        for _ in 0..400 {
+            a.step();
+            b.step();
+            for m in a.far_market_start..a.markets.len() {
+                let _ = a.markets[m].price(0);
+            }
+        }
+        for m in 0..split {
+            for c in 0..a.markets[m].defs().len() {
+                assert_eq!(
+                    a.markets[m].price(c),
+                    b.markets[m].price(c),
+                    "inner market {m} commodity {c} drifted — far side perturbed it"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2795,7 +2875,8 @@ mod tests {
         let snap = sim.snapshot();
         assert_eq!(snap.tick, 50);
         assert_eq!(snap.bodies.len(), default_system().len());
-        assert_eq!(snap.markets.len(), 6);
+        // 6 inner markets + 2 far-side endgame markets (§17).
+        assert_eq!(snap.markets.len(), 8);
         assert_eq!((snap.bodies[0].x, snap.bodies[0].y), (0, 0)); // Sol fixed
     }
 

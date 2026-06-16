@@ -170,6 +170,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — G2: the far-side economy (post-gate sandbox, §17).** The second
+  post-gate rung: two **far-side markets** — **Threshold** (the bridgehead) + **The
+  Tally** (where the count is kept), on G1's worlds — trade only post-transit. **Key
+  determinism design** (the one risk §17/G2 flagged — a new market destabilizing §7c):
+  they live in the *same* `Sim::markets` list (so trade/route verbs work on them by
+  index post-transit, no special-case economy) but (1) step on a **dedicated `far_rng`**
+  (`seed ^ 0xFA5_FACE`) split out in `step()`, and (2) are **excluded from NPC routing
+  and contracts** by bounding both to a new `far_market_start` (the inner count). So the
+  shared `rng` stream is byte-for-byte unchanged → the §7c gate holds and the **QA
+  review body is byte-identical** (only the UI-wiring affordance count moved +1 for the
+  new `market_is_far_side` binding, correctly). `far_side_markets()` builds them in
+  **deep scarcity** (quarter-stock on raw/refined ⇒ near-ceiling prices: the frontier
+  where nothing arrives unless you haul it), resolved by body name via
+  `far_side_market_colonies()`. Proven by
+  `the_far_side_markets_exist_in_deep_scarcity_without_perturbing_the_inner_economy`
+  (a world polling the far side every tick keeps the inner markets bit-identical to one
+  that never does). **Shell:** a `_visible_market_count()` helper hides the far-side
+  columns from the MARKET board / ticker / selection cycle until `far_side_revealed()`;
+  `market_is_far_side` binding. *Borrow/RNG lesson reused:* split the market slice
+  (`[..split]` shared rng, `[split..]` far_rng) rather than branching per-market inside
+  one loop — cleaner and makes the byte-identical guarantee obvious. 158 core + QA + 17
+  GUT green. **Next: G3** (the bridgehead/colonization).
+
 - **2026-06-16 — Post-gate sandbox plan + G1: the far side is a place (§17).** Wrote
   `docs/POST_GATE_PLAN.md` — the §17 endgame sequenced into G1–G5 PRs (place → economy
   → bridgehead → incursions → win-state) + an art track, every step **transit-gated**

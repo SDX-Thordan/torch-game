@@ -454,6 +454,40 @@ pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
     markets
 }
 
+/// The **far-side** markets (§17 endgame) — built separately from the inner economy
+/// and appended after it by `Sim::new`, then stepped with a *dedicated* RNG, so the
+/// pre-transit economy is byte-identical (§7c gate + QA untouched). They sit **deep
+/// in scarcity** (everything dear, isolated from Sol's supply) — the frontier where
+/// goods are worth a fortune and nothing arrives unless you bring it.
+pub fn far_side_markets(defs: Vec<CommodityDef>) -> Vec<Market> {
+    let bodies = super::orbit::default_system();
+    // Deep scarcity on the traded tiers (quarter-stock ⇒ near-ceiling prices);
+    // finished goods at anchor (administered, like everywhere else).
+    let scarce_far: Vec<i64> = defs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            if i >= 2 * RAW.len() {
+                d.target_stock
+            } else {
+                d.target_stock / 4
+            }
+        })
+        .collect();
+    super::frontier::far_side_market_colonies()
+        .into_iter()
+        .map(|c| {
+            Market::with_setpoints(
+                bodies[c.body].name,
+                c.body,
+                c.faction,
+                defs.clone(),
+                scarce_far.clone(),
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

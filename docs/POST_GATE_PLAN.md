@@ -64,7 +64,7 @@ transited; the orrery reveals them on transit and lets the camera focus them.
 - **Tests:** the far-side bodies exist and resolve positions; `far_side_revealed`
   flips only on transit. GUT: the reveal binding.
 
-### G2 — The far-side economy 💱
+### G2 — The far-side economy 💱 — ✅ DONE
 **Goal:** "a new economy." 1–2 **far-side markets** (on G1's bodies) — isolated,
 deep in scarcity (everything dear), a different commodity emphasis (the far side
 exports something Sol lacks). Routes/logistics can run *through the gate* once
@@ -77,6 +77,14 @@ transited (a long, fuel-heavy haul — the freighter-remass system already price
 - **Shell:** the far-side markets appear in the MARKET board post-transit.
 - **Tests:** the far-side market trades; §7c gate holds with it; QA regen if the
   default economy gained a market (else byte-identical).
+- **Built:** chose *always-present* far-side markets (Threshold + The Tally on G1's
+  worlds) appended after the inner economy — but stepped on a **dedicated `far_rng`**
+  and **excluded from NPC routing/contracts** (bounded to `far_market_start`), so the
+  shared RNG stream is untouched and the inner economy is **byte-identical**
+  (QA review body unchanged; only the UI-wiring binding count moved +1). They sit in
+  deep scarcity (quarter-stock ⇒ near-ceiling prices). The shell hides them from the
+  MARKET board until `far_side_revealed()`. `market_is_far_side` binding +
+  `_visible_market_count()` shell helper.
 
 ### G3 — The bridgehead (colonization) 🏗️
 **Goal:** "hold the bridgehead." A `found_bridgehead`/colonize verb available only in

@@ -255,6 +255,13 @@ impl TorchSim {
         self.sim.markets().len() as i64
     }
 
+    /// Whether market `m` is a far-side endgame market (§17) — hidden from the board
+    /// until the gate is transited.
+    #[func]
+    fn market_is_far_side(&self, m: i64) -> bool {
+        self.sim.is_far_side_market(m as usize)
+    }
+
     #[func]
     fn market_name(&self, market: i64) -> GString {
         GString::from(
