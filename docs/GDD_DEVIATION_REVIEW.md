@@ -44,7 +44,7 @@ one place. Each is tagged:
 | 11 | Crew depth: name + quality + **trait + rename** (portraits/quirk-sim deferred) | §11 | 🟡 (right-sized) |
 | 12 | Data pipeline: commodities **+ ship class specs** externalized; factions/curves in code | §31 | 🟡 (narrowed) |
 | 13 | Orrery omits trajectory ghosts, range/band rings, two-finger azimuth | §21 | 🟡 |
-| 14 | No view interpolation (positions snap per tick) | §28 | 🟡 |
+| 14 | View interpolation — **✅ added** (orrery markers glide between ticks) | §28 | 🟢 (was 🟡) |
 | 15 | GUT view/integration tests — **✅ added** (15 tests in CI, the sim↔view contract) | §32 | 🟢 (was 🟡) |
 | 16 | Audio dropped; juice partial | §23 | 🟢 (audio player-chosen) |
 | 17 | Voxel art + procedural assembly tool not built (primitive meshes) | §24 / §25 | 🟢 (roadmap #11) |
@@ -301,12 +301,17 @@ one place. Each is tagged:
   (no committed trajectories or on-map combat to draw — gated by deviation #1/#3),
   and azimuth rotation (camera direction is fixed; only zoom + focus).
 
-### 14. 🟡 No view interpolation — §28
+### 14. 🟢 View interpolation — ✅ added — §28
 - **GDD:** "Fixed sim tick + **view interpolation** (determinism decoupled from
   framerate)."
-- **Built:** The shell snaps node positions to the latest sim tick each frame; no
-  interpolation between ticks. At 6 ticks/s this can look slightly stepped at 1×.
-- **Status:** Minor; cosmetic.
+- **Built:** The orrery now **smooths** each in-flight marker (haulers, warships,
+  freighters) toward its latest sim position every frame (`_smooth_to`, a
+  framerate-scaled lerp at `VIEW_LERP`), so traffic *glides* between sim ticks
+  instead of stepping. Snaps on a big jump (a respawn or a pooled slot reused by a
+  different entity). The lane trails draw from the smoothed marker positions, and
+  tap-picking projects the **rendered** position, so render + pick still agree. The
+  sim stays a pure fixed tick (§27) — this is purely a presentation layer.
+- **Status:** Closed (cosmetic polish; pure shell, no determinism impact).
 
 ### 15. 🟢 GUT view/integration tests — ✅ added — §32
 - **GDD:** Native cargo tests **+ GUT** for the Godot/view + integration layer.

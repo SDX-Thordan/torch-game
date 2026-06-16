@@ -44,6 +44,7 @@ const VIEW_TITLE := [
 
 # 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit.
 const SCALE3D := 1.0 / 1_000_000.0
+const VIEW_LERP := 9.0   # orrery marker position smoothing rate (§28 interpolation)
 const CAM_DIR := Vector3(0.0, 1.15, 0.9)
 const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
@@ -1412,7 +1413,7 @@ func _process(delta: float) -> void:
 			_autosave_accum = 0.0
 			sim.save_game(_ironman_path())
 	if view == V_SYSTEMS:
-		_update_world()
+		_update_world(delta)
 	if view == V_BUILD and _ship_pivot:
 		_ship_pivot.rotate_y(delta * 0.6)
 	_play_diorama(delta)
@@ -1432,7 +1433,17 @@ func _sample_prices() -> void:
 	_chart.push(vals)
 
 
-func _update_world() -> void:
+## Smoothly move a marker toward its latest sim position (§28 view interpolation),
+## so traffic glides between sim ticks instead of snapping. Snaps on a big jump
+## (a respawn or a pooled slot reused by a different entity).
+func _smooth_to(node: Node3D, target: Vector3, delta: float, fresh: bool) -> void:
+	if fresh or node.position.distance_to(target) > 8.0:
+		node.position = target
+	else:
+		node.position = node.position.lerp(target, clampf(delta * VIEW_LERP, 0.0, 1.0))
+
+
+func _update_world(delta: float) -> void:
 	_update_camera()
 	for b in sim.body_count():
 		if b < _body_nodes.size():
@@ -1445,8 +1456,9 @@ func _update_world() -> void:
 	for i in _hauler_pool.size():
 		var node := _hauler_pool[i]
 		if i < n:
+			var fresh := not node.visible
 			node.visible = true
-			node.position = _world3d(sim.hauler_x(i), sim.hauler_y(i))
+			_smooth_to(node, _world3d(sim.hauler_x(i), sim.hauler_y(i)), delta, fresh)
 			var sel := i == selected
 			node.material_override = _select_mat if sel else _hauler_mat
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
@@ -1461,8 +1473,9 @@ func _update_world() -> void:
 	for si in _ship_pool.size():
 		var sship := _ship_pool[si]
 		if si < sn:
+			var fresh := not sship.visible
 			sship.visible = true
-			sship.position = _world3d(sim.ship_x(si), sim.ship_y(si))
+			_smooth_to(sship, _world3d(sim.ship_x(si), sim.ship_y(si)), delta, fresh)
 			sship.scale = Vector3.ONE * (1.4 if sim.ship_in_transit(si) else 1.0)
 		else:
 			sship.visible = false
@@ -1475,18 +1488,20 @@ func _update_world() -> void:
 	for fi in _freighter_pool.size():
 		var fnode := _freighter_pool[fi]
 		if fi < fn_:
+			var fresh := not fnode.visible
 			fnode.visible = true
-			fnode.position = _world3d(sim.freighter_x(fi), sim.freighter_y(fi))
+			_smooth_to(fnode, _world3d(sim.freighter_x(fi), sim.freighter_y(fi)), delta, fresh)
 		else:
 			fnode.visible = false
 	_lane_mesh.clear_surfaces()
 	if n > 0 or fn_ > 0:
 		_lane_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+		# Draw lanes from the *smoothed* marker positions so trail + marker agree.
 		for i in n:
-			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_x(i), sim.hauler_y(i)))
+			_lane_mesh.surface_add_vertex(_hauler_pool[i].position)
 			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_dest_x(i), sim.hauler_dest_y(i)))
 		for i in fn_:
-			_lane_mesh.surface_add_vertex(_world3d(sim.freighter_x(i), sim.freighter_y(i)))
+			_lane_mesh.surface_add_vertex(_freighter_pool[i].position)
 			_lane_mesh.surface_add_vertex(_world3d(sim.freighter_dest_x(i), sim.freighter_dest_y(i)))
 		_lane_mesh.surface_end()
 	var wn := sim.wreck_count()
@@ -1787,7 +1802,9 @@ func _pick_hauler(pos: Vector2) -> bool:
 	var best := -1
 	var best_d := 22.0
 	for hi in sim.hauler_count():
-		var d := _screen(_world3d(sim.hauler_x(hi), sim.hauler_y(hi))).distance_to(pos)
+		# Pick against the *rendered* (smoothed) marker so tap + visual agree (§28).
+		var mp: Vector3 = _hauler_pool[hi].position if hi < _hauler_pool.size() else _world3d(sim.hauler_x(hi), sim.hauler_y(hi))
+		var d := _screen(mp).distance_to(pos)
 		if d < best_d:
 			best_d = d
 			best = hi
