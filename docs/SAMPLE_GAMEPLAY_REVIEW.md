@@ -197,6 +197,27 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 - **[GOOD]** _Fun · strength_ — **Flow** is the strongest dimension (avg 88/100) — the experience leans on it well.
 - **[GOOD]** _Fun · watchability_ — Hands fully off, the world scores 61/100 on flow+variety — the measure of whether it's worth watching before you act (§28).
 
+## UI usability audit
+
+_A **static** affordance audit of the shell's contract with the sim — the gdext binding (`#[func]`) and how `godot/*.gd` wires it. It can't see pixels (that's the GUT view tests and the manual render pass); it catches the affordance gaps that quietly hurt usability: calls that would break, capability the player can't reach, and platform fit._
+
+| metric | value |
+| --- | --- |
+| bindings exposed | 165 |
+| wired by the shell | 121 (73%) |
+| keyboard bindings | 40 |
+| pointer/touch | 10 pointer hit(s), native touch: true |
+| controls legend | true |
+
+**Findings:**
+
+- **[GOOD]** _UI · wiring_ — Every one of the shell's 121 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
+- **[NOTE]** _UI · coverage_ — The shell wires 73% of the 165 exposed bindings; 44 are never referenced (e.g. ["alert_threshold", "alpha", "blueprint_discover", "blueprint_known_count", "ceo_branch_name", "ceo_gain_xp"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
+- **[GOOD]** _UI · exception→verb_ — The act-now exception loop is pressable: the shell wires a one-press answer to shortages/contracts, so an alert resolves into a verb rather than a dead notification (§0.4).
+- **[GOOD]** _UI · status visibility_ — The load-bearing state is on screen — treasury, the tier/destination, the alert feed, and the now-goal are all read by the shell (Nielsen #1, the §0 three-horizon stack).
+- **[GOOD]** _UI · recognition_ — A controls legend is on screen — the keymap is recognised, not recalled (Nielsen #6).
+- **[NOTE]** _UI · platform fit_ — 40 keyboard bindings, with native touch handling. Keep the touch surface first-class for the Android target (§33).
+
 ## Design review — cross-cutting
 
 What the comparison of play styles reveals about the design as it stands:

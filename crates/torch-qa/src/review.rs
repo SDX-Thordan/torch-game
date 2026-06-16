@@ -575,6 +575,8 @@ pub fn render_report(seed: u64, ticks: u64) -> String {
 
     crate::engagement::render_engagement(&mut out, &runs);
 
+    crate::ui::render_audit(&mut out);
+
     let _ = writeln!(out, "## Design review — cross-cutting\n");
     let _ = writeln!(
         out,

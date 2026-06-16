@@ -55,11 +55,22 @@ Strategy (persona)  ──act()──►  Sim  ──step()──►  events + s
   flags the anti-patterns that reliably kill it (aimlessness, dead air, flat
   stakes, starved rewards, a single dominant approach).
 
-## Two questions, two lenses
+- **`ui`** — the *usability lens*: a **static** audit of the shell's contract
+  with the sim (the gdext `#[func]` binding and how `godot/*.gd` wires it). It
+  can't see pixels — that's the GUT view tests and the manual render pass — but,
+  deterministically and headlessly, it catches the affordance gaps that quietly
+  hurt usability: phantom calls that would break at runtime, capability the player
+  can't reach, exceptions with no one-press answer, unsurfaced status, missing
+  controls legend, and platform fit (a keyboard-scale control surface on an
+  Android-first game).
+
+## Three questions, three lenses
 
 - **Does it work / is it balanced?** → `review` + `design_review`.
 - **Is it engaging to play?** → `engagement` (read the scores as "where is fun at
   *risk*?", not "how fun is it?").
+- **Can the player see and reach it all?** → `ui` (a static affordance audit of
+  the binding ⟷ shell wiring).
 
 ## Extending it
 

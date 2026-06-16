@@ -21,11 +21,13 @@ pub mod engagement;
 pub mod harness;
 pub mod review;
 pub mod strategy;
+pub mod ui;
 
 pub use engagement::{assess, assess_fun, EngagementProfile, Facet};
 pub use harness::{run, Sample, Transcript};
 pub use review::{design_review, render_report, review, Finding, Severity};
 pub use strategy::{roster, Strategy};
+pub use ui::{audit, audit_repo, UiModel};
 
 #[cfg(test)]
 mod tests {
@@ -138,6 +140,51 @@ mod tests {
         assert!(!a.is_empty(), "the fun assessment should produce findings");
         assert_eq!(a.len(), b.len(), "same seed ⇒ same fun findings");
         assert_eq!(a[0].message, b[0].message);
+    }
+
+    /// The UI audit parses the binding/shell contract and flags wiring gaps.
+    #[test]
+    fn ui_audit_parses_the_contract() {
+        // A binding with one func the shell wires, one it doesn't, and a phantom
+        // call the shell makes to a non-existent binding.
+        let rust = "#[func]\nfn buy(&mut self) {}\n#[func]\nfn lonely(&self) {}\n";
+        let gd = "func _x():\n\tsim.buy(0,1,2)\n\tsim.ghost(9)\n\tprint(sim.buy(1))\n";
+        let m = ui::model_from_sources(rust, gd);
+        assert_eq!(m.bindings.len(), 2);
+        assert!(m.bindings.contains("buy") && m.bindings.contains("lonely"));
+        assert_eq!(
+            m.unreached(),
+            vec!["lonely"],
+            "lonely is exposed but unwired"
+        );
+        assert_eq!(m.phantom_calls(), vec!["ghost"], "ghost has no binding");
+        let findings = ui::audit(&m);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.area == "UI · wiring" && matches!(f.severity, Severity::Concern)),
+            "a phantom call must raise a wiring concern"
+        );
+    }
+
+    /// The audit runs against the *real* committed shell + binding and produces a
+    /// verdict on every usability dimension (deterministic, headless).
+    #[test]
+    fn ui_audit_reads_the_real_shell() {
+        let (model, findings) = ui::audit_repo();
+        assert!(
+            model.sources_found,
+            "the shell/binding sources should be found"
+        );
+        assert!(
+            model.bindings.len() > 50,
+            "the binding surface should be rich"
+        );
+        assert!(!findings.is_empty());
+        assert!(
+            findings.iter().any(|f| f.area.starts_with("UI ·")),
+            "every finding is a UI dimension"
+        );
     }
 
     /// The transcript's event tally matches the raw event stream (the harness
