@@ -1154,15 +1154,26 @@ impl Sim {
     /// `BattleResolved` event is emitted for the feed (§19) and diorama (§22).
     /// Returns the outcome, or `None` if the player has no warships to send.
     pub fn engage_raiders(&mut self, band: Band) -> Option<BattleOutcome> {
-        let player_ships: Vec<Loadout> = self
+        // Raiders muster on the inner lanes at the home core (§6/§13): only
+        // warships **on station** there can answer — a fleet flown off to the outer
+        // system can't defend the core until it burns home. This is what makes the
+        // delta-v movement layer consequential (Pillar #2).
+        let muster = self.markets[0].body();
+        let on_station: Vec<usize> = self
             .corp
             .fleet()
             .iter()
-            .map(|s| s.loadout.clone())
+            .enumerate()
+            .filter(|(_, s)| !s.nav.in_transit(self.tick) && s.nav.location == muster)
+            .map(|(i, _)| i)
             .collect();
-        if player_ships.is_empty() {
+        if on_station.is_empty() {
             return None;
         }
+        let player_ships: Vec<Loadout> = on_station
+            .iter()
+            .map(|&i| self.corp.fleet()[i].loadout.clone())
+            .collect();
         // A matched-count pack of raider frigates at a matched crew quality — a
         // genuine coin-flip, so committing the fleet is a real risk (§13/§9).
         let pack: Vec<Loadout> = (0..player_ships.len())
@@ -1194,8 +1205,8 @@ impl Sim {
         let survivors = outcome.survivors[0];
         let losses = player_ships.len() - survivors;
         let won = outcome.winner == Some(0);
-        // Veterans pull through first and survivors are blooded (§11/§13).
-        self.corp.resolve_engagement(survivors, won);
+        // Only the on-station ships were at risk; veterans pull through (§11/§13).
+        self.corp.resolve_engagement_for(on_station, survivors, won);
         if won {
             self.complete_op(); // holding the field is progress on the climb (§0)
         }
@@ -1208,6 +1219,18 @@ impl Sim {
     /// starting `[player, raider]` counts, and the full BattleLog.
     pub fn last_battle(&self) -> Option<&(Band, [usize; 2], BattleOutcome)> {
         self.last_battle.as_ref()
+    }
+
+    /// Warships currently **on station** at the home core, ready to answer a raider
+    /// muster (§6): docked at `markets[0]`'s body, not in transit. The shell uses
+    /// this to tell "no fleet" apart from "fleet is off defending elsewhere."
+    pub fn warships_on_station(&self) -> usize {
+        let muster = self.markets[0].body();
+        self.corp
+            .fleet()
+            .iter()
+            .filter(|s| !s.nav.in_transit(self.tick) && s.nav.location == muster)
+            .count()
     }
 
     /// Set the player's target-priority doctrine (§9).
@@ -1924,6 +1947,75 @@ mod tests {
         );
         // Losses are applied to the fleet (it can only shrink).
         assert!(sim.corp().fleet().len() <= fleet_before);
+    }
+
+    #[test]
+    fn an_off_station_fleet_cannot_defend_the_core() {
+        // Pillar #2: combat is positional. Warships defend the home core only when
+        // on station there; fly them away and the core is undefended until they
+        // burn home — so the delta-v movement layer is consequential.
+        use crate::sim::combat::Band;
+        let mut sim = Sim::new(0);
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        assert_eq!(sim.warships_on_station(), 2, "fresh hulls dock at the core");
+        assert!(
+            sim.engage_raiders(Band::Medium).is_some(),
+            "on-station fleet can fight"
+        );
+
+        // Send the survivors to Earth (body 3): in transit ⇒ off station.
+        for i in 0..sim.corp().fleet().len() {
+            let _ = sim.move_ship(i, 3, false);
+        }
+        assert_eq!(
+            sim.warships_on_station(),
+            0,
+            "a departed fleet is off station"
+        );
+        assert!(
+            sim.engage_raiders(Band::Medium).is_none(),
+            "the core is undefended while the fleet is away"
+        );
+
+        // Let them arrive at Earth — docked, but at the wrong body, still no defence.
+        for _ in 0..3_000 {
+            sim.step();
+            if !sim
+                .corp()
+                .fleet()
+                .iter()
+                .any(|s| s.nav.in_transit(sim.tick()))
+            {
+                break;
+            }
+        }
+        assert_eq!(
+            sim.warships_on_station(),
+            0,
+            "docked at Earth is not on station at the core"
+        );
+
+        // Recall one hull home; the core can be defended again.
+        let muster = sim.markets()[0].body();
+        sim.refuel_ship(0);
+        sim.move_ship(0, muster, false)
+            .expect("a frigate can burn home");
+        for _ in 0..3_000 {
+            sim.step();
+            if !sim.corp().fleet()[0].nav.in_transit(sim.tick()) {
+                break;
+            }
+        }
+        assert_eq!(
+            sim.warships_on_station(),
+            1,
+            "the recalled hull stands guard"
+        );
+        assert!(
+            sim.engage_raiders(Band::Medium).is_some(),
+            "a fleet back on station can fight again"
+        );
     }
 
     #[test]

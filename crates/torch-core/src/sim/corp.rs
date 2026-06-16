@@ -260,6 +260,46 @@ impl Corp {
         lost
     }
 
+    /// Resolve an engagement fought by a **subset** of the fleet (§6/§13): only
+    /// the ships in `participants` (by index) are at risk — the rest were off
+    /// station and untouched. Within the participants the Rocinante effect still
+    /// holds (veterans pull through, the green tail is lost); survivors are blooded.
+    /// Returns the lost hulls' names. This is the position-aware counterpart of
+    /// [`resolve_engagement`].
+    pub fn resolve_engagement_for(
+        &mut self,
+        mut participants: Vec<usize>,
+        survivors: usize,
+        won: bool,
+    ) -> Vec<String> {
+        // Veterans (wins → battles → seniority) sort to the front of the engaged
+        // group, so the green hulls are the ones lost.
+        participants.sort_by(|&a, &b| {
+            let (sa, sb) = (&self.fleet[a], &self.fleet[b]);
+            sb.battles_won
+                .cmp(&sa.battles_won)
+                .then(sb.battles.cmp(&sa.battles))
+                .then(sa.commissioned_tick.cmp(&sb.commissioned_tick))
+        });
+        let kept = survivors.min(participants.len());
+        let lost_idx: Vec<usize> = participants.iter().skip(kept).copied().collect();
+        let lost_names: Vec<String> = lost_idx
+            .iter()
+            .map(|&i| self.fleet[i].name.clone())
+            .collect();
+        // Blood the engaged survivors.
+        for &i in participants.iter().take(kept) {
+            self.fleet[i].record_battle(won);
+        }
+        // Remove the lost hulls, high index first so the earlier indices stay valid.
+        let mut lost_sorted = lost_idx;
+        lost_sorted.sort_unstable_by(|a, b| b.cmp(a));
+        for i in lost_sorted {
+            self.fleet.remove(i);
+        }
+        lost_names
+    }
+
     /// The most decorated hull in the fleet (most wins), if any — the hero ship the
     /// shell can spotlight (§14 Rocinante effect).
     pub fn flagship(&self) -> Option<&OwnedShip> {

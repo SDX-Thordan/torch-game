@@ -160,6 +160,26 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-16 — Combat is positional now (Pillar #2, §6/§9/§13).** Made the
+  delta-v movement layer *consequential* for combat: raiders muster on the inner
+  lanes at the **home core** (`markets[0]`'s body, where hulls commission), and
+  `engage_raiders` answers **only with warships on station there** — a fleet flown
+  to the outer system can't defend the core until it burns home. Losses fall on the
+  **engaged ships only** via a new `Corp::resolve_engagement_for(participants, …)`
+  (the Rocinante veteran-sort preserved within the group; bystanders untouched),
+  vs. the old whole-fleet `resolve_engagement`. New `Sim::warships_on_station()`
+  drives an accurate shell read (FLEET doctrine line "+N on station" + a "recall the
+  fleet" message distinct from "no warships"). **Key backward-compat move:** the
+  muster point is the *home dock* where ships commission, so a fresh fleet is on
+  station and every existing engage test + the QA review stay **byte-identical** —
+  the new behaviour only bites once you fly the fleet away. Proven by
+  `an_off_station_fleet_cannot_defend_the_core` (commission → fight → fly to Earth →
+  can't engage → recall home → can fight again). *Tooling reminders that re-bit:*
+  (1) the desktop extension loads `target/debug/libtorch_core.so` — a new `#[func]`
+  binding needs a **`cargo build` (debug)**, not just `--release`, or Godot reports
+  "Nonexistent function"; (2) GDScript `:=` can't infer a gdext return — type the
+  local (`var on_station: int = sim.warships_on_station()`).
+
 - **2026-06-16 — Ship class specs are now data (deviation #12, §31).** Extended the
   "numbers in data, logic in Rust" overlay from commodities to **ship hulls +
   weapons** — the second-highest-leverage tuning domain. New `data/ships.json` tunes
