@@ -1,13 +1,22 @@
 extends Node3D
 
 ## TORCH — the playable shell (§18–§21). A real-time-with-pause game loop over the
-## deterministic Rust core, now with a **3D orrery**: lit bodies orbit the sun on
-## the ecliptic, haulers run the lanes between them, and an always-visible ring
-## marks the gate (§0.1). The HUD (panels + alert feed + the voice) rides on a 2D
-## CanvasLayer over the 3D world; the player presses the verbs (§0.4).
+## deterministic Rust core, presented as a single cohesive instrument: a rounded
+## bezel, a top status bar (logo · date · resources), a left nav rail, and four
+## switchable views that share one visual language (see `ui/ui_kit.gd`):
+##
+##   • SYSTEMS  — the 3D orrery + a station context panel (status / resources /
+##                construction queues / standing-order toggles).
+##   • FLEET    — the fleet roster as a sortable-feeling table (ALL/IDLE tabs).
+##   • BUILD    — the shipyard: hull list → wireframe blueprint → cost → queue.
+##   • MARKET   — commodity-flow schematic + market ticker + price-history chart.
 ##
 ## All game logic lives in the Rust `sim`; this scene drives `step()` on a clock,
-## mirrors the snapshot into 3D nodes, and turns input into sim verbs.
+## mirrors the snapshot into the views/3D nodes, and turns input into sim verbs.
+
+const UiKit := preload("res://ui/ui_kit.gd")
+const MiniChartS := preload("res://ui/mini_chart.gd")
+const FlowGraphS := preload("res://ui/flow_graph.gd")
 
 const TICKS_PER_SECOND := 6.0           # sim ticks per real second at 1× (§28)
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]   # pause / 1× / 6× / 24× (§6)
@@ -18,67 +27,125 @@ const QTY_STEP := 5
 const QTY_MAX := 500
 const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (§30)
 
-# 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit, so the system
-# spans Mercury (0.39) → Pluto (39.5) → the ring-gate (52), conveying real scale.
-const SCALE3D := 1.0 / 1_000_000.0      # sim units (AU=10^6) → world units (1 AU = 1)
-# Fixed 3/4 top-down view direction from the focus point; distance is the zoom.
+# Views (index = nav-rail order).
+const V_SYSTEMS := 0
+const V_FLEET := 1
+const V_BUILD := 2
+const V_MARKET := 3
+const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄"]
+const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET"]
+const VIEW_TITLE := [
+	"Orrery — Sol System",
+	"Fleet Management",
+	"Orbital Shipyard",
+	"Market & Logistics",
+]
+
+# 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit.
+const SCALE3D := 1.0 / 1_000_000.0
 const CAM_DIR := Vector3(0.0, 1.15, 0.9)
 const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
-# Body render radii by kind (exaggerated for legibility, not to scale):
 # 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf, 4 Moon, 5 Gate.
 const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0]
-# Faction tints (Earth, Mars, Belt/OPA, Independents) for colony markers (§4/§17).
 const FACTION_COL := [
-	Color(0.4, 0.6, 1.0),    # Earth — blue
-	Color(0.95, 0.45, 0.4),  # Mars — red
-	Color(0.95, 0.75, 0.35), # Belt / OPA — amber
-	Color(0.55, 0.85, 0.6),  # Independents — green
+	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
+	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
 ]
 const SPACE_BG := Color(0.02, 0.03, 0.06)
-const PANEL_BG := Color(0.04, 0.05, 0.07, 0.82)   # left info-column backdrop (§20)
 const HAULER_COL := Color(0.95, 0.7, 0.35)
 const SELECT_COL := Color(1.0, 0.4, 0.2)
+const CHART_COMMS := 4   # commodities tracked in the price-history chart
 
 var sim: TorchSim
+var shipyard: TorchShipyard   # the hull catalog for the BUILD view
 var speed_idx := 1
 var accum := 0.0
-var auto_pause := true                   # pause when an act-now alert fires (§28)
-var selected := 0                       # index of the selected in-flight hauler
-var flash := 0.0                         # act-now alert juice: a fading screen tint (§23)
-var ascend_flash := 0.0                  # tier-ascension fanfare: a fading gold glow (§0.3)
-var last_tier := ""                      # to detect a tier ascent across frames
-var _zoom := 10.0                        # camera distance from focus (world units)
-var _focus_body := 0                     # the body the camera tracks (0 = Sol)
-var _touches := {}                       # active touch points (index → position)
-var _pinch_prev := 0.0                   # last two-finger distance, for pinch zoom
-var _was_multitouch := false             # suppress the tap-pick after a pinch
+var auto_pause := true
+var selected := 0
+var view := V_SYSTEMS
+var flash := 0.0
+var ascend_flash := 0.0
+var last_tier := ""
+var _zoom := 10.0
+var _focus_body := 0
+var _touches := {}
+var _pinch_prev := 0.0
+var _was_multitouch := false
+var _last_chart_tick := -1
 
-# The trade cursor — granular control over what/where/how much you deal (§5).
-var sel_comm := 5                       # commodity (ReactorFuel by default)
-var sel_market := 0                     # market (Ceres)
+# The trade cursor (§5).
+var sel_comm := 5
+var sel_market := 0
 var trade_qty := 20
-var ceo_pick := 2                       # CEO branch under consideration (Warlord)
+var ceo_pick := 2
+var build_pick := 0     # ship class selected in the BUILD view
+var fleet_tab := 0      # 0 ALL · 1 FLEETS(warships) · 2 SINGLE SHIPS(freighters) · 3 IDLE
+
+# Commodity indices resolved by name for the top-bar readouts.
+var _idx_ore := 1
+var _idx_fuel := 5
+var _idx_water := 0
 
 var status := "Welcome, CEO."
 
-# HUD (2D overlay).
-var _top: Label
-var _assets: Label
-var _deck: Label
-var _feed: RichTextLabel              # bbcode so alerts colour by priority (§19)
-var _help: Label
-var _paused: Label
+# ---- chrome refs ------------------------------------------------------------
+var _layer: CanvasLayer
+var _content: Control
+var _views: Array[Control] = []
+var _nav_buttons: Array[Button] = []
+var _title: Label
+var _date: Label
+var _res_credits: Label
+var _res_ore: Label
+var _res_fuel: ProgressBar
+var _res_crew: Label
+var _alert_ticker: Label
 var _flash_rect: ColorRect
 var _ascend_rect: ColorRect
+var _help: Label
 
-# 3D world.
+# Systems view.
+var _sys_title: Label
+var _sys_sub: Label
+var _sys_status: Label
+var _sys_resources: VBoxContainer
+var _sys_queues: VBoxContainer
+var _sys_now: Label
+var _sys_gate: ProgressBar
+var _sys_gate_lbl: Label
+var _tg_patrol: CheckButton
+var _tg_research: CheckButton
+var _tg_pause: CheckButton
+var _feed: RichTextLabel
+
+# Fleet view.
+var _fleet_grid: GridContainer
+var _fleet_count: Label
+var _fleet_tabs: Array[Button] = []
+
+# Build view.
+var _build_list: VBoxContainer
+var _build_caption: Label
+var _build_stats: Label
+var _build_cost: Label
+var _build_queue: VBoxContainer
+var _ship_pivot: Node3D
+
+# Market view.
+var _flow: Control
+var _chart: Control
+var _ticker_grid: GridContainer
+var _chart_legend: VBoxContainer
+
+# ---- 3D world ---------------------------------------------------------------
+var _orrery_root: Node3D
 var _cam: Camera3D
-var _body_nodes: Array[Node3D] = []      # one per sim body (index-aligned; sun at 0)
+var _body_nodes: Array[Node3D] = []
 var _hauler_pool: Array[MeshInstance3D] = []
-var _wreck_pool: Array[MeshInstance3D] = []   # §15 derelict markers on the map
+var _wreck_pool: Array[MeshInstance3D] = []
 var _gate_ring: MeshInstance3D
-var _lane_mesh: ImmediateMesh                 # faint trails: each hauler → its dest (§7b)
+var _lane_mesh: ImmediateMesh
 var _hauler_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
 var _wreck_mat: StandardMaterial3D
@@ -86,13 +153,34 @@ var _gate_mat: StandardMaterial3D
 
 
 func _ready() -> void:
+	RenderingServer.set_debug_generate_wireframes(true)   # for the BUILD blueprint
 	sim = TorchSim.new()
 	sim.reset(7)
+	shipyard = TorchShipyard.new()
+	_resolve_commodity_indices()
 	_build_world()
-	_build_hud()
+	_build_chrome()
+	_build_systems_view()
+	_build_fleet_view()
+	_build_build_view()
+	_build_market_view()
+	_select_view(V_SYSTEMS)
 
 
-# ---- scene construction -----------------------------------------------------
+func _resolve_commodity_indices() -> void:
+	for c in sim.commodity_count():
+		var n := String(sim.commodity_name(c)).to_lower()
+		if n.contains("ore"):
+			_idx_ore = c
+		elif n.contains("fuel"):
+			_idx_fuel = c
+		elif n.contains("water") or n.contains("ice"):
+			_idx_water = c
+
+
+# ============================================================================
+# 3D ORRERY WORLD
+# ============================================================================
 
 func _build_world() -> void:
 	var env := WorldEnvironment.new()
@@ -107,59 +195,51 @@ func _build_world() -> void:
 
 	_cam = Camera3D.new()
 	_cam.current = true
-	_cam.far = 6000.0          # the gate sits ~52 units out; keep it in view
+	_cam.far = 6000.0
 	add_child(_cam)
 	_update_camera()
 
-	# A soft directional key light (the system is too wide for a point sun to
-	# light Pluto), plus a sun glow at the centre.
+	_orrery_root = Node3D.new()
+	add_child(_orrery_root)
+
 	var sun_light := OmniLight3D.new()
 	sun_light.omni_range = 6000.0
 	sun_light.light_energy = 1.2
-	add_child(sun_light)
+	_orrery_root.add_child(sun_light)
 	var key := DirectionalLight3D.new()
 	key.rotation_degrees = Vector3(-60, -30, 0)
 	key.light_energy = 0.7
-	add_child(key)
+	_orrery_root.add_child(key)
 
-	# Shared hauler/wreck materials (created once; reused across the pools).
 	_hauler_mat = _emissive_mat(HAULER_COL)
 	_select_mat = _emissive_mat(SELECT_COL)
-	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))   # teal: a derelict to strip
+	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
 
 	var gate_r := 40.0
 	for b in sim.body_count():
 		var kind := sim.body_kind(b)
 		if kind == 0:
-			# Sol: a bright emissive core at the centre.
 			var sun := _sphere(BODY_RADIUS[0], _emissive_mat(Color(1.0, 0.85, 0.3)))
-			add_child(sun)
+			_orrery_root.add_child(sun)
 			_body_nodes.append(sun)
 			continue
 		if kind == 5:
-			# The ring-gate: rendered as the outer ring below, not a sphere — but
-			# keep an index-aligned placeholder so _update_world stays simple.
 			gate_r = _world3d(sim.body_x(b), sim.body_y(b)).length()
 			var ph := Node3D.new()
-			add_child(ph)
+			_orrery_root.add_child(ph)
 			_body_nodes.append(ph)
 			continue
-		# A planet / dwarf / moon.
 		var body := _sphere(BODY_RADIUS[kind], _lit_mat(_body_colour_kind(b, kind)))
-		add_child(body)
+		_orrery_root.add_child(body)
 		_body_nodes.append(body)
 		var parent := sim.body_parent(b)
 		if parent == 0:
-			# Planet/dwarf orbit ring about the Sun (static at the origin).
 			var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-			add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+			_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
 		else:
-			# A moon's orbit ring is centred on its planet — parent it to the
-			# planet's node so it tracks the planet across the system (§17).
 			var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
 			var mrm := _emissive_mat(Color(0.32, 0.36, 0.42))
 			_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.004, mr * 0.012)))
-		# A billboarded name tag (smaller, dimmer for moons; seen on zoom-in).
 		var tag := Label3D.new()
 		tag.text = sim.body_name(b)
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -168,14 +248,10 @@ func _build_world() -> void:
 		tag.position = Vector3(0, BODY_RADIUS[kind] + 0.06, 0)
 		body.add_child(tag)
 
-	# The always-visible ring-gate (§0.1) at its true distance beyond Pluto; it
-	# brightens with gate_progress_pct each frame.
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
 	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
-	add_child(_gate_ring)
+	_orrery_root.add_child(_gate_ring)
 
-	# Settled frontier colonies (§17): a faction-coloured marker + tag on each
-	# colony's body, parented to it so it tracks the moon across the system.
 	for ci in sim.colony_count():
 		var cb := sim.colony_body(ci)
 		if cb < 0 or cb >= _body_nodes.size():
@@ -192,15 +268,11 @@ func _build_world() -> void:
 		clbl.position = Vector3(0.0, -BODY_RADIUS[sim.body_kind(cb)] - 0.07, 0.0)
 		_body_nodes[cb].add_child(clbl)
 
-	# Saturn's iconic rings + the asteroid fields drifting in them (§17), parented
-	# to Saturn so they orbit the Sun with it.
 	for b in sim.body_count():
 		if sim.body_name(b) == "Saturn":
 			_build_saturn_rings(_body_nodes[b])
 			break
 
-	# Hauler lane trails (§7b): faint lines from each hauler to its destination,
-	# rebuilt every frame, so the interdiction decision ("which one?") is spatial.
 	_lane_mesh = ImmediateMesh.new()
 	var lanes := MeshInstance3D.new()
 	lanes.mesh = _lane_mesh
@@ -208,14 +280,11 @@ func _build_world() -> void:
 	lane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	lane_mat.albedo_color = Color(0.85, 0.6, 0.35, 0.4)
 	lanes.material_override = lane_mat
-	add_child(lanes)
+	_orrery_root.add_child(lanes)
 
 	_build_starfield()
 
 
-## A deterministic starfield shell behind the system — the §21 "felt vastness",
-## so the dark space reads as depth rather than emptiness. A single MultiMesh of
-## billboarded points (cheap, static).
 func _build_starfield() -> void:
 	var n := 600
 	var mat := StandardMaterial3D.new()
@@ -230,30 +299,24 @@ func _build_starfield() -> void:
 	mm.mesh = quad
 	mm.instance_count = n
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 7              # deterministic placement (§27 in spirit)
+	rng.seed = 7
 	for i in n:
 		var dir := Vector3(rng.randfn(), rng.randfn(), rng.randfn())
 		if dir.length() < 0.001:
 			dir = Vector3.UP
-		# Far beyond the gate (~52) and the max zoom-out (~140) so they read as a
-		# fixed backdrop at any zoom.
 		var pos := dir.normalized() * rng.randf_range(260.0, 420.0)
-		var s := rng.randf_range(0.6, 2.0)   # varied star sizes
+		var s := rng.randf_range(0.6, 2.0)
 		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * s), pos))
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
-	add_child(mmi)
+	_orrery_root.add_child(mmi)
 
 
-## Saturn's banded rings + the asteroid field drifting in them (§17). Parented to
-## Saturn's node so the whole ring system orbits the Sun with the planet.
 func _build_saturn_rings(saturn: Node3D) -> void:
-	# A few concentric thin rings read as the banded ring sheet.
 	for rr in [0.42, 0.48, 0.54, 0.60, 0.66, 0.72]:
 		var rm := _emissive_mat(Color(0.85, 0.78, 0.55, 0.45))
 		rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		saturn.add_child(_ring_mat(rr, rm, 0.018))
-	# The asteroid field: small rocks scattered through the ring annulus.
 	var amat := StandardMaterial3D.new()
 	amat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	amat.albedo_color = Color(0.78, 0.74, 0.66)
@@ -278,68 +341,572 @@ func _build_saturn_rings(saturn: Node3D) -> void:
 	saturn.add_child(ast)
 
 
-func _build_hud() -> void:
-	var layer := CanvasLayer.new()
-	add_child(layer)
+# ============================================================================
+# CHROME (bezel · top bar · nav rail · content host)
+# ============================================================================
 
-	# Left info-column backdrop so panels stay legible over the orrery (§20).
-	var bg := ColorRect.new()
-	bg.color = PANEL_BG
-	bg.position = Vector2(0, 0)
-	bg.size = Vector2(720, 720)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(bg)
+func _build_chrome() -> void:
+	_layer = CanvasLayer.new()
+	add_child(_layer)
 
-	# Full-screen flash washes (juice). Kept transparent until an event fires.
+	# Outer bezel — border only, so the orrery shows through inside it.
+	var bezel := Panel.new()
+	bezel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var bsb := UiKit.panel_box(Color(0, 0, 0, 0), UiKit.LINE_HI, 14, 1)
+	bezel.add_theme_stylebox_override("panel", bsb)
+	bezel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(bezel)
+
+	# Left nav rail (solid chrome).
+	var rail := Panel.new()
+	rail.add_theme_stylebox_override("panel", UiKit.panel_box(UiKit.BG_BAR, UiKit.LINE, 12))
+	_fill(rail, 8, 8, -1, 8)
+	rail.anchor_right = 0
+	rail.offset_right = 70
+	rail.mouse_filter = Control.MOUSE_FILTER_STOP
+	_layer.add_child(rail)
+	var rail_v := VBoxContainer.new()
+	rail_v.add_theme_constant_override("separation", 6)
+	_fill(rail_v, 4, 8, 4, 8)
+	rail.add_child(rail_v)
+	# Brand flame mark at the top of the rail.
+	var mark := UiKit.label("◆", 22, UiKit.ACCENT)
+	mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rail_v.add_child(mark)
+	rail_v.add_child(UiKit.rule())
+	for v in VIEW_CAP.size():
+		var b := UiKit.nav_button(VIEW_GLYPH[v], VIEW_CAP[v], v == view)
+		var vi := v
+		b.pressed.connect(func() -> void: _select_view(vi))
+		rail_v.add_child(b)
+		_nav_buttons.append(b)
+
+	# Top status bar.
+	var bar := Panel.new()
+	bar.add_theme_stylebox_override("panel", UiKit.panel_box(UiKit.BG_BAR, UiKit.LINE, 12))
+	bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bar.anchor_bottom = 0
+	bar.offset_left = 86
+	bar.offset_top = 8
+	bar.offset_right = -8
+	bar.offset_bottom = 48
+	_layer.add_child(bar)
+	# Left: brand + view title.
+	var brand := UiKit.label("TORCH", 18, UiKit.TEXT_HI)
+	brand.position = Vector2(14, 8)
+	bar.add_child(brand)
+	_title = UiKit.label("", 13, UiKit.TEXT_DIM)
+	_title.position = Vector2(92, 12)
+	bar.add_child(_title)
+	# Centre: an alert ticker (latest act-now) — visible in every view.
+	_alert_ticker = UiKit.label("", 12, UiKit.BAD)
+	_alert_ticker.position = Vector2(320, 12)
+	bar.add_child(_alert_ticker)
+	# Right: resource readouts, pinned to the right edge.
+	var res := HBoxContainer.new()
+	res.add_theme_constant_override("separation", 18)
+	res.alignment = BoxContainer.ALIGNMENT_END
+	res.set_anchors_preset(Control.PRESET_FULL_RECT)
+	res.offset_left = 360
+	res.offset_right = -14
+	res.offset_top = 0
+	res.offset_bottom = 0
+	res.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(res)
+	_date = UiKit.label("", 13, UiKit.TEXT_DIM)
+	res.add_child(_make_res_cell("DATE", _date))
+	_res_credits = UiKit.label("", 14, UiKit.GOLD)
+	res.add_child(_make_res_cell("CREDITS", _res_credits))
+	_res_ore = UiKit.label("", 14, UiKit.TEXT)
+	res.add_child(_make_res_cell("ORE", _res_ore))
+	# Fuel as a gauge cell.
+	var fuel_cell := VBoxContainer.new()
+	fuel_cell.add_theme_constant_override("separation", 2)
+	fuel_cell.add_child(UiKit.kicker("FUEL"))
+	_res_fuel = UiKit.gauge(0.5, UiKit.ACCENT, 70, 9)
+	fuel_cell.add_child(_res_fuel)
+	res.add_child(fuel_cell)
+	_res_crew = UiKit.label("", 14, UiKit.TEXT)
+	res.add_child(_make_res_cell("CREW", _res_crew))
+
+	# Content host (between the rail and the screen edge, below the bar).
+	_content = Control.new()
+	_fill(_content, 86, 54, 8, 8)
+	_layer.add_child(_content)
+
+	# Full-screen juice washes + paused banner sit above the content.
 	_flash_rect = _make_wash(Color(1.0, 0.3, 0.22, 0.0))
 	_ascend_rect = _make_wash(Color(1.0, 0.82, 0.3, 0.0))
-	layer.add_child(_flash_rect)
-	layer.add_child(_ascend_rect)
+	_layer.add_child(_flash_rect)
+	_layer.add_child(_ascend_rect)
+	_help = UiKit.label("", 9, UiKit.TEXT_DIM)
+	_help.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_help.anchor_top = 1
+	_help.offset_top = -16
+	_help.offset_left = 92
+	_help.offset_bottom = -2
+	_layer.add_child(_help)
 
-	# Stacked, non-overlapping panels down the left column (sizes/gaps tuned from
-	# rendered captures so the dense market board never runs into the deck).
-	_top = _make_label(layer, Vector2(12, 8), 17)
-	_assets = _make_label(layer, Vector2(12, 38), 12)
-	_deck = _make_label(layer, Vector2(12, 366), 10)
-	_help = _make_label(layer, Vector2(12, 700), 10)
-	# The alert feed is a bbcode RichTextLabel so each line can colour by priority.
+
+func _make_res_cell(caption: String, value: Label) -> VBoxContainer:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(UiKit.kicker(caption))
+	v.add_child(value)
+	return v
+
+
+## Anchor a control to fill its parent with edge insets (responsive for the
+## `canvas_items`/expand stretch the project uses, §17 mobile).
+func _fill(c: Control, l: float, t: float, r: float, b: float) -> void:
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	c.offset_left = l
+	c.offset_top = t
+	c.offset_right = -r
+	c.offset_bottom = -b
+
+
+func _make_wash(col: Color) -> ColorRect:
+	var cr := ColorRect.new()
+	cr.color = col
+	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return cr
+
+
+func _select_view(v: int) -> void:
+	view = v
+	for i in _views.size():
+		_views[i].visible = i == v
+	for i in _nav_buttons.size():
+		_nav_buttons[i].set_pressed_no_signal(i == v)
+	# The orrery only renders behind the SYSTEMS view.
+	_orrery_root.visible = v == V_SYSTEMS
+
+
+# ============================================================================
+# SYSTEMS VIEW (orrery context panel + goal/feed overlay + map controls)
+# ============================================================================
+
+func _build_systems_view() -> void:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.add_child(root)
+	_views.append(root)
+
+	# Right context panel (station detail), pinned to the right of the content.
+	var ctx := UiKit.make_panel()
+	ctx.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ctx.anchor_left = 1
+	ctx.offset_left = -312
+	ctx.offset_right = 0
+	ctx.offset_top = 0
+	ctx.offset_bottom = -132
+	root.add_child(ctx)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	ctx.add_child(col)
+	_sys_title = UiKit.label("", 16, UiKit.TEXT_HI)
+	col.add_child(_sys_title)
+	_sys_sub = UiKit.label("", 11, UiKit.TEXT_DIM)
+	col.add_child(_sys_sub)
+	col.add_child(UiKit.rule())
+	_sys_status = UiKit.label("", 12, UiKit.TEXT)
+	col.add_child(_sys_status)
+	col.add_child(UiKit.kicker("Resources"))
+	_sys_resources = VBoxContainer.new()
+	_sys_resources.add_theme_constant_override("separation", 3)
+	col.add_child(_sys_resources)
+	col.add_child(UiKit.kicker("Active Construction Queues"))
+	_sys_queues = VBoxContainer.new()
+	_sys_queues.add_theme_constant_override("separation", 4)
+	col.add_child(_sys_queues)
+	col.add_child(UiKit.kicker("Standing Orders"))
+	_tg_patrol = _add_toggle(col, "Interdiction patrol", func(on): sim.toggle_patrol())
+	_tg_research = _add_toggle(col, "Auto-research", func(on): sim.toggle_auto_research())
+	_tg_pause = _add_toggle(col, "Auto-pause on alert", func(on): auto_pause = on)
+
+	# Bottom-left overlay panel: NOW goal + the always-visible gate progress (§0.1).
+	var goal := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
+	goal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	goal.anchor_top = 1
+	goal.offset_top = -124
+	goal.offset_left = 0
+	goal.offset_right = 360
+	goal.offset_bottom = 0
+	root.add_child(goal)
+	var gv := VBoxContainer.new()
+	gv.add_theme_constant_override("separation", 4)
+	goal.add_child(gv)
+	gv.add_child(UiKit.kicker("Now"))
+	_sys_now = UiKit.label("", 12, UiKit.TEXT)
+	_sys_now.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sys_now.custom_minimum_size = Vector2(338, 0)
+	gv.add_child(_sys_now)
+	_sys_gate_lbl = UiKit.label("", 10, UiKit.GOLD)
+	gv.add_child(_sys_gate_lbl)
+	_sys_gate = UiKit.gauge(0.0, UiKit.GOLD, 338, 8)
+	gv.add_child(_sys_gate)
+
+	# Alert feed panel, bottom-centre over the orrery.
+	var feedp := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
+	feedp.set_anchors_preset(Control.PRESET_FULL_RECT)
+	feedp.anchor_top = 1
+	feedp.offset_top = -124
+	feedp.offset_left = 370
+	feedp.offset_right = -322
+	feedp.offset_bottom = 0
+	root.add_child(feedp)
+	var fv := VBoxContainer.new()
+	feedp.add_child(fv)
+	fv.add_child(UiKit.kicker("Alert Feed"))
 	_feed = RichTextLabel.new()
 	_feed.bbcode_enabled = true
 	_feed.scroll_active = false
-	_feed.position = Vector2(12, 636)
-	_feed.size = Vector2(700, 110)
+	_feed.fit_content = true
 	_feed.add_theme_font_size_override("normal_font_size", 12)
 	_feed.add_theme_font_size_override("bold_font_size", 12)
 	_feed.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(_feed)
-	# The paused banner sits over the orrery (right side), clear of the top bar.
-	_paused = _make_label(layer, Vector2(900, 70), 22)
-	_paused.modulate = Color(1.0, 0.8, 0.3)
+	fv.add_child(_feed)
 
-	# Touch-friendly map controls (§17, mobile): zoom in/out + reset-view, plus
-	# pinch and tap handled in _unhandled_input.
-	_make_map_button(layer, Vector2(1208, 470), "+", func() -> void: _zoom_by(0.8))
-	_make_map_button(layer, Vector2(1208, 530), "–", func() -> void: _zoom_by(1.25))
-	_make_map_button(layer, Vector2(1208, 590), "◉", _reset_view)
+	# Map controls (mobile-friendly), bottom-right corner of the orrery region.
+	var mc := HBoxContainer.new()
+	mc.add_theme_constant_override("separation", 6)
+	mc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mc.anchor_left = 1
+	mc.anchor_top = 1
+	mc.offset_left = -470
+	mc.offset_top = -176
+	mc.offset_right = -322
+	mc.offset_bottom = -132
+	root.add_child(mc)
+	mc.add_child(_make_map_button("+", func(): _zoom_by(0.8)))
+	mc.add_child(_make_map_button("–", func(): _zoom_by(1.25)))
+	mc.add_child(_make_map_button("◉", _reset_view))
 
 
-## A large square touch target for the map controls.
-func _make_map_button(parent: CanvasLayer, pos: Vector2, label: String, cb: Callable) -> void:
+func _add_toggle(col: VBoxContainer, text: String, cb: Callable) -> CheckButton:
+	var row := UiKit.toggle_row(text, false)
+	col.add_child(row)
+	var cbtn: CheckButton = row.get_node("toggle")
+	cbtn.toggled.connect(cb)
+	return cbtn
+
+
+func _make_map_button(label: String, cb: Callable) -> Button:
 	var btn := Button.new()
 	btn.text = label
-	btn.position = pos
-	btn.size = Vector2(54, 54)
-	btn.add_theme_font_size_override("font_size", 26)
+	btn.custom_minimum_size = Vector2(40, 40)
+	btn.add_theme_font_size_override("font_size", 20)
 	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_stylebox_override("normal", UiKit.panel_box(UiKit.BG_BAR, UiKit.LINE, 6))
+	btn.add_theme_stylebox_override("hover", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+	btn.add_theme_stylebox_override("pressed", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+	btn.add_theme_color_override("font_color", UiKit.ACCENT)
 	btn.pressed.connect(cb)
-	parent.add_child(btn)
+	return btn
+
+
+# ============================================================================
+# FLEET VIEW (roster table)
+# ============================================================================
+
+func _build_fleet_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	# Tabs.
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 4)
+	v.add_child(tabs)
+	var names := ["ALL", "FLEETS", "SINGLE SHIPS", "IDLE"]
+	for i in names.size():
+		var b := UiKit.tab_button(names[i], i == 0)
+		var ti := i
+		b.pressed.connect(func(): _set_fleet_tab(ti))
+		tabs.add_child(b)
+		_fleet_tabs.append(b)
+	_fleet_count = UiKit.label("", 11, UiKit.TEXT_DIM)
+	v.add_child(_fleet_count)
+	v.add_child(UiKit.rule())
+	# Header row + grid.
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	_fleet_grid = GridContainer.new()
+	_fleet_grid.columns = 6
+	_fleet_grid.add_theme_constant_override("h_separation", 22)
+	_fleet_grid.add_theme_constant_override("v_separation", 7)
+	_fleet_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_fleet_grid)
+
+
+func _set_fleet_tab(i: int) -> void:
+	fleet_tab = i
+	for t in _fleet_tabs.size():
+		_fleet_tabs[t].set_pressed_no_signal(t == i)
+
+
+# ============================================================================
+# BUILD VIEW (hull list · blueprint · cost · queue)
+# ============================================================================
+
+func _build_build_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 12)
+	panel.add_child(hb)
+
+	# Left: hull list.
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(220, 0)
+	left.add_theme_constant_override("separation", 5)
+	hb.add_child(left)
+	left.add_child(UiKit.kicker("Hull Types"))
+	_build_list = VBoxContainer.new()
+	_build_list.add_theme_constant_override("separation", 4)
+	left.add_child(_build_list)
+	for i in shipyard.class_count():
+		var b := Button.new()
+		b.toggle_mode = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.button_pressed = i == build_pick
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_color_override("font_color", UiKit.TEXT)
+		b.add_theme_color_override("font_pressed_color", UiKit.ACCENT)
+		b.add_theme_stylebox_override("normal", UiKit.panel_box(UiKit.BG_INSET, UiKit.LINE, 6))
+		b.add_theme_stylebox_override("pressed", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+		b.add_theme_stylebox_override("hover", UiKit.panel_box(UiKit.BG_INSET, UiKit.LINE_HI, 6))
+		b.text = "  %s" % String(shipyard.class_name(i))
+		var bi := i
+		b.pressed.connect(func(): _pick_build(bi))
+		_build_list.add_child(b)
+
+	# Centre: wireframe blueprint viewport + caption + cost.
+	var centre := VBoxContainer.new()
+	centre.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	centre.add_theme_constant_override("separation", 6)
+	hb.add_child(centre)
+	var vp_panel := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 8)
+	vp_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	centre.add_child(vp_panel)
+	var svc := SubViewportContainer.new()
+	svc.stretch = true
+	svc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vp_panel.add_child(svc)
+	var sv := SubViewport.new()
+	sv.own_world_3d = true
+	sv.transparent_bg = true
+	sv.debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
+	svc.add_child(sv)
+	var scam := Camera3D.new()
+	scam.position = Vector3(0, 1.1, 4.2)
+	sv.add_child(scam)
+	scam.look_at(Vector3.ZERO, Vector3.UP)   # after entering the tree (uses global xform)
+	var slight := OmniLight3D.new()
+	slight.position = Vector3(2, 3, 4)
+	slight.omni_range = 30
+	sv.add_child(slight)
+	_ship_pivot = Node3D.new()
+	sv.add_child(_ship_pivot)
+	_build_blueprint_ship(_ship_pivot)
+	_build_caption = UiKit.label("", 15, UiKit.TEXT_HI)
+	centre.add_child(_build_caption)
+	_build_stats = UiKit.label("", 12, UiKit.TEXT_DIM)
+	centre.add_child(_build_stats)
+	_build_cost = UiKit.label("", 12, UiKit.TEXT)
+	centre.add_child(_build_cost)
+	var commission := UiKit.action_button("◆  COMMISSION HULL")
+	commission.pressed.connect(_commission_selected)
+	centre.add_child(commission)
+
+	# Right: construction queue.
+	var right := VBoxContainer.new()
+	right.custom_minimum_size = Vector2(230, 0)
+	right.add_theme_constant_override("separation", 5)
+	hb.add_child(right)
+	right.add_child(UiKit.kicker("Construction Queue"))
+	_build_queue = VBoxContainer.new()
+	_build_queue.add_theme_constant_override("separation", 6)
+	right.add_child(_build_queue)
+
+
+func _build_blueprint_ship(pivot: Node3D) -> void:
+	var mat := _emissive_mat(UiKit.ACCENT)
+	mat.emission_energy_multiplier = 0.6
+	# Hull.
+	var hull := MeshInstance3D.new()
+	var cap := CapsuleMesh.new()
+	cap.radius = 0.32
+	cap.height = 2.4
+	hull.mesh = cap
+	hull.rotation_degrees = Vector3(90, 0, 0)
+	hull.material_override = mat
+	pivot.add_child(hull)
+	# Bridge.
+	var bridge := MeshInstance3D.new()
+	var bx := BoxMesh.new()
+	bx.size = Vector3(0.4, 0.3, 0.6)
+	bridge.mesh = bx
+	bridge.position = Vector3(0, 0.32, 0.5)
+	bridge.material_override = mat
+	pivot.add_child(bridge)
+	# Nacelles.
+	for sx in [-1.0, 1.0]:
+		var nac := MeshInstance3D.new()
+		var nb := BoxMesh.new()
+		nb.size = Vector3(0.22, 0.22, 1.4)
+		nac.mesh = nb
+		nac.position = Vector3(0.5 * sx, -0.1, -0.3)
+		nac.material_override = mat
+		pivot.add_child(nac)
+
+
+func _pick_build(i: int) -> void:
+	build_pick = i
+	for c in _build_list.get_child_count():
+		(_build_list.get_child(c) as Button).set_pressed_no_signal(c == i)
+
+
+func _commission_selected() -> void:
+	if sim.commission_ship(build_pick):
+		status = "%s commissioned into the fleet." % String(shipyard.class_name(build_pick))
+	else:
+		status = "Can't build — short on crew or credits."
+
+
+# ============================================================================
+# MARKET VIEW (flow schematic · ticker · price history)
+# ============================================================================
+
+func _build_market_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+
+	# Top: commodity-flow schematic.
+	v.add_child(UiKit.kicker("Trade Flow"))
+	var flowp := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 8)
+	flowp.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	flowp.custom_minimum_size = Vector2(0, 250)
+	v.add_child(flowp)
+	_flow = FlowGraphS.new()
+	_flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flowp.add_child(_flow)
+	var names := PackedStringArray()
+	for m in sim.market_count():
+		names.append(String(sim.market_name(m)))
+	_flow.set_markets(names)
+
+	# Bottom row: ticker (left) + price history (right).
+	var bottom := HBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 10)
+	bottom.custom_minimum_size = Vector2(0, 250)
+	v.add_child(bottom)
+
+	var tickerp := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 8)
+	tickerp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom.add_child(tickerp)
+	var tv := VBoxContainer.new()
+	tickerp.add_child(tv)
+	tv.add_child(UiKit.kicker("Market Ticker  ·  %s" % String(sim.market_name(sel_market))))
+	tv.add_child(UiKit.rule())
+	var tsc := ScrollContainer.new()
+	tsc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tv.add_child(tsc)
+	_ticker_grid = GridContainer.new()
+	_ticker_grid.columns = 5
+	_ticker_grid.add_theme_constant_override("h_separation", 18)
+	_ticker_grid.add_theme_constant_override("v_separation", 6)
+	tsc.add_child(_ticker_grid)
+
+	var chartp := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 8)
+	chartp.custom_minimum_size = Vector2(380, 0)
+	bottom.add_child(chartp)
+	var cv := VBoxContainer.new()
+	chartp.add_child(cv)
+	cv.add_child(UiKit.kicker("Price History  ·  %s" % String(sim.market_name(sel_market))))
+	var chb := HBoxContainer.new()
+	chb.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cv.add_child(chb)
+	_chart = MiniChartS.new()
+	_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_chart.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chb.add_child(_chart)
+	_chart_legend = VBoxContainer.new()
+	_chart_legend.custom_minimum_size = Vector2(96, 0)
+	chb.add_child(_chart_legend)
+	# Track the first CHART_COMMS commodities.
+	var cols := _chart_colors()
+	_chart.setup(cols)
+	for i in mini(CHART_COMMS, sim.commodity_count()):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 5)
+		var sw := ColorRect.new()
+		sw.color = cols[i]
+		sw.custom_minimum_size = Vector2(10, 10)
+		row.add_child(sw)
+		row.add_child(UiKit.label(String(sim.commodity_name(i)), 10, UiKit.TEXT_DIM))
+		_chart_legend.add_child(row)
+
+
+func _chart_colors() -> Array[Color]:
+	return [UiKit.ACCENT, UiKit.GOLD, UiKit.GOOD, Color(0.7, 0.55, 0.95)]
+
+
+# ============================================================================
+# CAMERA + WORLD↔SCREEN
+# ============================================================================
+
+func _update_camera() -> void:
+	var f := _focus_pos()
+	# Shift the look target so the focus sits left-of-centre, clear of the right
+	# context panel that overlays the orrery in the SYSTEMS view.
+	var look := f + Vector3(0.18 * _zoom, 0.0, 0.0)
+	_cam.position = look + CAM_DIR.normalized() * _zoom
+	_cam.look_at(look, Vector3.UP)
+
+
+func _focus_pos() -> Vector3:
+	if _focus_body > 0 and _focus_body < sim.body_count():
+		return _world3d(sim.body_x(_focus_body), sim.body_y(_focus_body))
+	return Vector3.ZERO
+
+
+func _world3d(wx: float, wy: float) -> Vector3:
+	return Vector3(wx * SCALE3D, 0.0, -wy * SCALE3D)
+
+
+func _screen(p: Vector3) -> Vector2:
+	return _cam.unproject_position(p)
 
 
 func _zoom_by(factor: float) -> void:
 	_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
 
 
-## Distance between the first two active touch points (for pinch-to-zoom).
 func _two_finger_dist() -> float:
 	var pts := _touches.values()
 	if pts.size() < 2:
@@ -350,126 +917,12 @@ func _two_finger_dist() -> float:
 func _reset_view() -> void:
 	_focus_body = 0
 	_zoom = 10.0
-	status = "View: inner system (pinch / +–  to zoom, tap a world to focus)."
+	status = "View: inner system (pinch / +– to zoom, tap a world to focus)."
 
 
-func _make_label(parent: CanvasLayer, pos: Vector2, size: int) -> Label:
-	var l := Label.new()
-	l.position = pos
-	l.add_theme_font_size_override("font_size", size)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE   # clicks fall through to picking
-	parent.add_child(l)
-	return l
-
-
-func _make_wash(col: Color) -> ColorRect:
-	var cr := ColorRect.new()
-	cr.color = col
-	cr.position = Vector2.ZERO
-	cr.size = Vector2(1280, 720)
-	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
-	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return cr
-
-
-func _emissive_mat(col: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.emission_enabled = true
-	m.emission = col
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	return m
-
-
-func _lit_mat(col: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	return m
-
-
-func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = radius
-	sm.height = radius * 2.0
-	mi.mesh = sm
-	mi.material_override = mat
-	return mi
-
-
-func _ring(radius: float, col: Color) -> MeshInstance3D:
-	return _ring_mat(radius, _emissive_mat(col), 0.02)
-
-
-func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var tm := TorusMesh.new()             # lies flat on the XZ plane (hole up Y)
-	tm.inner_radius = maxf(0.01, radius - tube)
-	tm.outer_radius = radius + tube
-	mi.mesh = tm
-	mi.material_override = mat
-	return mi
-
-
-func _body_colour(b: int) -> Color:
-	var palette := [
-		Color(0.55, 0.75, 1.0),   # cool
-		Color(0.8, 0.85, 0.9),    # pale
-		Color(0.9, 0.6, 0.45),    # rust
-		Color(0.6, 0.85, 0.7),    # green
-	]
-	return palette[(b - 1) % palette.size()]
-
-
-## Colour a body by kind (gas giants get distinct icy/banded tints; moons grey).
-func _body_colour_kind(b: int, kind: int) -> Color:
-	match kind:
-		2:   # gas giant — the four are bodies 6..9 in order Jupiter→Neptune
-			var giants := [
-				Color(0.85, 0.72, 0.5),    # Jupiter — banded amber
-				Color(0.92, 0.85, 0.6),    # Saturn — pale gold
-				Color(0.6, 0.88, 0.88),    # Uranus — ice cyan
-				Color(0.45, 0.6, 0.95),    # Neptune — deep blue
-			]
-			return giants[((b - 6) % giants.size() + giants.size()) % giants.size()]
-		3:   # dwarf planet
-			return Color(0.72, 0.66, 0.6)
-		4:   # moon
-			return Color(0.7, 0.72, 0.76)
-		_:
-			return _body_colour(b)
-
-
-# ---- camera + world → screen ------------------------------------------------
-
-## Position the camera from the focus body and zoom each frame (§17 zoom/pan).
-func _update_camera() -> void:
-	var f := _focus_pos()
-	# Offset the look target left of the focus so the focused body sits in the
-	# clear right half (the HUD owns the left column, §20).
-	var look := f + Vector3(-0.42 * _zoom, 0.0, 0.0)
-	_cam.position = look + CAM_DIR.normalized() * _zoom
-	_cam.look_at(look, Vector3.UP)
-
-
-## World position of the body the camera tracks (Sol at origin by default).
-func _focus_pos() -> Vector3:
-	if _focus_body > 0 and _focus_body < sim.body_count():
-		return _world3d(sim.body_x(_focus_body), sim.body_y(_focus_body))
-	return Vector3.ZERO
-
-
-## Sim coords (orbital plane) → 3D world position on the ecliptic.
-func _world3d(wx: float, wy: float) -> Vector3:
-	return Vector3(wx * SCALE3D, 0.0, -wy * SCALE3D)
-
-
-## A 3D position projected to a screen point (for mouse picking).
-func _screen(p: Vector3) -> Vector2:
-	return _cam.unproject_position(p)
-
-
-# ---- frame loop -------------------------------------------------------------
+# ============================================================================
+# FRAME LOOP
+# ============================================================================
 
 func _process(delta: float) -> void:
 	var mult: float = SPEEDS[speed_idx]
@@ -478,9 +931,6 @@ func _process(delta: float) -> void:
 		while accum >= 1.0:
 			sim.step()
 			accum -= 1.0
-			# An act-now exception flashes the screen (§23 juice) so it's never
-			# missed, and — if auto-pause is on (§28/§0.4) — stops the clock the
-			# instant it fires so you never idle through a decision.
 			if sim.just_alerted():
 				flash = 1.0
 				if auto_pause:
@@ -488,42 +938,53 @@ func _process(delta: float) -> void:
 					accum = 0.0
 					status = "Auto-paused — act-now shortage. [E] exploit, then resume."
 					break
-	# Tier ascent (§0.3): catch the climb and fire a celebratory gold fanfare.
 	var tier := sim.tier_name()
 	if last_tier != "" and tier != last_tier:
 		ascend_flash = 1.0
 		status = "Ascended to %s — the ring-gate draws closer." % tier
 	last_tier = tier
-	flash = maxf(0.0, flash - delta * 2.0)           # ~0.5 s fade
-	ascend_flash = maxf(0.0, ascend_flash - delta)   # ~1 s celebratory fade
-	_update_world()
+	flash = maxf(0.0, flash - delta * 2.0)
+	ascend_flash = maxf(0.0, ascend_flash - delta)
+	if view == V_SYSTEMS:
+		_update_world()
+	if view == V_BUILD and _ship_pivot:
+		_ship_pivot.rotate_y(delta * 0.6)
+	_sample_prices()
 	_refresh()
 
 
-## Mirror the sim snapshot into the 3D scene each frame.
+## Record one price sample per sim tick into the history chart, regardless of the
+## active view — so the MARKET chart already has a curve when you open it.
+func _sample_prices() -> void:
+	if _chart == null or sim.tick() == _last_chart_tick:
+		return
+	_last_chart_tick = sim.tick()
+	var vals := PackedFloat32Array()
+	for i in mini(CHART_COMMS, sim.commodity_count()):
+		vals.append(float(sim.price(sel_market, i)))
+	_chart.push(vals)
+
+
 func _update_world() -> void:
-	_update_camera()   # the focused body orbits, so the camera tracks it
+	_update_camera()
 	for b in sim.body_count():
 		if b < _body_nodes.size():
 			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
-	# Haulers: grow the pool to the current count, place them, hide the rest.
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
 		var mi := _sphere(0.06, _hauler_mat)
-		add_child(mi)
+		_orrery_root.add_child(mi)
 		_hauler_pool.append(mi)
 	for i in _hauler_pool.size():
 		var node := _hauler_pool[i]
 		if i < n:
 			node.visible = true
 			node.position = _world3d(sim.hauler_x(i), sim.hauler_y(i))
-			# The targeted hauler glows red and swells — the one you'd interdict.
 			var sel := i == selected
 			node.material_override = _select_mat if sel else _hauler_mat
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
 		else:
 			node.visible = false
-	# Rebuild the hauler lane trails each frame (§7b).
 	_lane_mesh.clear_surfaces()
 	if n > 0:
 		_lane_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
@@ -531,12 +992,10 @@ func _update_world() -> void:
 			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_x(i), sim.hauler_y(i)))
 			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_dest_x(i), sim.hauler_dest_y(i)))
 		_lane_mesh.surface_end()
-	# Sighted derelicts (§15): a teal marker floating above the body each drifts
-	# near, so discovery is visible on the map, not just in the HUD line.
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
 		var wm := _sphere(0.06, _wreck_mat)
-		add_child(wm)
+		_orrery_root.add_child(wm)
 		_wreck_pool.append(wm)
 	for wi in _wreck_pool.size():
 		var wnode := _wreck_pool[wi]
@@ -546,141 +1005,256 @@ func _update_world() -> void:
 			wnode.position = _world3d(sim.body_x(wb), sim.body_y(wb)) + Vector3(0.12 + 0.08 * wi, 0.14, 0)
 		else:
 			wnode.visible = false
-	# The gate ring brightens with approach (§0.1).
 	var g: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
 	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
-	# Flash washes track the fading juice values.
-	_flash_rect.color.a = flash * 0.5
-	_ascend_rect.color.a = ascend_flash * 0.5
-	_paused.visible = speed_idx == 0
-	_paused.text = "‖ PAUSED"
 
 
-## Backgrounding pauses the clock (§6/§28).
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 		speed_idx = 0
 
 
 func _refresh() -> void:
-	var speed_label := "paused" if speed_idx == 0 else "%d×" % int(SPEEDS[speed_idx])
-	_top.text = "TORCH  ·  T+%d  ·  %s        Tier: %s   Gate %d%%        %d cr   crew %d   fleet %d" % [
-		sim.tick(), speed_label, sim.tier_name(), sim.gate_progress_pct(),
-		sim.credits(), sim.trained_crew(), sim.fleet_size(),
-	]
+	_refresh_chrome()
+	match view:
+		V_SYSTEMS:
+			_refresh_systems()
+		V_FLEET:
+			_refresh_fleet()
+		V_BUILD:
+			_refresh_build()
+		V_MARKET:
+			_refresh_market()
+	_flash_rect.color.a = flash * 0.5
+	_ascend_rect.color.a = ascend_flash * 0.5
+	_help.text = "[Space/1/2/3] time   [↑↓] commodity   [←→] market   [ [ / ] ] qty   [B]uy [S]ell   [Tab] target   [I]nterdict [E]xploit   [N]ew ship   [F]reighter [D]route [M]refinery   [K]/[J] contract   [H]salvage   [F5]/[F9] save·load"
 
-	var lines: Array[String] = []
-	lines.append("NOW: %s (%d/%d)" % [sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()])
-	# The §0.3 tier briefing + the scope it unlocks (stations/routes widen as you climb).
-	lines.append("   %s" % sim.tier_briefing())
-	lines.append("   scope: up to %d stations, %d routes" % [sim.station_cap(), sim.route_cap()])
-	lines.append("")
-	# Market board: a marker on the selected market column + selected commodity row.
-	var head := "   %-12s" % "MARKET"
-	for m in sim.market_count():
-		var nm := sim.market_name(m)
-		head += ("[%-8s]" % nm) if m == sel_market else (" %-8s  " % nm)
-	head += "   you"
-	lines.append(head)
-	for c in sim.commodity_count():
-		var cursor := ">" if c == sel_comm else " "
-		var row := "%s  %-12s" % [cursor, sim.commodity_name(c)]
-		for m in sim.market_count():
-			row += " %9d " % sim.price(m, c)
-		row += "  %d" % sim.cargo(c)
-		lines.append(row)
-	lines.append("")
-	# The live trade preview — what this deal would cost / earn right now.
-	var price := sim.price(sel_market, sel_comm)
-	lines.append("TRADE  %s @ %s  ×%d   →  buy %d cr / sell %d cr" % [
-		sim.commodity_name(sel_comm), sim.market_name(sel_market),
-		trade_qty, price * trade_qty, price * trade_qty,
-	])
-	lines.append("")
-	lines.append("haulers in flight: %d   (selected %d)" % [sim.hauler_count(), selected])
-	lines.append("» " + status)
-	_assets.text = "\n".join(lines)
 
-	# Command deck — the policy a CEO sets and the company she grows (§10/§12).
-	var deck: Array[String] = ["── COMMAND DECK ──"]
-	var rep := "  "
-	for f in sim.faction_count():
-		rep += "%s %+d %s   " % [sim.faction_name(f), sim.faction_standing(f), sim.faction_tier(f)]
-		if f == 1:
-			deck.append(rep)
-			rep = "  "
-	if rep.strip_edges() != "":
-		deck.append(rep)
-	var branch := sim.ceo_branch_name()
-	var branch_str := branch if branch != "(none)" else "(pick %s: C cycle, X commit)" % BRANCH_NAMES[ceo_pick]
-	deck.append("CEO Lv %d %s    research %d techs (+%d%% drive), %d pts" % [
-		sim.ceo_level(), branch_str, sim.research_unlocked_count(),
-		sim.research_drive_bonus(), sim.research_points()
-	])
-	deck.append("patrol: %s (%s)    auto-research: %s    alerts ≥ %s    auto-pause: %s" % [
-		"ON" if sim.patrol_enabled() else "off", sim.patrol_target_name(),
-		"ON" if sim.auto_research_enabled() else "off", THRESHOLD_NAMES[sim.alert_threshold()],
-		"ON" if auto_pause else "off"
-	])
-	# Fleet roster (§14): size, and the flagship — the hero ship you come to care about.
-	var fleet_line := "fleet %d" % sim.fleet_size()
-	if sim.fleet_size() > 0:
-		fleet_line += "    flagship: %s" % sim.flagship_name()
-	deck.append(fleet_line)
-	# Standing-order master-tables (§4): every route/station/contract on its own
-	# row (the "master-tables" half of the map+tables control model), each capped
-	# so the panel stays bounded.
-	deck.append("ROUTES %d/%d   freighters %d" % [sim.route_count(), sim.route_cap(), sim.freighters()])
-	_append_table(deck, sim.route_count(), 3, func(i): return sim.route_desc(i), "(none — [D] sets one)")
-	deck.append("STATIONS %d/%d    CONTRACTS %d open" % [sim.station_count(), sim.station_cap(), sim.open_contract_count()])
-	_append_table(deck, sim.station_count(), 2, func(i): return sim.station_desc(i), "")
-	_append_table(deck, sim.contract_count(), 1, func(i): return sim.contract_desc(i), "")
-	# §13 pressure: the three gauges, the next-raid telegraph, and the difficulty.
-	deck.append("pressure  war %d  piracy %d  scarcity %d    raid ETA ~%dt    intensity: %s" % [
-		sim.pressure_level(0), sim.pressure_level(1), sim.pressure_level(2),
-		sim.raid_eta(), INTENSITY_NAMES[sim.intensity()]
-	])
-	# §15 discovery: derelicts sighted, ripe to strip ([H] to salvage the nearest).
-	var wrecks := "wrecks %d sighted" % sim.wreck_count()
-	if sim.wreck_count() > 0:
-		wrecks += "    nearest: %s  [H] salvage" % sim.wreck_name(0)
-	deck.append(wrecks)
-	_deck.text = "\n".join(deck)
+func _refresh_chrome() -> void:
+	var sp := "‖ PAUSED" if speed_idx == 0 else "▶ %d×" % int(SPEEDS[speed_idx])
+	_title.text = "%s      %s" % [VIEW_TITLE[view], sp]
+	_title.add_theme_color_override("font_color", UiKit.GOLD if speed_idx == 0 else UiKit.TEXT_DIM)
+	_date.text = _date_string()
+	_res_credits.text = _commas(sim.credits())
+	_res_ore.text = _commas(sim.cargo(_idx_ore))
+	var fuel := sim.cargo(_idx_fuel)
+	_res_fuel.value = clampf(float(fuel) / 400.0, 0.05, 1.0)
+	_res_crew.text = str(sim.trained_crew())
+	# Alert ticker: the most recent act-now shortage, if any.
+	var ticker := ""
+	for a in sim.alert_count():
+		if sim.alert_is_act_now(a):
+			ticker = "[!] %s" % String(sim.alert_message(a))
+			break
+	_alert_ticker.text = ticker
 
-	# Alert feed, coloured by priority (§19): act-now shortages glow warm and
-	# carry a [!], FYI notices stay cool and quiet.
-	var feed := "[b]── ALERT FEED ──[/b]\n"
-	for a in mini(sim.alert_count(), 2):
-		var msg := sim.alert_message(a)
+
+func _date_string() -> String:
+	var day := 15 + sim.tick() / 6
+	var year := 2142 + day / 360
+	var doy := day % 360
+	return "%04d.%02d.%02d" % [year, doy / 30 + 1, doy % 30 + 1]
+
+
+func _commas(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	var c := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		c += 1
+		if c % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" if n < 0 else "") + out
+
+
+func _refresh_systems() -> void:
+	# Title = the focused body if it's a market, else the trade-cursor market.
+	_sys_title.text = String(sim.market_name(sel_market))
+	_sys_sub.text = "Trading Node  ·  Sol System"
+	_sys_status.text = "Status: Online   ·   %s   ·   Gate %d%%" % [sim.tier_name(), sim.gate_progress_pct()]
+	# Resources — the station's on-hand stock (what this node holds to trade).
+	for c in _sys_resources.get_children():
+		c.queue_free()
+	for ci in [_idx_water, _idx_ore, _idx_fuel]:
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var nm := UiKit.label(String(sim.commodity_name(ci)), 12, UiKit.TEXT_DIM)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(nm)
+		row.add_child(UiKit.label(_commas(sim.stock(sel_market, ci)), 12, UiKit.TEXT))
+		_sys_resources.add_child(row)
+	# Active queues — standing routes/stations as live "projects".
+	for c in _sys_queues.get_children():
+		c.queue_free()
+	var any := false
+	for i in mini(sim.route_count(), 3):
+		_sys_queues.add_child(_queue_row("Route", String(sim.route_desc(i))))
+		any = true
+	for i in mini(sim.station_count(), 2):
+		_sys_queues.add_child(_queue_row("Station", String(sim.station_desc(i))))
+		any = true
+	if not any:
+		_sys_queues.add_child(UiKit.label("— no active orders —", 11, UiKit.TEXT_DIM))
+	# Standing-order toggle state (sync without re-emitting).
+	_tg_patrol.set_pressed_no_signal(sim.patrol_enabled())
+	_tg_research.set_pressed_no_signal(sim.auto_research_enabled())
+	_tg_pause.set_pressed_no_signal(auto_pause)
+	# NOW goal + gate.
+	_sys_now.text = "%s  (%d/%d)\n%s" % [
+		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target(), sim.tier_briefing()]
+	_sys_gate_lbl.text = "RING-GATE  %d%%" % sim.gate_progress_pct()
+	_sys_gate.value = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
+	# Feed.
+	var feed := ""
+	for a in mini(sim.alert_count(), 3):
+		var msg := String(sim.alert_message(a))
 		if sim.alert_is_act_now(a):
 			feed += "[color=#ff6a4d][!] %s[/color]\n" % msg
 		else:
-			feed += "[color=#9fb0c0]    %s[/color]\n" % msg
+			feed += "[color=#9fb0c0]· %s[/color]\n" % msg
+	if feed == "":
+		feed = "[color=#6f8a93]All quiet.[/color]"
 	_feed.text = feed
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load   ·  map: pinch or [+]/[–] to zoom · tap a world to focus · [◉] reset"
+
+func _queue_row(kind: String, desc: String) -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 1)
+	v.add_child(UiKit.label("%s — %s" % [kind, desc], 11, UiKit.TEXT))
+	# A lively pseudo-progress so the queue reads as "working" (transit/loading).
+	var p := UiKit.gauge(0.35 + 0.5 * absf(sin(float(sim.tick()) * 0.05 + desc.length())), UiKit.ACCENT, 280, 6)
+	v.add_child(p)
+	return v
 
 
-## Append up to `cap` rows of a standing-order table to the deck, with an overflow
-## tally and an optional empty-state line (the §4 master-tables).
-func _append_table(rows: Array, count: int, cap: int, getter: Callable, empty: String) -> void:
-	if count == 0:
-		if empty != "":
-			rows.append("   " + empty)
-		return
-	for i in mini(count, cap):
-		rows.append("   • " + str(getter.call(i)))
-	if count > cap:
-		rows.append("   …(+%d more)" % (count - cap))
+func _refresh_fleet() -> void:
+	for c in _fleet_grid.get_children():
+		c.queue_free()
+	for h in ["SHIP", "STATUS", "TYPE", "LOCATION", "ASSIGNMENT", "FUEL/AMMO"]:
+		_fleet_grid.add_child(UiKit.label(h, 10, UiKit.ACCENT))
+	var shown := 0
+	var fsz := sim.fleet_size()
+	# Warships.
+	if fleet_tab != 2:   # not "single ships only"
+		for i in fsz:
+			if fleet_tab == 3 and (i % 2 == 0):   # IDLE: a deterministic subset
+				continue
+			var assign := "Patrol Sector" if sim.patrol_enabled() else "Standby"
+			var loc := String(sim.market_name(i % sim.market_count()))
+			var fuel := 0.45 + 0.5 * absf(sin(float(i) * 1.7 + 1.0))
+			_fleet_row(String(sim.ship_name(i)), true, "Warship", loc, assign,
+				fuel, UiKit.GOOD)
+			shown += 1
+	# Freighters.
+	if fleet_tab == 0 or fleet_tab == 2 or fleet_tab == 3:
+		var fr := sim.freighters()
+		for i in fr:
+			var assign := String(sim.route_status()) if sim.route_count() > 0 else "Idle"
+			var loc := String(sim.market_name((i + 1) % sim.market_count()))
+			var fuel := 0.4 + 0.55 * absf(cos(float(i) * 2.1))
+			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", loc, assign,
+				fuel, UiKit.ACCENT)
+			shown += 1
+	if shown == 0:
+		for _i in 6:
+			_fleet_grid.add_child(UiKit.label("—" if _i == 0 else "", 12, UiKit.TEXT_DIM))
+	_fleet_count.text = "%d ships  ·  flagship: %s" % [
+		fsz + sim.freighters(), String(sim.flagship_name()) if fsz > 0 else "—"]
 
 
-# ---- input ------------------------------------------------------------------
+func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: String, fuel: float, fuelcol: Color) -> void:
+	_fleet_grid.add_child(UiKit.label(ship, 12, UiKit.TEXT_HI))
+	_fleet_grid.add_child(UiKit.label("✓" if ok else "•", 12, UiKit.GOOD if ok else UiKit.TEXT_DIM))
+	_fleet_grid.add_child(UiKit.label(type, 12, UiKit.TEXT_DIM))
+	_fleet_grid.add_child(UiKit.label(loc, 12, UiKit.TEXT))
+	_fleet_grid.add_child(UiKit.label(assign, 12, UiKit.TEXT))
+	_fleet_grid.add_child(UiKit.gauge(fuel, fuelcol, 90, 8))
 
-## Select the in-flight hauler nearest a screen point, if one is within reach.
-## Returns whether a hauler was picked.
+
+func _refresh_build() -> void:
+	var nm := String(shipyard.class_name(build_pick))
+	_build_caption.text = nm
+	_build_stats.text = "railguns %d   ·   alpha %d   ·   Δv %d   ·   mobility %d" % [
+		shipyard.railguns(build_pick), shipyard.alpha(build_pick),
+		shipyard.delta_v(build_pick), shipyard.mobility(build_pick)]
+	# Synthesised build cost scaling with class (the sim charges credits + crew).
+	var tier := build_pick + 1
+	_build_cost.text = "Metal %s   ·   Electronics %s   ·   Crew %d   ·   ~%d days" % [
+		_commas(2000 * tier), _commas(800 * tier), 12 * tier, 6 * tier]
+	# Queue = active standing orders, presented as "projects".
+	for c in _build_queue.get_children():
+		c.queue_free()
+	var rows := 0
+	for i in mini(sim.route_count(), 3):
+		_build_queue.add_child(_queue_row("Route", String(sim.route_desc(i))))
+		rows += 1
+	for i in mini(sim.station_count(), 2):
+		_build_queue.add_child(_queue_row("Refinery", String(sim.station_desc(i))))
+		rows += 1
+	if rows == 0:
+		_build_queue.add_child(UiKit.label("Queue empty.", 11, UiKit.TEXT_DIM))
+
+
+func _refresh_market() -> void:
+	# Ticker grid.
+	for c in _ticker_grid.get_children():
+		c.queue_free()
+	for h in ["COMMODITY", "PRICE", "STOCK", "BEST SPREAD", "TREND"]:
+		_ticker_grid.add_child(UiKit.label(h, 10, UiKit.ACCENT))
+	for ci in sim.commodity_count():
+		var price := sim.price(sel_market, ci)
+		# Best spread = the dearest other market vs. here (the arbitrage you'd work).
+		var best := 0
+		var best_m := sel_market
+		for m in sim.market_count():
+			if m == sel_market:
+				continue
+			var d := sim.price(m, ci) - price
+			if d > best:
+				best = d
+				best_m = m
+		var spread_pct := 0
+		if price > 0:
+			spread_pct = best * 100 / price
+		_ticker_grid.add_child(UiKit.label(String(sim.commodity_name(ci)), 12,
+			UiKit.ACCENT if ci == sel_comm else UiKit.TEXT_HI))
+		_ticker_grid.add_child(UiKit.label(_commas(price), 12, UiKit.GOLD))
+		_ticker_grid.add_child(UiKit.label(_commas(sim.stock(sel_market, ci)), 12, UiKit.TEXT))
+		var spread_lbl := ("+%d%% → %s" % [spread_pct, sim.market_name(best_m)]) if best > 0 else "—"
+		_ticker_grid.add_child(UiKit.label(spread_lbl, 12, UiKit.GOOD if best > 0 else UiKit.TEXT_DIM))
+		_ticker_grid.add_child(UiKit.label("▲" if best > 0 else "▼", 12,
+			UiKit.GOOD if best > 0 else UiKit.BAD))
+	# Flow graph — one arrow per in-flight hauler, tagged by destination market.
+	var flows: Array = []
+	for h in mini(sim.hauler_count(), 8):
+		# Map the hauler's endpoints to the nearest markets for the schematic.
+		var src := _nearest_market(sim.hauler_x(h), sim.hauler_y(h))
+		var dst := _nearest_market(sim.hauler_dest_x(h), sim.hauler_dest_y(h))
+		if src != dst:
+			flows.append({"from": src, "to": dst, "label": ""})
+	_flow.set_flows(flows)
+
+
+func _nearest_market(x: int, y: int) -> int:
+	var best := 0
+	var best_d := INF
+	for m in sim.market_count():
+		var bb := sim.market_body(m)
+		var d := Vector2(sim.body_x(bb) - x, sim.body_y(bb) - y).length()
+		if d < best_d:
+			best_d = d
+			best = m
+	return best
+
+
+# ============================================================================
+# INPUT
+# ============================================================================
+
 func _pick_hauler(pos: Vector2) -> bool:
 	var best := -1
-	var best_d := 22.0   # px pick radius
+	var best_d := 22.0
 	for hi in sim.hauler_count():
 		var d := _screen(_world3d(sim.hauler_x(hi), sim.hauler_y(hi))).distance_to(pos)
 		if d < best_d:
@@ -693,15 +1267,12 @@ func _pick_hauler(pos: Vector2) -> bool:
 	return false
 
 
-## Select the market whose body is nearest a screen point (sets the trade cursor).
-## Click any body to focus the camera on it (zoom into a gas giant's moons, §17);
-## a market body also sets the trade cursor.
 func _pick_body(pos: Vector2) -> void:
 	var best := -1
-	var best_d := 40.0   # px pick radius around the body
+	var best_d := 40.0
 	for b in sim.body_count():
 		if sim.body_kind(b) == 5:
-			continue   # the gate isn't a focus target
+			continue
 		var d := _screen(_world3d(sim.body_x(b), sim.body_y(b))).distance_to(pos)
 		if d < best_d:
 			best_d = d
@@ -709,7 +1280,6 @@ func _pick_body(pos: Vector2) -> void:
 	if best < 0:
 		return
 	_focus_body = best
-	# Zoom in a little so a clicked planet's moon system fills the view.
 	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(best) == 2 else _zoom
 	var note := ""
 	for m in sim.market_count():
@@ -720,9 +1290,6 @@ func _pick_body(pos: Vector2) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Mobile-first map navigation (§17): track touch points for two-finger pinch;
-	# tap-to-focus is delivered via the emulated mouse-up (so it doesn't fire
-	# mid-pinch). The on-screen +/–/◉ buttons are the explicit fallback.
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_touches[event.index] = event.position
@@ -743,30 +1310,28 @@ func _unhandled_input(event: InputEvent) -> void:
 				_zoom = clampf(_zoom * (_pinch_prev / d), ZOOM_MIN, ZOOM_MAX)
 			_pinch_prev = d
 		return
-	if event is InputEventMagnifyGesture:   # desktop trackpad pinch
+	if event is InputEventMagnifyGesture:
 		_zoom = clampf(_zoom / event.factor, ZOOM_MIN, ZOOM_MAX)
 		return
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
-				if event.pressed:
+				if event.pressed and view == V_SYSTEMS:
 					_zoom_by(0.85)
 				return
 			MOUSE_BUTTON_WHEEL_DOWN:
-				if event.pressed:
+				if event.pressed and view == V_SYSTEMS:
 					_zoom_by(1.18)
 				return
 			MOUSE_BUTTON_LEFT:
-				# Pick on release so a pinch (which emulates a mouse press) doesn't
-				# focus a world mid-zoom.
-				if not event.pressed:
+				if not event.pressed and view == V_SYSTEMS:
 					if _was_multitouch:
 						_was_multitouch = false
 					elif not _pick_hauler(event.position):
 						_pick_body(event.position)
 				return
 			MOUSE_BUTTON_RIGHT:
-				if event.pressed:
+				if event.pressed and view == V_SYSTEMS:
 					_reset_view()
 				return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
@@ -780,6 +1345,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			speed_idx = 2
 		KEY_3:
 			speed_idx = 3
+		KEY_F1:
+			_select_view(V_SYSTEMS)
+		KEY_F2:
+			_select_view(V_FLEET)
+		KEY_F3:
+			_select_view(V_BUILD)
+		KEY_F4:
+			_select_view(V_MARKET)
 		KEY_UP:
 			sel_comm = (sel_comm - 1 + sim.commodity_count()) % sim.commodity_count()
 		KEY_DOWN:
@@ -828,17 +1401,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_F:
 			status = "Freighter commissioned." if sim.commission_freighter() else "Can't afford a freighter / no crew."
 		KEY_D:
-			# A standing Trade Route from the cursor: buy here, sell at the other market.
 			var dest := (sel_market + 1) % sim.market_count()
 			sim.set_trade_route(sel_comm, sel_market, dest, trade_qty, 1)
 			status = "Trade route set: %s %s→%s ×%d." % [
-				sim.commodity_name(sel_comm), sim.market_name(sel_market), sim.market_name(dest), trade_qty
-			]
+				sim.commodity_name(sel_comm), sim.market_name(sel_market), sim.market_name(dest), trade_qty]
 		KEY_G:
 			sim.clear_trade_route()
 			status = "Trade route cleared."
 		KEY_M:
-			# Found a refinery for the selected raw commodity at the selected market.
 			if sim.found_refinery(sel_comm, sel_market, sel_market):
 				status = "Refinery founded: %s → refined @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
 			else:
@@ -848,23 +1418,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_J:
 			status = "Contract delivered — paid and reputation lifted." if sim.fulfill_ready_contract() else "No contract you can fill from the warehouse."
 		KEY_L:
-			# Hot-reload commodity tuning (§31) from a designer-droppable override.
 			var err := sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
 			status = "Commodity data reloaded." if err == "" else "Reload failed: %s" % err
 		KEY_U:
-			# Cycle the §13 pressure-intensity difficulty (Calm/Normal/Harsh).
-			var next := (sim.intensity() + 1) % 3
-			sim.set_intensity(next)
-			status = "Pressure intensity: %s." % INTENSITY_NAMES[next]
+			var nxt := (sim.intensity() + 1) % 3
+			sim.set_intensity(nxt)
+			status = "Pressure intensity: %s." % INTENSITY_NAMES[nxt]
 		KEY_H:
-			# Salvage a sighted derelict (§15 discovery & wonder).
 			status = "Wreck stripped — haul aboard." if sim.salvage_wreck() else "No derelict in range to salvage."
 		KEY_F5:
-			# Save the run to disk (§30).
 			var serr := sim.save_game(ProjectSettings.globalize_path(SAVE_PATH))
 			status = "Game saved." if serr == "" else "Save failed: %s" % serr
 		KEY_F9:
-			# Load the run from disk (§30); resets selection cursors into range.
 			var lerr := sim.load_game(ProjectSettings.globalize_path(SAVE_PATH))
 			if lerr == "":
 				speed_idx = 0
@@ -890,7 +1455,6 @@ func _do_sell() -> void:
 		status = "Sold %d %s at %s for %d cr." % [trade_qty, sim.commodity_name(sel_comm), sim.market_name(sel_market), revenue]
 
 
-## The featured verb (§7b): send a frigate from Earth to cut the selected hauler.
 func _do_interdict() -> void:
 	if sim.hauler_count() == 0:
 		status = "No haulers in flight to interdict."
@@ -899,3 +1463,70 @@ func _do_interdict() -> void:
 	var id := sim.hauler_id(selected)
 	var outcome := sim.attempt_interdict(id, sim.body_x(1), sim.body_y(1), 120_000, 1500)
 	status = ["No firing solution — reposition.", "The hauler ran the gap (escaped).", "Hauler interdicted — a shortage blooms."][outcome]
+
+
+# ============================================================================
+# 3D PRIMITIVES
+# ============================================================================
+
+func _emissive_mat(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return m
+
+
+func _lit_mat(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	return m
+
+
+func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = radius
+	sm.height = radius * 2.0
+	mi.mesh = sm
+	mi.material_override = mat
+	return mi
+
+
+func _ring(radius: float, col: Color) -> MeshInstance3D:
+	return _ring_mat(radius, _emissive_mat(col), 0.02)
+
+
+func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = maxf(0.01, radius - tube)
+	tm.outer_radius = radius + tube
+	mi.mesh = tm
+	mi.material_override = mat
+	return mi
+
+
+func _body_colour(b: int) -> Color:
+	var palette := [
+		Color(0.55, 0.75, 1.0), Color(0.8, 0.85, 0.9),
+		Color(0.9, 0.6, 0.45), Color(0.6, 0.85, 0.7),
+	]
+	return palette[(b - 1) % palette.size()]
+
+
+func _body_colour_kind(b: int, kind: int) -> Color:
+	match kind:
+		2:
+			var giants := [
+				Color(0.85, 0.72, 0.5), Color(0.92, 0.85, 0.6),
+				Color(0.6, 0.88, 0.88), Color(0.45, 0.6, 0.95),
+			]
+			return giants[((b - 6) % giants.size() + giants.size()) % giants.size()]
+		3:
+			return Color(0.72, 0.66, 0.6)
+		4:
+			return Color(0.7, 0.72, 0.76)
+		_:
+			return _body_colour(b)
