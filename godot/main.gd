@@ -50,6 +50,9 @@ var ascend_flash := 0.0                  # tier-ascension fanfare: a fading gold
 var last_tier := ""                      # to detect a tier ascent across frames
 var _zoom := 10.0                        # camera distance from focus (world units)
 var _focus_body := 0                     # the body the camera tracks (0 = Sol)
+var _touches := {}                       # active touch points (index → position)
+var _pinch_prev := 0.0                   # last two-finger distance, for pinch zoom
+var _was_multitouch := false             # suppress the tap-pick after a pinch
 
 # The trade cursor — granular control over what/where/how much you deal (§5).
 var sel_comm := 5                       # commodity (ReactorFuel by default)
@@ -334,6 +337,14 @@ func _make_map_button(parent: CanvasLayer, pos: Vector2, label: String, cb: Call
 
 func _zoom_by(factor: float) -> void:
 	_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+
+
+## Distance between the first two active touch points (for pinch-to-zoom).
+func _two_finger_dist() -> float:
+	var pts := _touches.values()
+	if pts.size() < 2:
+		return 0.0
+	return pts[0].distance_to(pts[1])
 
 
 func _reset_view() -> void:
@@ -647,7 +658,7 @@ func _refresh() -> void:
 			feed += "[color=#9fb0c0]    %s[/color]\n" % msg
 	_feed.text = feed
 
-	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load   ·  map: [wheel]zoom [click]focus/target [RMB]reset-view"
+	_help.text = "[Space/1/2/3]time  [↑↓]commodity [←→]market [ [ ] ]qty [B]uy [S]ell  [Tab]/[click]target [I]nterdict [E]xploit  [N]ew ship  [F]reighter [D]route [G]clear [M]refinery [K]accept [J]fill-contract\n[P]atrol [O]target [R]auto-research [V]invest [A/Z]alerts [C]CEO-pick [X]commit [Y]auto-pause [U]intensity [H]salvage  [F5]save [F9]load   ·  map: pinch or [+]/[–] to zoom · tap a world to focus · [◉] reset"
 
 
 ## Append up to `cap` rows of a standing-order table to the deck, with an overflow
@@ -709,30 +720,54 @@ func _pick_body(pos: Vector2) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Mobile-first map navigation (§17): a tap targets a hauler then focuses a
-	# world; a pinch zooms; the on-screen +/–/◉ buttons are the explicit controls.
-	if event is InputEventScreenTouch and event.pressed:
-		if not _pick_hauler(event.position):
-			_pick_body(event.position)
+	# Mobile-first map navigation (§17): track touch points for two-finger pinch;
+	# tap-to-focus is delivered via the emulated mouse-up (so it doesn't fire
+	# mid-pinch). The on-screen +/–/◉ buttons are the explicit fallback.
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touches[event.index] = event.position
+			if _touches.size() >= 2:
+				_was_multitouch = true
+				_pinch_prev = _two_finger_dist()
+		else:
+			_touches.erase(event.index)
+			if _touches.size() < 2:
+				_pinch_prev = 0.0
 		return
-	if event is InputEventMagnifyGesture:
+	if event is InputEventScreenDrag:
+		if _touches.has(event.index):
+			_touches[event.index] = event.position
+		if _touches.size() >= 2:
+			var d := _two_finger_dist()
+			if _pinch_prev > 0.0 and d > 0.0:
+				_zoom = clampf(_zoom * (_pinch_prev / d), ZOOM_MIN, ZOOM_MAX)
+			_pinch_prev = d
+		return
+	if event is InputEventMagnifyGesture:   # desktop trackpad pinch
 		_zoom = clampf(_zoom / event.factor, ZOOM_MIN, ZOOM_MAX)
 		return
-	# Mouse fallback for desktop testing (the device build is touch).
-	if event is InputEventMouseButton and event.pressed:
+	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
-				_zoom_by(0.85)
+				if event.pressed:
+					_zoom_by(0.85)
 				return
 			MOUSE_BUTTON_WHEEL_DOWN:
-				_zoom_by(1.18)
+				if event.pressed:
+					_zoom_by(1.18)
 				return
 			MOUSE_BUTTON_LEFT:
-				if not _pick_hauler(event.position):
-					_pick_body(event.position)
+				# Pick on release so a pinch (which emulates a mouse press) doesn't
+				# focus a world mid-zoom.
+				if not event.pressed:
+					if _was_multitouch:
+						_was_multitouch = false
+					elif not _pick_hauler(event.position):
+						_pick_body(event.position)
 				return
 			MOUSE_BUTTON_RIGHT:
-				_reset_view()
+				if event.pressed:
+					_reset_view()
 				return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
