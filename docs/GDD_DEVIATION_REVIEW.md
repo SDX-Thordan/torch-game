@@ -31,7 +31,7 @@ one place. Each is tagged:
 
 | # | Deviation | GDD | Tag |
 |---|---|---|---|
-| 1 | Delta-v does not govern movement; player ships have no position | §2 / §6 | 🔴 |
+| 1 | Delta-v movement / per-ship position — **warships ✅ done** (freighters + combat-positioning follow) | §2 / §6 | 🟠 (was 🔴) |
 | 2 | No authored gate-mystery narrative or opening missions | §0.1 / §16 | 🔴 |
 | 3 | Combat is non-interactive (no live commands, thin doctrine, no diorama) | §9 / §22 | 🟠 |
 | 4 | Save = single JSON slot; no multiple slots, no Ironman | §13 / §30 | 🟠 |
@@ -71,9 +71,17 @@ one place. Each is tagged:
   windows, hard-burn-vs-economical, stranding, and refuel-as-strategic-ground are
   all absent. The FLEET view's `location`/`fuel` columns are **synthesized in the
   shell** because the sim has no truth to show.
-- **Status:** Flagged in GDD §6 (Requirement & current-gap note, 2026-06-16) and in
-  CLAUDE.md. **The single largest design-fidelity gap.** Recommend it as the next
-  major sim work item.
+- **Status — warships ADDRESSED 2026-06-16.** `sim::movement` (`Nav` + `plan`) gives
+  every owned **warship** a tracked position + remass budget (`OwnedShip.nav`):
+  `Sim::move_ship(idx, dest, hard_burn)` commits a trajectory at the **live orbital
+  distance**, spends remass, and takes time derived from the ship's drive and the
+  burn (economical vs. hard, verb #4); `Sim::refuel_ship` buys remass at a dock; a
+  dry tank **strands** the ship. Ships render on the orrery; the FLEET view shows
+  **real** location/fuel; a mobile **SEND FLEET / REFUEL** control dispatches the
+  fleet to the focused world. Persistence saves the nav state. **Remaining for full
+  Pillar-#2 coverage:** player **freighters** (still pooled-count + route timer) and
+  **combat positioning** (`engage_raiders` not yet gated on the fleet being at the
+  fight) — tracked as follow-ups, hence re-tagged 🟠.
 
 ### 2. 🔴 No authored gate-mystery narrative or opening missions — §0.1, §16
 - **GDD:** The destination pull is the **#1 over-invest priority** (§0.2). The gate

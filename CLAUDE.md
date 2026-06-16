@@ -1008,6 +1008,30 @@ Status: [x] done, [~] in progress, [ ] todo.
   endgame §17 (post-MVP). Most *systems* are built and green — the deviations are
   mostly known/tracked; the doc just makes them legible in one place.
 
+- **2026-06-16 — Delta-v movement: the fleet becomes positional (§6, Pillar #2,
+  deviation #1).** The biggest GDD-fidelity gap (per `docs/GDD_DEVIATION_REVIEW.md`):
+  `delta_v` was computed per fit but the *movement* layer ignored it — player
+  warships had **no position** and the FLEET view's location/fuel were synthesized
+  `sin()` placeholders. Closed for warships: new `sim::movement` (`Nav` =
+  location/dest/ticks/remass/tankage; `plan()` = travel-time + remass-cost from the
+  hull's thrust-to-mass + drive-efficiency + the chosen burn). `OwnedShip` gains a
+  `nav`; `Sim::move_ship(idx, dest, hard_burn)` commits a trajectory at the **live
+  orbital distance** (`orbit::position_of`), spends remass, and takes real time;
+  `refuel_ship` buys remass (the "Remass" commodity, index 3) at a dock; a dry tank
+  **strands** the ship. `run_fleet_nav()` advances arrivals each `step()`;
+  `ship_position()` interpolates in transit. Bound to the shell: ships render cyan
+  on the orrery, the FLEET view shows **real** location/fuel/status, and mobile
+  **SEND FLEET / REFUEL** buttons dispatch the docked fleet to the focused world.
+  Persistence: `ShipSave` carries `nav`. **Calibration:** SPEED_K/REMASS constants
+  tuned so a frigate (tank 600) does several inner hops but **can't** hard-burn to
+  Jupiter on one tank — proven by `the_outer_system_can_strand_a_small_hull` and the
+  Sim-level `a_warship_flies_a_committed_trajectory_and_refuels`. 136 tests green,
+  §7c gate + QA review **untouched** (personas commission but don't move ships, and
+  `commission_ship`'s new `location` arg draws no RNG). *Lesson:* `Nav` is `Copy`,
+  so the move/refuel verbs copy it out of `self.corp.fleet()` **before** the
+  `fleet_mut()`/`debit()` mutation to dodge the borrow checker. Freighters
+  (pooled-count) and combat-positioning are the remaining Pillar-#2 follow-ups.
+
 ### Carried-over design learnings from the TS prototype (still authoritative)
 
 - **Economy pricing anchor.** Price target must be piecewise so `stock == target

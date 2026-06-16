@@ -6,6 +6,7 @@
 //! pool (§8c). The trade/commission *verbs* live on `Sim` (which owns the markets
 //! and RNG); this holds the state and its guarded mutations. Integer (§27).
 
+use super::movement::Nav;
 use super::ships::Loadout;
 
 /// Credits the corporation starts with — enough for escorts and then some, so
@@ -27,20 +28,25 @@ pub struct OwnedShip {
     /// Engagements fought, and how many were won — its blooding (§8c/§13).
     pub battles: u16,
     pub battles_won: u16,
+    /// Position + delta-v/remass budget (§6) — the ship is a positional asset.
+    pub nav: Nav,
 }
 
 /// Battles a hull must have won to read as a *veteran* (a hero ship, §14).
 const VETERAN_WINS: u16 = 1;
 
 impl OwnedShip {
-    /// A freshly commissioned hull (no history yet).
-    pub fn new(name: String, loadout: Loadout, commissioned_tick: u64) -> Self {
+    /// A freshly commissioned hull (no history yet), docked at `location` with a
+    /// full tank (§6).
+    pub fn new(name: String, loadout: Loadout, commissioned_tick: u64, location: usize) -> Self {
+        let remass_max = loadout.hull().remass_capacity;
         Self {
             name,
             loadout,
             commissioned_tick,
             battles: 0,
             battles_won: 0,
+            nav: Nav::docked(location, remass_max),
         }
     }
 
@@ -107,6 +113,11 @@ impl Corp {
 
     pub fn fleet(&self) -> &[OwnedShip] {
         &self.fleet
+    }
+
+    /// Mutable fleet access — for advancing ship navigation (§6).
+    pub fn fleet_mut(&mut self) -> &mut [OwnedShip] {
+        &mut self.fleet
     }
 
     /// Cargo held of commodity `c`.
@@ -226,7 +237,7 @@ mod tests {
         let mut corp = Corp::new(6);
         for n in names {
             let loadout = reference_loadout(ShipClass::Frigate, &mut rng);
-            corp.add_ship(OwnedShip::new(n.to_string(), loadout, 0));
+            corp.add_ship(OwnedShip::new(n.to_string(), loadout, 0, 3));
         }
         corp
     }
@@ -275,6 +286,7 @@ mod tests {
                 "X".into(),
                 reference_loadout(ShipClass::Frigate, &mut rng),
                 100,
+                3,
             )
         };
         assert_eq!(ship.age(360), 260);

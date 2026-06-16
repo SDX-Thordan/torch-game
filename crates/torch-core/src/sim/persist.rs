@@ -35,6 +35,8 @@ pub struct ShipSave {
     pub battles: u16,
     pub battles_won: u16,
     pub crew_quality: i64,
+    /// Position + remass budget (§6).
+    pub nav: super::movement::Nav,
 }
 
 /// One market's dynamic state — the stock/price pair per commodity (§7a). Defs
