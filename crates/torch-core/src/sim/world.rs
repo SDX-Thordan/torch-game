@@ -1390,6 +1390,12 @@ impl Sim {
         self.combat_doctrine.retreat_bp = bp.clamp(0, 10_000);
     }
 
+    /// Fire railguns hot or disciplined (§9 heat): aggressive fire boosts railgun
+    /// output but builds heat that periodically forces a vent.
+    pub fn set_combat_aggressive(&mut self, on: bool) {
+        self.combat_doctrine.aggressive_fire = on;
+    }
+
     /// The player's current tactical doctrine (§9).
     pub fn combat_doctrine(&self) -> Doctrine {
         self.combat_doctrine

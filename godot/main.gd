@@ -826,6 +826,12 @@ func _cycle_retreat() -> void:
 	status = "Retreat threshold: %s." % ("never (fight to the death)" if rt == 0 else "%d%%" % rt)
 
 
+## Toggle hot vs disciplined railgun fire (§9 heat): more alpha, but it vents.
+func _cycle_fire() -> void:
+	sim.set_combat_aggressive(not sim.combat_aggressive())
+	status = "Railgun fire: %s." % ("AGGRESSIVE — more alpha, builds heat" if sim.combat_aggressive() else "disciplined — steady, no heat")
+
+
 ## Throw the on-station fleet at a raider pack and play back the result (§9/§22).
 func _engage_raiders() -> void:
 	var r := sim.engage(combat_band)
@@ -982,6 +988,9 @@ func _dio_event_line(i: int) -> String:
 		3:   # Retreat
 			return "[color=#%s]%s breaks off and retreats[/color]" % [
 				UiKit.ACCENT.to_html(false), who]
+		4:   # Overheat
+			return "[color=#%s]%s vents heat — railguns hold fire[/color]" % [
+				UiKit.GOLD.to_html(false), who]
 	return ""
 
 
@@ -1046,6 +1055,7 @@ func _build_fleet_view() -> void:
 	cmd.add_child(_make_op_button("RANGE", _cycle_band))
 	cmd.add_child(_make_op_button("TARGET", _cycle_target))
 	cmd.add_child(_make_op_button("RETREAT", _cycle_retreat))
+	cmd.add_child(_make_op_button("FIRE", _cycle_fire))
 	cmd.add_child(_make_op_button("◆ ENGAGE", _engage_raiders))
 	v.add_child(UiKit.rule())
 	# Header row + grid.
@@ -1648,8 +1658,9 @@ func _refresh_fleet() -> void:
 		var tgt := "wounded" if sim.combat_target() == 1 else "biggest"
 		var rt := sim.combat_retreat()
 		var on_station: int = sim.warships_on_station()
-		_combat_lbl.text = "range %s · target %s · retreat %s · %d on station" % [
-			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt), on_station]
+		var fire := "hot" if sim.combat_aggressive() else "disciplined"
+		_combat_lbl.text = "range %s · target %s · retreat %s · fire %s · %d on station" % [
+			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt), fire, on_station]
 
 
 func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: String, fuel: float, fuelcol: Color) -> void:
