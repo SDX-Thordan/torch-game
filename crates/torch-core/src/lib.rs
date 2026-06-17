@@ -243,6 +243,31 @@ impl TorchSim {
         self.sim.controlled_colony_count() as i64
     }
 
+    /// Holdings the player can govern efficiently before overextension (E2).
+    #[func]
+    fn admin_capacity(&self) -> i64 {
+        self.sim.admin_capacity() as i64
+    }
+
+    /// The administrative load — one per holding (E2).
+    #[func]
+    fn admin_load(&self) -> i64 {
+        self.sim.admin_load() as i64
+    }
+
+    /// Holdings over capacity (E2) — 0 when within administrative reach.
+    #[func]
+    fn admin_strain(&self) -> i64 {
+        self.sim.admin_strain() as i64
+    }
+
+    /// Empire-wide tribute efficiency as a percent (E2): 100 within capacity, lower
+    /// when overextended.
+    #[func]
+    fn holdings_efficiency_pct(&self) -> i64 {
+        self.sim.holdings_efficiency_bp() / 100
+    }
+
     /// Whether the player controls colony `i`.
     #[func]
     fn colony_controlled(&self, i: i64) -> bool {

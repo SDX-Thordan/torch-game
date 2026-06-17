@@ -156,6 +156,20 @@ const COLONY_TRIBUTE_MARKET: i64 = 40;
 /// …and a controlled outpost colony's smaller tribute.
 const COLONY_TRIBUTE_OUTPOST: i64 = 16;
 
+// ---- administrative capacity: the overextension cap (E2) ----
+/// Holdings a green CEO can govern efficiently before strain sets in.
+const ADMIN_BASE_CAPACITY: usize = 3;
+/// …plus one more holding of capacity per this many CEO levels (a seasoned CEO runs
+/// a wider empire — capacity is *earned*, Stellaris-style admin cap).
+const ADMIN_CAPACITY_PER_CEO_LEVELS: i64 = 3;
+/// Each holding over capacity drops empire-wide tribute efficiency by this (bp)…
+const STRAIN_EFFICIENCY_PENALTY_BP: i64 = 1_500;
+/// …floored here, so a wildly overextended empire still scrapes some income.
+const STRAIN_EFFICIENCY_FLOOR_BP: i64 = 2_000;
+/// …and each over-capacity holding also bleeds this much upkeep per tick — so past
+/// your administrative reach, holdings go net-negative (overextension bites).
+const STRAIN_UPKEEP_PER_HOLDING: i64 = 35;
+
 /// Why a far-side bridgehead op (found/upgrade) could not proceed (§17, G3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BridgeheadError {
@@ -1608,21 +1622,60 @@ impl Sim {
         Ok(())
     }
 
-    /// Per-tick empire upkeep/income (the empire layer): each controlled colony pays
-    /// a flat tribute into the treasury. A pure credit drip — no market RNG — so a
-    /// fresh sim (which controls nothing) is byte-identical and the §7c gate holds.
+    /// How many holdings the player can govern efficiently (E2) — a base plus a
+    /// slice earned through the CEO track. Beyond this, holdings strain (§ Stellaris
+    /// admin cap): a seasoned operator runs a wider empire than a green one.
+    pub fn admin_capacity(&self) -> usize {
+        ADMIN_BASE_CAPACITY
+            + (self.progression.ceo.level() / ADMIN_CAPACITY_PER_CEO_LEVELS).max(0) as usize
+    }
+
+    /// The administrative load on the company — one per holding (E2).
+    pub fn admin_load(&self) -> usize {
+        self.holding_count()
+    }
+
+    /// Holdings over administrative capacity (E2) — the overextension amount; 0 when
+    /// comfortably within reach.
+    pub fn admin_strain(&self) -> usize {
+        self.admin_load().saturating_sub(self.admin_capacity())
+    }
+
+    /// Empire-wide tribute efficiency in basis points (E2): 100% within capacity,
+    /// falling with each over-capacity holding down to a floor.
+    pub fn holdings_efficiency_bp(&self) -> i64 {
+        let strain = self.admin_strain() as i64;
+        (10_000 - strain * STRAIN_EFFICIENCY_PENALTY_BP).max(STRAIN_EFFICIENCY_FLOOR_BP)
+    }
+
+    /// Per-tick empire income/upkeep (the empire layer): controlled colonies pay
+    /// tribute, scaled by administrative efficiency, minus the strain upkeep of any
+    /// over-capacity holdings (E2). Within capacity it's pure income; overextended,
+    /// holdings go net-negative. A pure credit flow — no market RNG — so a fresh sim
+    /// (which controls nothing) is byte-identical and the §7c gate holds.
     fn run_holdings(&mut self) {
-        let mut tribute = 0;
-        for (i, &held) in self.controlled.iter().enumerate() {
-            if held {
-                tribute += match self.colonies[i].is_market {
-                    true => COLONY_TRIBUTE_MARKET,
-                    false => COLONY_TRIBUTE_OUTPOST,
-                };
-            }
+        let gross: i64 = self
+            .controlled
+            .iter()
+            .enumerate()
+            .filter(|(_, &held)| held)
+            .map(|(i, _)| match self.colonies[i].is_market {
+                true => COLONY_TRIBUTE_MARKET,
+                false => COLONY_TRIBUTE_OUTPOST,
+            })
+            .sum();
+        if gross == 0 {
+            return; // no holdings → byte-identical no-op
         }
-        if tribute > 0 {
-            self.corp.credit(tribute);
+        let tribute = gross * self.holdings_efficiency_bp() / 10_000;
+        let upkeep = self.admin_strain() as i64 * STRAIN_UPKEEP_PER_HOLDING;
+        let net = tribute - upkeep;
+        if net >= 0 {
+            self.corp.credit(net);
+        } else {
+            // Overextension can drain the treasury, but not below zero.
+            let drain = (-net).min(self.corp.credits());
+            self.corp.debit(drain);
         }
     }
 
@@ -2653,6 +2706,37 @@ mod tests {
         assert!(
             sim.corp().credits() > held,
             "holdings pay tribute over time"
+        );
+    }
+
+    #[test]
+    fn overextension_strains_an_empire_past_its_administrative_reach() {
+        // E2: within admin capacity, holdings are full-efficiency income; past it,
+        // efficiency falls and strain upkeep turns extra holdings net-negative.
+        let mut sim = Sim::new(2);
+        sim.corp_mut().credit(2_000_000);
+        let cap = sim.admin_capacity();
+        assert!(cap >= ADMIN_BASE_CAPACITY);
+        assert_eq!(sim.admin_strain(), 0);
+        assert_eq!(
+            sim.holdings_efficiency_bp(),
+            10_000,
+            "unstrained = full income"
+        );
+        // Buy every independent colony available — almost certainly past capacity.
+        let targets = sim.acquirable_colonies();
+        assert!(targets.len() > cap, "enough colonies to overextend");
+        for i in targets {
+            let _ = sim.acquire_colony(i);
+        }
+        assert!(sim.admin_load() > 0);
+        assert!(
+            sim.admin_strain() > 0,
+            "taking the whole frontier overextends the company"
+        );
+        assert!(
+            sim.holdings_efficiency_bp() < 10_000,
+            "overextension cuts efficiency"
         );
     }
 

@@ -61,12 +61,17 @@ expansion is never free.
   controls nothing (existing tests + §7c gate unaffected; personas don't acquire, so
   the QA body stays put — only UI-wiring moves).
 
-### E2 — Overextension: administrative capacity ⚙️
+### E2 — Overextension: administrative capacity ⚙️ ✅ DONE
 **Goal:** the *economic* cap on sprawl. You have an **admin capacity** (grows with the
-CEO track + research); each holding consumes it; over capacity → rising upkeep +
-falling efficiency on your holdings. Reckless expansion stops paying for itself.
-- **Core:** `admin_capacity` vs. `admin_load`; over-cap penalty on tribute/upkeep.
-- **Shell:** a capacity gauge in the EMPIRE view.
+CEO track); each holding consumes it; over capacity → rising upkeep + falling
+efficiency on your holdings. Reckless expansion stops paying for itself.
+- **Built:** `admin_capacity()` = `ADMIN_BASE` (3) + CEO-level/3 (earned, Stellaris
+  admin-cap style); `admin_load()` = `holding_count`; `admin_strain()` = load over cap.
+  `run_holdings` now scales tribute by `holdings_efficiency_bp()` (−15%/excess holding,
+  floored at 20%) **and** bleeds `STRAIN_UPKEEP_PER_HOLDING` (35/tick) per over-capacity
+  holding, so past your reach holdings go net-negative. 4 bindings + a `⚠ Holdings n/cap
+  (strained · x%)` status readout. Inert with no holdings → §7c + QA body byte-identical.
+  Test `overextension_strains_an_empire_past_its_administrative_reach`.
 
 ### E3 — Faction alarm & the coalition 🚨 (the geopolitical teeth)
 **Goal:** the *political* cap. A per-faction **alarm** that rises with your total size

@@ -1714,7 +1714,12 @@ func _refresh_systems() -> void:
 	_sys_title.text = String(sim.market_name(sel_market))
 	_sys_sub.text = "Trading Node  ·  Sol System"
 	var holdings: int = sim.holding_count()
-	_sys_status.text = "Status: Online   ·   %s   ·   Holdings %d   ·   Gate %d%%" % [sim.tier_name(), holdings, sim.gate_progress_pct()]
+	var cap: int = sim.admin_capacity()
+	var hold_txt := "Holdings %d/%d" % [holdings, cap]
+	if sim.admin_strain() > 0:
+		# Overextended (E2): flag the strain + the income hit.
+		hold_txt = "⚠ Holdings %d/%d (strained · %d%%)" % [holdings, cap, sim.holdings_efficiency_pct()]
+	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%" % [sim.tier_name(), hold_txt, sim.gate_progress_pct()]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
 		c.queue_free()
