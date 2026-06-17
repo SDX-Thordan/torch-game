@@ -13,12 +13,17 @@ extends RefCounted
 ## Pure shell art — no sim/determinism dependency. The §25 "bake to optimized mesh"
 ## step is a later pass; this is the runtime-assembly realization.
 
-# Faction palettes: hull / accent / trim (the §4 visual signatures).
+# Faction palettes (the §4 visual signatures): hull / accent / structural tone / band
+# style. Pulled well apart so the powers read at a glance —
+#   Earth/UNN : olive-drab military, bold yellow-black hazard banding (the heavy navy).
+#   Mars/MCRN : sleek dark gunmetal, clean deep-red trim, minimal striping (high-tech).
+#   Belt/OPA  : scavenged ochre/rust, irregular slapped-on hazard patches (welded).
+#   Indie     : civilian light-grey + classic orange edge stripes (practical).
 const PALETTE := {
-	0: {"hull": Color(0.80, 0.84, 0.88), "accent": Color(0.30, 0.40, 0.55), "name": "Earth"},   # utilitarian blue-grey
-	1: {"hull": Color(0.74, 0.66, 0.60), "accent": Color(0.62, 0.26, 0.18), "name": "Mars"},    # rust-red, weapon-forward
-	2: {"hull": Color(0.72, 0.62, 0.42), "accent": Color(0.82, 0.48, 0.16), "name": "Belt"},    # ochre, welded/salvaged
-	3: {"hull": Color(0.80, 0.80, 0.82), "accent": Color(0.85, 0.49, 0.16), "name": "Indie"},   # grey + classic orange
+	0: {"hull": Color(0.43, 0.46, 0.34), "accent": Color(0.55, 0.40, 0.14), "struct": Color(0.22, 0.25, 0.16), "band": "yellow", "name": "Earth"},
+	1: {"hull": Color(0.31, 0.32, 0.37), "accent": Color(0.64, 0.16, 0.13), "struct": Color(0.15, 0.15, 0.18), "band": "red", "name": "Mars"},
+	2: {"hull": Color(0.66, 0.55, 0.36), "accent": Color(0.80, 0.46, 0.14), "struct": Color(0.33, 0.27, 0.17), "band": "patch", "name": "Belt"},
+	3: {"hull": Color(0.75, 0.76, 0.79), "accent": Color(0.85, 0.49, 0.16), "struct": Color(0.30, 0.31, 0.34), "band": "edge", "name": "Indie"},
 }
 const TRIM := Color(0.11, 0.11, 0.13)
 const DARK := Color(0.06, 0.06, 0.07)
@@ -56,13 +61,14 @@ static func _emissive(col: Color, energy := 3.0) -> StandardMaterial3D:
 	return m
 
 
-# A diagonal hazard-stripe material (the orange/black warning bands on the hulls).
-static func _hazard() -> StandardMaterial3D:
+# A diagonal hazard-stripe material (the warning bands on the hulls). Colour varies by
+# faction — yellow for Earth's heavy navy, rust for Belt's scavenged patches.
+static func _hazard(col := Color(0.96, 0.74, 0.06)) -> StandardMaterial3D:
 	var img := Image.create(32, 32, false, Image.FORMAT_RGB8)
 	for y in 32:
 		for x in 32:
-			var band := int((x + y) / 5.0) % 2
-			img.set_pixel(x, y, Color(0.92, 0.66, 0.10) if band == 0 else Color(0.07, 0.07, 0.08))
+			var band := int((x + y) / 6.0) % 2
+			img.set_pixel(x, y, col if band == 0 else Color(0.06, 0.06, 0.07))
 	var tex := ImageTexture.create_from_image(img)
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = tex
@@ -279,15 +285,24 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
 	var hull_col: Color = pal["hull"]
 	var accent_col: Color = pal["accent"]
-	# Weathered-industrial palette (the reference look): white-grey plating, a darker
-	# mid plate, rust-orange accents, dark metal recesses, dark sensor glass.
+	var struct_col: Color = pal["struct"]
+	var band_mode: String = pal["band"]
+	# Weathered military-industrial materials: faction-tinted plating over a darker
+	# structural tone, faction-styled warning bands, dark recesses.
 	var hull_mat := _mat(hull_col, 0.7, 0.35)
-	var plate_mat := _mat(hull_col * 0.7, 0.75, 0.4)
+	var plate_mat := _mat(hull_col.lerp(struct_col, 0.4), 0.78, 0.4)
+	var struct_mat := _mat(struct_col, 0.8, 0.45)
 	var accent_mat := _mat(accent_col, 0.6, 0.4)
 	var trim_mat := _mat(TRIM, 0.8, 0.5)
 	var panel_mat := _mat(DARK, 0.6, 0.6)
 	var dome_mat := _emissive(Color(0.25, 0.55, 0.7), 0.6)
-	var hazard := _hazard()
+	# The band material: Earth bold yellow hazard, Belt rust hazard, Mars/Indie a solid
+	# accent line (clean, not hazard-striped).
+	var band_mat: Material = accent_mat
+	if band_mode == "yellow":
+		band_mat = _hazard()
+	elif band_mode == "patch":
+		band_mat = _hazard(Color(0.80, 0.46, 0.10))
 	var glow := _emissive(Color(0.45, 0.72, 1.0), 4.0)
 
 	# Class envelope: bigger ships are longer, with more modular sections. Expanse
@@ -310,7 +325,7 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	var sections: int = 4 + class_idx                 # 4 (corvette) .. 7 (battleship)
 
 	# Lower keel hull (the wide armored base the modules ride on).
-	_box(root, Vector3(0, -width * 0.22, 0), Vector3(width * 0.62, width * 0.34, total_len * 0.9), trim_mat)
+	_box(root, Vector3(0, -width * 0.22, 0), Vector3(width * 0.62, width * 0.34, total_len * 0.9), struct_mat)
 
 	# Stacked hull modules from aft (-Z) to fore (+Z), reshaped by the faction grammar.
 	var seg: float = total_len / float(sections)
@@ -346,11 +361,25 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 			var bx: float = (1.0 if rng.randf() > 0.5 else -1.0) * (w * 0.5 + 0.12)
 			_cyl(root, Vector3(bx + ox, h * 0.12, z), maxf(w, h) * 0.24, seg * 0.66, trim_mat, "z")
 			_box(root, Vector3((bx + ox) * 0.55, h * 0.12, z), Vector3(0.2, 0.035, 0.035), panel_mat)
-		# Rust-orange accent stripe down each flank + a hazard band on alternate decks.
+		# Flank accent stripes down each side.
 		for sx in [-1.0, 1.0]:
 			_box(root, Vector3(ox + sx * w * 0.5, 0, z), Vector3(0.025, h * 0.5, seg * 0.66), accent_mat)
-		if i % 2 == 0 and not is_drum:
-			_box(root, Vector3(ox, h * 0.58 + 0.004, z), Vector3(w * 0.5, 0.012, seg * 0.34), hazard)
+		if not is_drum:
+			# Warning band, faction-styled.
+			match band_mode:
+				"yellow":     # Earth — a bold hazard band wrapping the whole section girth
+					_box(root, Vector3(ox, 0, z - seg * 0.18), Vector3(w * 1.04, h * 1.04, seg * 0.16), band_mat)
+				"red":        # Mars — a single thin clean red trim line along the deck shoulder
+					_box(root, Vector3(ox, h * 0.5, z), Vector3(w * 1.02, h * 0.07, seg * 0.7), band_mat)
+				"patch":      # Belt — an irregular hazard patch slapped onto one flank
+					var ps: float = (1.0 if rng.randf() > 0.5 else -1.0) * w * 0.32
+					_box(root, Vector3(ox + ps, h * 0.28, z), Vector3(w * 0.36, h * 0.42, seg * 0.34), band_mat)
+				_:            # Independent — a modest orange stripe along the deck edge
+					_box(root, Vector3(ox, h * 0.57, z), Vector3(w * 0.55, 0.022, seg * 0.4), band_mat)
+			# Stepped tier lip: a thin overhang at the fore edge so the hull reads as
+			# stacked tiers (broad base → narrow prow), not a smooth taper.
+			if i < sections - 1:
+				_box(root, Vector3(ox, h * 0.04, z + seg * 0.48), Vector3(w * 1.08, h * 0.96, seg * 0.1), plate_mat)
 		# Plating greebles (panel detail) on the decks and flanks.
 		for _g in range(3 + class_idx):
 			var gx: float = ox + rng.randf_range(-w * 0.46, w * 0.46)
@@ -383,13 +412,16 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	_cyl(root, Vector3(0, 0, fz + seg * 1.15), 0.012, seg * 0.6, trim_mat, "z")
 	_dome(root, Vector3(0, 0, fz + seg * 1.42), 0.03, dome_mat)
 
-	# Command tower amidships-aft: a stepped superstructure with sensor domes + a dish.
-	var tz: float = lerpf(seg_z[0], fz, 0.62)
-	var ty: float = width * 0.52
-	_box(root, Vector3(0, ty, tz), Vector3(width * 0.4, width * 0.3, seg * 0.9), plate_mat)
-	_box(root, Vector3(0, ty + width * 0.22, tz - seg * 0.1), Vector3(width * 0.26, width * 0.18, seg * 0.5), hull_mat)
-	_dome(root, Vector3(width * 0.08, ty + width * 0.36, tz - seg * 0.1), 0.04, dome_mat)
-	_dome(root, Vector3(-width * 0.07, ty + width * 0.34, tz), 0.03, dome_mat)
+	# Command tower: a tall, stepped superstructure (the reference's prominent bridge
+	# stack) — three tiers narrowing upward with a hazard band + sensor domes + a dish.
+	var tz: float = lerpf(seg_z[0], fz, 0.58)
+	var ty: float = width * 0.5
+	_box(root, Vector3(0, ty, tz), Vector3(width * 0.44, width * 0.32, seg * 1.0), plate_mat)            # base tier
+	_box(root, Vector3(0, ty + width * 0.04, tz + seg * 0.22), Vector3(width * 0.46, width * 0.1, seg * 0.12), band_mat)  # banded front
+	_box(root, Vector3(0, ty + width * 0.26, tz - seg * 0.06), Vector3(width * 0.3, width * 0.22, seg * 0.62), hull_mat)  # mid tier
+	_box(root, Vector3(0, ty + width * 0.46, tz - seg * 0.1), Vector3(width * 0.18, width * 0.16, seg * 0.34), plate_mat)  # top tier
+	_dome(root, Vector3(width * 0.06, ty + width * 0.58, tz - seg * 0.1), 0.04, dome_mat)
+	_dome(root, Vector3(-width * 0.06, ty + width * 0.56, tz), 0.03, dome_mat)
 	var dish := MeshInstance3D.new()                                              # radar dish
 	var dm := CylinderMesh.new()
 	dm.top_radius = width * 0.12
@@ -398,7 +430,7 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	dm.radial_segments = 12
 	dish.mesh = dm
 	dish.rotation_degrees = Vector3(60, 0, 0)
-	dish.position = Vector3(0, ty + width * 0.4, tz - seg * 0.1)
+	dish.position = Vector3(0, ty + width * 0.6, tz - seg * 0.12)
 	dish.material_override = plate_mat
 	root.add_child(dish)
 

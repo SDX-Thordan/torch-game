@@ -179,6 +179,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art: military-tower look pass + faction palettes pulled apart (§24).** Player
+  posted a reference render (a size-progression fleet of olive-drab **tower-like** hulls with
+  bold **yellow-black hazard banding**) and the silhouette/quality target. Two parts. **(1)
+  Shared tower look:** reworked `ShipForge.build()` toward it — **stepped tier lips** (a thin
+  wider overhang at each section's fore edge so the hull reads as stacked tiers, broad drive
+  base → narrow prow, not a smooth taper), a **taller 3-tier stepped bridge stack**, and a
+  parameterized `_hazard(col)` so warning bands can be yellow or rust. Rendered a Battleship
+  **stood up prow-up** (pitch the long axis near-vertical — `rotation (-74,32,0)`; *don't roll
+  it with z=90, that just spins it on its axis*) to judge against the reference — the
+  thrust-gravity tower (drive base at the bottom, banded tiers climbing, bridge on top) reads
+  exactly like the ref. **(2) Faction palettes pulled apart** (player call via AskUserQuestion:
+  "make this its own faction look"): the olive+yellow is now **Earth/UNN's** signature, and the
+  `PALETTE` gained per-faction **`struct`** (structural tone) + **`band`** (style) so the powers
+  diverge hard — **Earth** olive-drab + bold yellow hazard *wrap* bands; **Mars/MCRN** dark
+  gunmetal + a clean thin **red trim** line (sleek, minimal); **Belt/OPA** ochre + irregular
+  **rust hazard patches** slapped on one flank (scavenged); **Independent** light grey + a
+  modest **orange deck-edge** stripe. `plate_mat` lerps the faction hull toward its own struct
+  tone; `band_mat`/`band_mode` drive the loop's `match`. **Pure shell** (no sim/RNG) → §7c gate
+  + QA review byte-identical. *Process note:* an image-only message with a strong but
+  scope-ambiguous look (global vs per-faction?) → built the unambiguous wins (silhouette +
+  banding), rendered, then **AskUserQuestion** on the one real fork before committing the
+  palette reassignment. **Remaining art:** A6 (bake/optimize, deferred).
+
 - **2026-06-17 — Art A3: faction-distinct hull *shapes* + the render-normalization trap (§24).**
   Two parts. **(1) Classes read distinctly now.** A player render review caught that the four
   classes "look exactly the same" — root cause was a **render-harness lie**: the per-ship
