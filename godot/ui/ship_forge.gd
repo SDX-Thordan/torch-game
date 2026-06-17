@@ -138,11 +138,12 @@ static func _railgun(parent: Node3D, pos: Vector3, mat: Material, length: float)
 # A railgun **turret** (Cruiser/Battleship) — a rotatable mount on the dorsal hull,
 # vs the Destroyer's fixed spinal gun.
 static func _railgun_turret(parent: Node3D, pos: Vector3, mat: Material, length: float) -> void:
-	_cyl(parent, pos, 0.1, 0.05, mat, "y")                     # turret ring base
-	_box(parent, pos + Vector3(0, 0.05, 0), Vector3(0.16, 0.09, 0.2), mat)   # turret body
+	var b: float = 0.15 + length * 0.08                        # turret scales with barrel length
+	_cyl(parent, pos, b, 0.07, mat, "y")                       # turret ring base
+	_box(parent, pos + Vector3(0, 0.07, 0), Vector3(b * 1.5, 0.13, b * 1.7), mat)   # turret body
 	# Twin barrels jutting forward, angled slightly up.
-	for bx in [-0.03, 0.03]:
-		var barrel := _cyl(parent, pos + Vector3(bx, 0.08, length * 0.5), 0.022, length, _mat(TRIM, 0.45, 0.7), "z")
+	for bx in [-0.04, 0.04]:
+		var barrel := _cyl(parent, pos + Vector3(bx, 0.12, length * 0.5), 0.03, length, _mat(TRIM, 0.45, 0.7), "z")
 		barrel.rotation_degrees = Vector3(-8, 0, 0)
 
 
@@ -278,8 +279,10 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	# hulls are **tower-like** (built around thrust gravity) — slim for their length,
 	# the engine the wide base, the bow the narrow top.
 	var t: float = float(class_idx) / 3.0
-	var total_len: float = lerpf(3.2, 6.4, t)
-	var width: float = lerpf(0.5, 0.92, t)
+	# Wide size spread so class reads at a glance: a Corvette is a small patrol boat,
+	# a Battleship a vast slab — ~2.7x longer and ~3x beamier across the line.
+	var total_len: float = lerpf(2.8, 7.6, t)
+	var width: float = lerpf(0.44, 1.30, t)
 	var sections: int = 4 + class_idx                 # 4 (corvette) .. 7 (battleship)
 	if faction == 1:    # Mars — longer, leaner
 		total_len *= 1.12
@@ -360,24 +363,24 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	for k in 3:
 		_ring(root, Vector3(0, 0, az + lerpf(-0.12, 0.12, float(k) / 2.0)), eb + 0.012, panel_mat)
 	var bell_pos: Array = []
-	var s: float = width * 0.26
-	var bsize: float = width * 0.17
-	if class_idx >= 2:                                   # Cruiser/Battleship: 4 drives
+	var s: float = width * 0.33
+	var bsize: float = width * 0.34
+	if class_idx >= 2:                                   # Cruiser/Battleship: 4 drives (2×2)
 		bell_pos = [Vector2(-s, -s), Vector2(s, -s), Vector2(-s, s), Vector2(s, s)]
-		bsize = width * 0.13
-	else:                                                # Corvette/Destroyer: 1 drive
+		bsize = width * 0.22
+	else:                                                # Corvette/Destroyer: 1 big central drive
 		bell_pos = [Vector2(0, 0)]
 	for bp in bell_pos:
-		_cyl(root, Vector3(bp.x, bp.y, az - 0.14), bsize, 0.18, panel_mat, "z")
+		_cyl(root, Vector3(bp.x, bp.y, az - 0.16), bsize, 0.22, panel_mat, "z")
 		var cone := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
 		cm.top_radius = bsize * 0.25
-		cm.bottom_radius = bsize * 0.95
-		cm.height = 0.18
+		cm.bottom_radius = bsize * 1.05
+		cm.height = 0.26
 		cm.radial_segments = 12
 		cone.mesh = cm
 		cone.rotation_degrees = Vector3(-90, 0, 0)
-		cone.position = Vector3(bp.x, bp.y, az - 0.28)
+		cone.position = Vector3(bp.x, bp.y, az - 0.34)
 		cone.material_override = glow
 		root.add_child(cone)
 	var plume := OmniLight3D.new()
@@ -405,11 +408,12 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	# **fixed/spinal** gun jutting far forward (like the MCRN heavy frigate); a Cruiser
 	# (Pella) and Battleship (Donnager) mount railgun **turrets** on the dorsal hull.
 	if class_idx == 1 and railgun > 0:
-		_railgun(root, Vector3(0, -width * 0.02, fz + seg * 1.0), hull_mat, lerpf(1.5, 1.8, t))
+		# Destroyer: a long fixed spinal gun jutting well past the prow (the silhouette tell).
+		_railgun(root, Vector3(0, -width * 0.02, fz + seg * 1.0), hull_mat, 2.2)
 	elif railgun > 0:
 		for rg in railgun:
 			# Space turrets along the dorsal spine (fore for one, fore+aft for two).
 			var ti: int = clampi(int(round(lerpf(float(sections) * 0.45, float(sections) * 0.8, float(rg) / maxf(float(railgun - 1), 1.0)))), 1, sections - 1)
-			_railgun_turret(root, Vector3(0, top_y[ti] + 0.05, seg_z[ti]), hull_mat, lerpf(0.7, 0.95, t))
+			_railgun_turret(root, Vector3(0, top_y[ti] + 0.06, seg_z[ti]), hull_mat, lerpf(1.0, 1.25, t))
 
 	return root
