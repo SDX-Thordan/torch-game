@@ -301,6 +301,31 @@ impl TorchSim {
         self.sim.coalition_active()
     }
 
+    /// A single faction's alarm at your expansion, 0..=1000 (E7): 0 Earth, 1 Mars,
+    /// 2 Belt, 3 Independents.
+    #[func]
+    fn faction_alarm(&self, faction: i64) -> i64 {
+        let f = match faction {
+            0 => sim::Faction::Earth,
+            1 => sim::Faction::Mars,
+            2 => sim::Faction::Belt,
+            _ => sim::Faction::Independents,
+        };
+        self.sim.faction_alarm(f)
+    }
+
+    /// The faction leading the coalition — the power whose sphere you've most provoked
+    /// (E7): 0 Earth, 1 Mars, 2 Belt.
+    #[func]
+    fn coalition_leader(&self) -> i64 {
+        match self.sim.coalition_leader() {
+            sim::Faction::Earth => 0,
+            sim::Faction::Mars => 1,
+            sim::Faction::Belt => 2,
+            sim::Faction::Independents => 3,
+        }
+    }
+
     /// Whether a coalition strike is bearing on the holdings right now (E3) — the
     /// shell lights the DEFEND HOLDINGS verb while this holds.
     #[func]

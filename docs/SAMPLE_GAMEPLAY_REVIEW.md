@@ -174,14 +174,14 @@ _Buys frontier colonies and holds them — does expansion pay off, and do admini
 
 | metric | value |
 | --- | --- |
-| treasury | 38000 → 142147 cr (+104147, ~3×) |
-| actions | 169 over 3% of ticks |
-| pacing | 3412 ticks pending · longest idle 89 ticks |
+| treasury | 38000 → 174242 cr (+136242, ~4×) |
+| actions | 173 over 4% of ticks |
+| pacing | 3477 ticks pending · longest idle 89 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 2341 (~97 days) |
 | CEO level | 13 · techs 0 |
-| traffic | 166 flew, 147 arrived, 18 cut, 18 shortages |
-| act-now alerts | 18 raised, 0 answered |
+| traffic | 166 flew, 143 arrived, 21 cut, 21 shortages |
+| act-now alerts | 21 raised, 0 answered |
 | battles | 3 fought, 2 won |
 | empire | 13 holding(s) at peak · coalition alarm peak 1000 |
 | standings (E/M/B/I) | -392 / -392 / 17 / 0 |
@@ -192,12 +192,12 @@ _Buys frontier colonies and holds them — does expansion pay off, and do admini
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2341 (~97 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 38000 → 142147 cr (+104147, ~3×).
-- **[GOOD]** _Agency_ — Acted on 3% of ticks (169 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 89 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
-- **[NOTE]** _Alert feed_ — 18 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[GOOD]** _Pressure_ — Incoming raids were telegraphed 103 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
-- **[GOOD]** _Empire_ — Expansion-by-acquisition is reachable and exercised: grew to 13 holding(s) at peak (ending at 12). The §0 spine now has a territorial dimension.
-- **[GOOD]** _Empire · overextension_ — Growth provoked the great-power coalition (alarm peaked 1000/1000), which pried a holding loose. The political cap on reckless expansion bites — careful growth is a real decision.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 38000 → 174242 cr (+136242, ~4×).
+- **[GOOD]** _Agency_ — Acted on 4% of ticks (173 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 89 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[NOTE]** _Alert feed_ — 21 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[GOOD]** _Pressure_ — Incoming raids were telegraphed 105 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
+- **[GOOD]** _Empire_ — Expansion-by-acquisition is reachable and exercised: grew to 13 holding(s) at peak (ending at 13). The §0 spine now has a territorial dimension.
+- **[GOOD]** _Empire · overextension_ — Growth provoked the great-power coalition (alarm peaked 1000/1000), answered by the fleet. The political cap on reckless expansion bites — careful growth is a real decision.
 - **[GOOD]** _Empire · security_ — The trade empire drew piracy — 37 raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.
 - **[GOOD]** _Empire · enforcement_ — Souring the great powers brought customs enforcement — 11 inspection sweeps fined the empire's shipping (EP4). Trading in hostile space is taxed; repairing relations is the counter.
 
@@ -213,7 +213,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | Privateer | **90** | 100 | 100 | 60 | 100 | 100 | 79 |
 | Warlord | **49** | 33 | 78 | 19 | 23 | 92 | 72 |
 | Tycoon | **98** | 100 | 100 | 100 | 100 | 100 | 86 |
-| Expansionist | **87** | 100 | 98 | 60 | 100 | 72 | 92 |
+| Expansionist | **87** | 100 | 98 | 60 | 100 | 74 | 92 |
 
 **Per-style read (overall + weakest link):**
 
@@ -223,7 +223,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 - **Privateer** █████████· 90/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/166 act-now shortages
 - **Warlord** █████····· 49/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/29 act-now shortages
 - **Tycoon** ██████████ 98/100 — weakest is _Variety_ (86/100): 7 of 9 event kinds; 4 tier(s) of scope
-- **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/18 act-now shortages
+- **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/21 act-now shortages
 
 **What the comparison says about fun:**
 
@@ -238,16 +238,16 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 
 | metric | value |
 | --- | --- |
-| bindings exposed | 216 |
-| wired by the shell | 168 (77%) |
+| bindings exposed | 218 |
+| wired by the shell | 170 (77%) |
 | keyboard bindings | 42 |
 | pointer/touch | 10 pointer hit(s), native touch: true |
 | controls legend | true |
 
 **Findings:**
 
-- **[GOOD]** _UI · wiring_ — Every one of the shell's 168 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
-- **[NOTE]** _UI · coverage_ — The shell wires 77% of the 216 exposed bindings; 48 are never referenced (e.g. ["admin_load", "alert_threshold", "alpha", "blueprint_discover", "blueprint_known_count", "ceo_branch_name"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
+- **[GOOD]** _UI · wiring_ — Every one of the shell's 170 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
+- **[NOTE]** _UI · coverage_ — The shell wires 77% of the 218 exposed bindings; 48 are never referenced (e.g. ["admin_load", "alert_threshold", "alpha", "blueprint_discover", "blueprint_known_count", "ceo_branch_name"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
 - **[GOOD]** _UI · exception→verb_ — The act-now exception loop is pressable: the shell wires a one-press answer to shortages/contracts, so an alert resolves into a verb rather than a dead notification (§0.4).
 - **[GOOD]** _UI · status visibility_ — The load-bearing state is on screen — treasury, the tier/destination, the alert feed, and the now-goal are all read by the shell (Nielsen #1, the §0 three-horizon stack).
 - **[GOOD]** _UI · recognition_ — A controls legend is on screen — the keymap is recognised, not recalled (Nielsen #6).

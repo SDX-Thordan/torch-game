@@ -107,10 +107,10 @@ pub struct SaveState {
     /// fresh game / old saves.
     #[serde(default)]
     pub controlled_colonies: Vec<bool>,
-    /// The great powers' alarm at the player's expansion (E3); 0 for a fresh game /
-    /// old saves. The coalition schedule is reconstructed from it on load.
+    /// Per-faction alarm at the player's expansion (E3/E7), by `Faction` index; all-0
+    /// for a fresh game / old saves. The coalition schedule re-arms from it on load.
     #[serde(default)]
-    pub coalition_alarm: i64,
+    pub faction_alarm: [i64; 4],
     /// Influence — the statecraft resource for diplomatic annexation (E4); 0 for a
     /// fresh game / old saves.
     #[serde(default)]

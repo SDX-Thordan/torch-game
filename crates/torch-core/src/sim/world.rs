@@ -412,10 +412,12 @@ pub struct Sim {
     /// player has taken. A fresh sim controls none, so this is inert by default.
     colonies: Vec<Colony>,
     controlled: Vec<bool>,
-    /// How threatened/united the great powers are by the player's expansion (E3),
-    /// `0..=ALARM_MAX`. Rises with empire size + each acquisition; a coalition forms
-    /// above `COALITION_THRESHOLD`. Persisted; 0 for a fresh sim (inert).
-    coalition_alarm: i64,
+    /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
+    /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
+    /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
+    /// colony angers Mars most). A coalition forms when any great power crosses
+    /// `COALITION_THRESHOLD`. Persisted; all-0 for a fresh sim (inert).
+    faction_alarm: [i64; 4],
     /// Tick the next coalition strike lands while a coalition is active (E3).
     next_coalition_strike: u64,
     /// Whether the upcoming coalition strike has been telegraphed (transient).
@@ -502,7 +504,7 @@ impl Sim {
             endgame_outcome: EndgameOutcome::Undecided,
             colonies: default_colonies(),
             controlled: vec![false; default_colonies().len()],
-            coalition_alarm: 0,
+            faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
             pending_coalition: None,
@@ -1402,7 +1404,7 @@ impl Sim {
             incursions_survived: self.incursions_survived,
             endgame_outcome: self.endgame_outcome,
             controlled_colonies: self.controlled.clone(),
-            coalition_alarm: self.coalition_alarm,
+            faction_alarm: self.faction_alarm,
             influence: self.influence,
             routes: self.routes.clone(),
             stations: self.stations.clone(),
@@ -1513,8 +1515,11 @@ impl Sim {
         if s.controlled_colonies.len() == self.controlled.len() {
             self.controlled = s.controlled_colonies.clone();
         }
-        // E3: restore the coalition alarm; the strike schedule re-arms from it.
-        self.coalition_alarm = s.coalition_alarm.clamp(0, ALARM_MAX);
+        // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
+        self.faction_alarm = s.faction_alarm;
+        for a in &mut self.faction_alarm {
+            *a = (*a).clamp(0, ALARM_MAX);
+        }
         self.next_coalition_strike = 0;
         self.influence = s.influence.clamp(0, INFLUENCE_MAX); // E4
         self.routes = s.routes.clone();
@@ -1787,8 +1792,10 @@ impl Sim {
         self.controlled[i] = true;
         // The political cost: expansion is never free (be careful not to overextend).
         self.relations.on_player_expand();
-        // …and it spikes the great powers' alarm — expand too fast and they unite (E3).
-        self.raise_alarm(ALARM_PER_ACQUISITION);
+        // …and it spikes the inners' alarm — expand too fast and they unite (E3/E7):
+        // taking the independent frontier is watched by Earth and Mars alike.
+        self.raise_alarm(Faction::Earth, ALARM_PER_ACQUISITION);
+        self.raise_alarm(Faction::Mars, ALARM_PER_ACQUISITION);
         self.events.push(Event::ColonyAcquired { colony: i });
         self.complete_op();
         Ok(())
@@ -1829,7 +1836,9 @@ impl Sim {
         self.influence -= ANNEX_INFLUENCE_COST;
         self.controlled[i] = true;
         self.relations.on_player_annex();
-        self.raise_alarm(ALARM_PER_ANNEX);
+        // A peaceful annexation alarms the inners less (E7).
+        self.raise_alarm(Faction::Earth, ALARM_PER_ANNEX);
+        self.raise_alarm(Faction::Mars, ALARM_PER_ANNEX);
         self.events.push(Event::ColonyAcquired { colony: i });
         self.complete_op();
         Ok(())
@@ -1905,7 +1914,15 @@ impl Sim {
         if won {
             self.controlled[i] = true;
             self.relations.on_player_seize(owner);
-            self.raise_alarm(ALARM_PER_SEIZE);
+            // Open aggression spikes the **victim's** alarm hardest (E7 — taking
+            // Mars's colony brings Mars down on you), with lesser inner wariness.
+            self.raise_alarm(owner, ALARM_PER_SEIZE);
+            if owner != Faction::Earth {
+                self.raise_alarm(Faction::Earth, ALARM_PER_ACQUISITION);
+            }
+            if owner != Faction::Mars {
+                self.raise_alarm(Faction::Mars, ALARM_PER_ACQUISITION);
+            }
             self.events.push(Event::ColonyAcquired { colony: i });
             self.complete_op();
         }
@@ -1999,14 +2016,33 @@ impl Sim {
 
     // ---- faction alarm & the coalition (E3) ---------------------------------
 
-    /// The great powers' current alarm at the player's expansion (E3), `0..=ALARM_MAX`.
+    /// The loudest great-power alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`
+    /// — the overall coalition pressure (the most-threatened power).
     pub fn coalition_alarm(&self) -> i64 {
-        self.coalition_alarm
+        [Faction::Earth, Faction::Mars, Faction::Belt]
+            .iter()
+            .map(|&f| self.faction_alarm[f.index()])
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// A single great power's alarm at your expansion (E7).
+    pub fn faction_alarm(&self, f: Faction) -> i64 {
+        self.faction_alarm[f.index()]
+    }
+
+    /// The great power leading the coalition (the most alarmed) — whose sphere you've
+    /// most provoked (E7).
+    pub fn coalition_leader(&self) -> Faction {
+        [Faction::Earth, Faction::Mars, Faction::Belt]
+            .into_iter()
+            .max_by_key(|&f| self.faction_alarm[f.index()])
+            .unwrap_or(Faction::Earth)
     }
 
     /// Whether a great-power coalition has formed and is striking the holdings (E3).
     pub fn coalition_active(&self) -> bool {
-        self.coalition_alarm >= COALITION_THRESHOLD
+        self.coalition_alarm() >= COALITION_THRESHOLD
     }
 
     /// Whether a coalition strike is bearing on the holdings, awaiting a defense (E3).
@@ -2014,32 +2050,53 @@ impl Sim {
         self.pending_coalition.is_some()
     }
 
-    fn raise_alarm(&mut self, by: i64) {
-        self.coalition_alarm = (self.coalition_alarm + by).clamp(0, ALARM_MAX);
+    /// Spike a specific faction's alarm (E7) — `by` clamped into `0..=ALARM_MAX`.
+    fn raise_alarm(&mut self, f: Faction, by: i64) {
+        let a = &mut self.faction_alarm[f.index()];
+        *a = (*a + by).clamp(0, ALARM_MAX);
+    }
+
+    /// The size-driven alarm baseline for faction `f` (E7): the inners (Earth/Mars)
+    /// are made wary by the sheer size of your empire; the Belt is your home and is
+    /// only alarmed if you *provoke* it directly (a seized Belt colony), so its
+    /// baseline is 0.
+    fn alarm_baseline(&self, f: Faction) -> i64 {
+        match f {
+            Faction::Earth | Faction::Mars => {
+                (self.holding_count() as i64 * ALARM_PER_HOLDING).min(ALARM_MAX)
+            }
+            _ => 0,
+        }
     }
 
     /// The alarm a coalition strike answers to — tighter cadence + bigger packs the
     /// more threatened the powers are.
     fn coalition_period(&self) -> u64 {
         // From the base period at threshold, tightening toward the floor at max alarm.
-        let over = (self.coalition_alarm - COALITION_THRESHOLD).max(0);
+        let over = (self.coalition_alarm() - COALITION_THRESHOLD).max(0);
         let span = (ALARM_MAX - COALITION_THRESHOLD).max(1);
         let tighten = (COALITION_BASE_PERIOD - COALITION_MIN_PERIOD) as i64 * over / span;
         COALITION_BASE_PERIOD.saturating_sub(tighten as u64)
     }
 
-    /// Per-tick coalition layer (E3): the alarm drifts toward its size baseline, and
-    /// once a coalition forms it telegraphs + lands strikes on the holdings. Inert
-    /// while the player controls nothing (alarm pinned at 0) — so a fresh sim is
-    /// byte-identical and the §7c gate holds.
+    /// Per-tick coalition layer (E3/E7): each great power's alarm drifts toward its
+    /// size baseline, and once any crosses the threshold a coalition (led by the
+    /// angriest power) telegraphs + lands strikes. Inert while the player controls
+    /// nothing (baselines 0, spikes 0) — so a fresh sim is byte-identical, §7c holds.
     fn run_coalition(&mut self, now: u64) {
-        // Alarm trends toward the empire's size baseline (a big empire stays watched);
-        // with no holdings the baseline is 0, so alarm decays to 0 and nothing fires.
-        let baseline = (self.holding_count() as i64 * ALARM_PER_HOLDING).min(ALARM_MAX);
-        if self.coalition_alarm < baseline {
-            self.coalition_alarm = (self.coalition_alarm + ALARM_DRIFT).min(baseline);
-        } else if self.coalition_alarm > baseline {
-            self.coalition_alarm = (self.coalition_alarm - ALARM_DRIFT).max(baseline);
+        // Each great power's alarm trends toward its size baseline (a big empire keeps
+        // the inners watching); with no holdings every baseline is 0 → alarm decays.
+        for f in [Faction::Earth, Faction::Mars, Faction::Belt] {
+            let baseline = self.alarm_baseline(f);
+            let a = self.faction_alarm[f.index()];
+            let next = if a < baseline {
+                (a + ALARM_DRIFT).min(baseline)
+            } else if a > baseline {
+                (a - ALARM_DRIFT).max(baseline)
+            } else {
+                a
+            };
+            self.faction_alarm[f.index()] = next;
         }
         if !self.coalition_active() {
             // Cooled below the threshold: the coalition stands down.
@@ -2071,7 +2128,7 @@ impl Sim {
         }
         // Land a strike (only if none is already pending — one crisis at a time).
         if self.pending_coalition.is_none() && now >= self.next_coalition_strike {
-            let strength = self.coalition_alarm;
+            let strength = self.coalition_alarm();
             self.pending_coalition = Some((strength, now + COALITION_RESPONSE_WINDOW));
             self.events.push(Event::CoalitionStrike { strength });
             self.next_coalition_strike = now + self.coalition_period();
@@ -2091,7 +2148,9 @@ impl Sim {
         if let Some(i) = target {
             self.controlled[i] = false;
             self.events.push(Event::HoldingLost { colony: i });
-            self.raise_alarm(-ALARM_RELIEF_ON_DEFEND);
+            // Taking a holding relieves the leader's resolve (they got their prize).
+            let leader = self.coalition_leader();
+            self.raise_alarm(leader, -ALARM_RELIEF_ON_DEFEND);
         } else {
             let drain = COALITION_REPARATIONS.min(self.corp.credits());
             self.corp.debit(drain);
@@ -2153,8 +2212,9 @@ impl Sim {
         self.pending_coalition = None;
         self.feed.resolve_holdings();
         if won {
-            // Repelled — the holdings stand and the coalition's resolve cools.
-            self.raise_alarm(-ALARM_RELIEF_ON_DEFEND);
+            // Repelled — the holdings stand and the coalition leader's resolve cools.
+            let leader = self.coalition_leader();
+            self.raise_alarm(leader, -ALARM_RELIEF_ON_DEFEND);
             self.complete_op();
         } else {
             self.coalition_seize_holding(strength);
@@ -3495,6 +3555,42 @@ mod tests {
             !inspected_after,
             "repairing the relationship stops the sweeps"
         );
+    }
+
+    #[test]
+    fn seizing_a_powers_colony_alarms_that_power_most() {
+        // E7: the coalition is per-faction — taking Mars's colony by force spikes
+        // *Mars's* alarm hardest, and Mars leads the response. Buying the independent
+        // frontier, by contrast, alarms the inners evenly.
+        use crate::sim::faction::Faction;
+        let mut sim = Sim::new(6);
+        sim.corp_mut().credit(5_000_000);
+        for _ in 0..6 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        // Find a Mars-owned colony with a light enough garrison to take with 6 frigates.
+        let mars = (0..sim.colonies().len())
+            .filter(|&i| sim.colonies()[i].faction == Faction::Mars)
+            .min_by_key(|&i| sim.garrison_size(i))
+            .expect("a Mars colony");
+        let earth_before = sim.faction_alarm(Faction::Earth);
+        let _ = sim.seize_colony(mars, Band::Close);
+        if sim.colony_controlled(mars) {
+            // A successful seizure alarms Mars far more than Earth.
+            assert!(
+                sim.faction_alarm(Faction::Mars) > sim.faction_alarm(Faction::Earth),
+                "the victim power is the most alarmed"
+            );
+            assert!(
+                sim.faction_alarm(Faction::Earth) > earth_before,
+                "others note it too"
+            );
+            assert_eq!(
+                sim.coalition_leader(),
+                Faction::Mars,
+                "Mars leads the response"
+            );
+        }
     }
 
     #[test]

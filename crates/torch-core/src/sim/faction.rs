@@ -42,7 +42,8 @@ impl Faction {
         }
     }
 
-    fn index(self) -> usize {
+    /// Index into a per-faction array, in [`Faction::ALL`] order.
+    pub fn index(self) -> usize {
         match self {
             Faction::Earth => 0,
             Faction::Mars => 1,

@@ -173,6 +173,30 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — E7: sphere-aware geopolitics — the coalition is per-faction now.** The
+  refinement that makes *whose* space you expand into matter. Replaced the single
+  `coalition_alarm: i64` with **`faction_alarm: [i64;4]`** (by `Faction`): the inners
+  (Earth/Mars) are alarmed by your *size* (`alarm_baseline` = holdings×90 for them, 0
+  for the home Belt), and **any** power is spiked by acquisitions/seizures *in its
+  sphere* — `seize_colony` now `raise_alarm(owner, ALARM_PER_SEIZE)` so taking **Mars's**
+  colony brings *Mars* down on you, and `coalition_leader()` (argmax) leads the strike.
+  `coalition_alarm()` becomes `max` over the great powers (so the shell/QA reads and the
+  threshold logic are unchanged); `raise_alarm` takes a `Faction`; the defend/seize
+  relief cools the *leader*. **Belt excluded from the size baseline** (your home ally is
+  only alarmed if you *seize its colony*, not by your growth). Persisted `faction_alarm`
+  (replaced the scalar; `#[serde(default)]`). Per-faction meters in the EMPIRE view
+  ("⚠ COALITION (led by Mars) · Earth 1000 · Mars 1000 · Belt 0"); bindings
+  `faction_alarm`/`coalition_leader`. **Refactor stayed behavior-preserving for the
+  Expansionist's trigger** (it buys Independents → Earth==Mars symmetric → `max` ≈ the
+  old single gauge), so the coalition still fires; only benign strike-*timing* variance
+  shifted its review (it now defends all strikes and keeps 13 holdings — the per-faction
+  relief cools the leader so its fleet holds the line) — non-expanding personas + §7c
+  gate byte-identical. Made `Faction::index` pub for the array indexing. Test
+  `seizing_a_powers_colony_alarms_that_power_most`. 182 core + QA + 17 GUT green.
+  *Lesson:* keep `coalition_alarm()` as the `max`-reducing accessor so a single→array
+  refactor leaves every existing caller (threshold, period, shell, QA sample) untouched
+  — only the *spike* sites become faction-targeted.
+
 - **2026-06-17 — Empire Phase 2 complete: EP2 owned markets + EP3/EP4 the security
   layer.** Finished the trade-empire depth arc the player asked for. **EP2 (owned
   markets):** `market_is_owned(m)` (a controlled colony on its body); a market-aware

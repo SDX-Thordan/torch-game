@@ -1846,11 +1846,16 @@ func _refresh_empire() -> void:
 		# Enforcement (EP4): a soured great power taxes/inspects your shipping.
 		if sim.worst_standing() <= -200:
 			meters += "      ⚠ customs sweeps (mend fences)"
-	var alarm: int = sim.coalition_alarm()
-	if sim.coalition_active():
-		meters += "      ⚠ COALITION alarm %d/1000" % alarm
-	else:
-		meters += "      Inner alarm %d/1000" % alarm
+	# Per-faction alarm (E7): show whose sphere you've provoked, not a single gauge.
+	if holdings > 0:
+		var names := ["Earth", "Mars", "Belt"]
+		var parts := PackedStringArray()
+		for fi in 3:
+			parts.append("%s %d" % [names[fi], sim.faction_alarm(fi)])
+		var prefix := "Alarm  "
+		if sim.coalition_active():
+			prefix = "⚠ COALITION (led by %s)  " % names[sim.coalition_leader()]
+		meters += "\n%s%s" % [prefix, "  ·  ".join(parts)]
 	if sim.coalition_strike_pending():
 		meters += "  —  STRIKE INBOUND, DEFEND"
 	_emp_meters.text = meters
