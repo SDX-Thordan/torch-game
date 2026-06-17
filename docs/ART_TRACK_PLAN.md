@@ -44,7 +44,7 @@ bilateral; Mars elongated, angular, weapon-forward; Belt asymmetric, welded, sal
 Different section grammars + greeble styles + weapon placement per faction. Raider hulls
 read as scavenged.
 
-### A4 — Stations & the civilian fleet 🏭
+### A4 — Stations & the civilian fleet 🏭 ✅ DONE (models; orrery wiring in A5)
 **Goal:** a **station** kit (modular hab drums + solar/radiator + docking arms, by the
 same forge) for holdings/markets on the orrery, and **civilian classes** (freighter,
 miner, tanker, Q-ship) — the trade backbone and prime interdiction targets.

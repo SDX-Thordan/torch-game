@@ -106,7 +106,112 @@ static func _railgun(parent: Node3D, pos: Vector3, mat: Material, length: float)
 	_cyl(parent, pos + Vector3(0, 0.02, length * 0.5 + 0.18), 0.035, length, _mat(TRIM, 0.45, 0.7), "z")  # barrel
 
 
-# ---- the forge -------------------------------------------------------------
+# ---- civilian ships (A4) ---------------------------------------------------
+
+## A civilian hull (no weapons): kind 0 = freighter (stacked cargo containers),
+## 1 = miner (blunt hull + forward mining rig), 2 = tanker (big fuel drums). Faction
+## tints the livery. The trade backbone + prime interdiction targets (§8e).
+static func build_civilian(kind: int, faction: int, seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var root := Node3D.new()
+	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
+	var hull_mat := _mat(pal["hull"])
+	var trim_mat := _mat(TRIM, 0.8, 0.5)
+	var accent_mat := _mat(pal["accent"], 0.55, 0.4)
+	var glow := _emissive(Color(0.45, 0.72, 1.0), 4.0)
+
+	# A long thin spine all civilians share.
+	var L := 4.2
+	_box(root, Vector3(0, -0.18, 0), Vector3(0.16, 0.18, L * 0.96), trim_mat)
+
+	if kind == 2:
+		# Tanker: a row of big cylindrical fuel drums.
+		var n := 4
+		for i in n:
+			var z: float = lerpf(-L * 0.4, L * 0.34, float(i) / float(n - 1))
+			_cyl(root, Vector3(0, 0.2, z), 0.34, L / float(n) * 0.82, hull_mat, "z")
+			_box(root, Vector3(0, 0.2, z), Vector3(0.7, 0.02, 0.06), accent_mat)
+	elif kind == 1:
+		# Miner: a blunt blocky hull + a forward mining rig (frame + drill).
+		for i in 3:
+			var z2: float = lerpf(-L * 0.3, L * 0.25, float(i) / 2.0)
+			_box(root, Vector3(0, 0.1, z2), Vector3(0.66, 0.5, L / 3.2), hull_mat)
+		for sx in [-1.0, 1.0]:
+			_box(root, Vector3(sx * 0.28, 0.1, L * 0.46), Vector3(0.06, 0.06, 0.5), trim_mat)
+		_cyl(root, Vector3(0, 0.1, L * 0.62), 0.1, 0.5, _mat(Color(0.7, 0.5, 0.2), 0.5, 0.6), "z")
+	else:
+		# Freighter: a stack of mixed cargo containers on the spine.
+		var cols := [Color(0.7, 0.4, 0.2), Color(0.3, 0.5, 0.6), Color(0.6, 0.6, 0.62), Color(0.4, 0.45, 0.3)]
+		for i in 7:
+			var z3: float = lerpf(-L * 0.4, L * 0.28, float(i) / 6.0)
+			var cm: Material = _mat(cols[rng.randi() % cols.size()], 0.75, 0.2)
+			_box(root, Vector3(rng.randf_range(-0.05, 0.05), 0.18, z3), Vector3(0.5, 0.34, L / 7.4), cm)
+		# Forward bridge pod.
+		_box(root, Vector3(0, 0.36, L * 0.42), Vector3(0.34, 0.18, 0.4), hull_mat)
+
+	# Shared aft drive + plume (smaller than a warship's).
+	var az := -L * 0.5
+	_cyl(root, Vector3(0, 0.0, az), 0.16, 0.2, trim_mat, "z")
+	var cone := MeshInstance3D.new()
+	var ccm := CylinderMesh.new()
+	ccm.top_radius = 0.04
+	ccm.bottom_radius = 0.13
+	ccm.height = 0.16
+	ccm.radial_segments = 10
+	cone.mesh = ccm
+	cone.rotation_degrees = Vector3(-90, 0, 0)
+	cone.position = Vector3(0, 0, az - 0.14)
+	cone.material_override = glow
+	root.add_child(cone)
+	return root
+
+
+# ---- stations (A4) ---------------------------------------------------------
+
+## A modular station: a central spine of hab/industrial drums, radial solar-panel
+## wings, docking arms, and a slow spin. `tier` 0..2 scales it; faction tints it.
+static func build_station(faction: int, tier: int, seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var root := Node3D.new()
+	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
+	var hull_mat := _mat(pal["hull"])
+	var trim_mat := _mat(TRIM, 0.8, 0.5)
+	var accent_mat := _mat(pal["accent"], 0.55, 0.4)
+	var solar_mat := _mat(Color(0.10, 0.12, 0.28), 0.3, 0.7)
+
+	# Central stack of habitat drums (the core), upright along Y.
+	var drums := 2 + tier
+	for i in drums:
+		var y: float = (float(i) - float(drums - 1) * 0.5) * 0.6
+		var r: float = 0.5 + 0.12 * sin(float(i))
+		_cyl(root, Vector3(0, y, 0), r, 0.5, hull_mat if i % 2 == 0 else trim_mat, "y")
+		_cyl(root, Vector3(0, y, 0), r + 0.01, 0.06, accent_mat, "y")    # banding
+	# Radial docking arms + solar wings around the core.
+	var arms := 4 + tier
+	for a in arms:
+		var ang: float = TAU * float(a) / float(arms)
+		var dir := Vector3(cos(ang), 0, sin(ang))
+		var arm := _box(root, dir * 0.95, Vector3(1.0, 0.08, 0.08), trim_mat)
+		arm.look_at_from_position(dir * 0.95, Vector3.ZERO, Vector3.UP)
+		# A solar/radiator panel at the end of every other arm.
+		if a % 2 == 0:
+			var panel := _box(root, dir * 1.6, Vector3(0.9, 0.02, 0.5), solar_mat)
+			panel.look_at_from_position(dir * 1.6, Vector3.ZERO, Vector3.UP)
+		else:
+			# A docking pod.
+			_box(root, dir * 1.45, Vector3(0.26, 0.26, 0.26), hull_mat)
+	# A beacon light.
+	var beacon := OmniLight3D.new()
+	beacon.light_color = pal["accent"]
+	beacon.light_energy = 1.5
+	beacon.omni_range = 6.0
+	root.add_child(beacon)
+	return root
+
+
+# ---- the warship forge -----------------------------------------------------
 
 ## Build a ship Node3D. class_idx 0..3 = Frigate..Battleship; faction 0..3; the
 ## mount counts come from the sim's hull (TorchShipyard); seed makes it deterministic.

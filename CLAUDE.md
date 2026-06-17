@@ -179,6 +179,22 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art track A4: the civilian fleet + station kit (§8e/§24).** Extended
+  the forge (`ship_forge.gd`, pure shell) with two new builders: `build_civilian(kind,
+  faction, seed)` — **freighter** (a spine of mixed-colour cargo-container boxes + a
+  bridge pod), **tanker** (a row of big cylindrical fuel drums), **miner** (a blunt
+  blocky hull + a forward mining rig/drill); and `build_station(faction, tier, seed)` —
+  a central stack of habitat drums with accent banding, radial docking arms + dark-blue
+  solar/radiator wings, docking pods, and a beacon `OmniLight`. Faction-tinted, seeded.
+  Render-verified standalone in the BUILD viewport (cargo containers / fuel drums / hab
+  drums + solar all read clearly). **No display surface in-game yet** — these models
+  get wired onto the orrery (stations on colonies/holdings, civilians as freighter/
+  hauler markers) in **A5**; A4 is the model-building rung. No sim change → core/§7c/QA
+  untouched; GUT 17 green. *Reused the §A1 helpers* (`_box`/`_cyl`/`_mat`/`_emissive`)
+  + the `lerpf`/typed-float discipline. **Next: A5** (forge the orrery fleet — replace
+  the cyan-sphere/dot markers with these hulls), then A3 (faction-distinct warship
+  *shapes*, a polish pass the player OK'd for later).
+
 - **2026-06-17 — Art track A2: the interactive ship designer (§8/§24, `ART_TRACK_PLAN`).**
   The BUILD bench is now a real fitting designer. The sim's fitting model
   (`Loadout::fit` → slots/power/tankage/crew, `FitError`) already supported it, so the
