@@ -170,6 +170,34 @@ const STRAIN_EFFICIENCY_FLOOR_BP: i64 = 2_000;
 /// your administrative reach, holdings go net-negative (overextension bites).
 const STRAIN_UPKEEP_PER_HOLDING: i64 = 35;
 
+// ---- faction alarm & the coalition: the geopolitical cap (E3) ----
+/// Alarm ceiling — the great powers can be no more threatened than fully united.
+const ALARM_MAX: i64 = 1_000;
+/// A single acquisition spikes the coalition alarm by this (expanding *fast* unites
+/// them even before your empire is large).
+const ALARM_PER_ACQUISITION: i64 = 120;
+/// The steady-state alarm each holding sustains — a large empire is permanently
+/// watched (size baseline = holdings × this).
+const ALARM_PER_HOLDING: i64 = 90;
+/// Alarm drifts toward its size baseline (and cools) by this much per tick.
+const ALARM_DRIFT: i64 = 3;
+/// At or above this alarm a coalition forms and strikes your holdings.
+const COALITION_THRESHOLD: i64 = 500;
+/// A won defense buys this much breathing room (alarm relief).
+const ALARM_RELIEF_ON_DEFEND: i64 = 160;
+/// Base ticks between coalition strikes while active (tightens as alarm climbs).
+const COALITION_BASE_PERIOD: u64 = 150;
+const COALITION_MIN_PERIOD: u64 = 60;
+/// Ticks to mount a defense before an unanswered strike seizes a holding (E3).
+const COALITION_RESPONSE_WINDOW: u64 = 36;
+/// Crew quality of the coalition's navies — inner-system regulars, tougher than pirates.
+const COALITION_QUALITY: i64 = 65;
+/// Coalition pack size = 2 + (alarm over threshold) / this — a modest escalation
+/// from a pair (at the threshold) to a small squadron (at max alarm).
+const COALITION_STRENGTH_PER_SHIP: i64 = 100;
+/// Reparations debited when the coalition strikes but you hold no colony to seize.
+const COALITION_REPARATIONS: i64 = 15_000;
+
 /// Why a far-side bridgehead op (found/upgrade) could not proceed (§17, G3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BridgeheadError {
@@ -316,6 +344,17 @@ pub struct Sim {
     /// player has taken. A fresh sim controls none, so this is inert by default.
     colonies: Vec<Colony>,
     controlled: Vec<bool>,
+    /// How threatened/united the great powers are by the player's expansion (E3),
+    /// `0..=ALARM_MAX`. Rises with empire size + each acquisition; a coalition forms
+    /// above `COALITION_THRESHOLD`. Persisted; 0 for a fresh sim (inert).
+    coalition_alarm: i64,
+    /// Tick the next coalition strike lands while a coalition is active (E3).
+    next_coalition_strike: u64,
+    /// Whether the upcoming coalition strike has been telegraphed (transient).
+    coalition_forecast_sent: bool,
+    /// A coalition strike bearing on the holdings, awaiting a defense (E3):
+    /// `(strength, deadline tick)`. Transient — a reload re-opens a fresh window.
+    pending_coalition: Option<(i64, u64)>,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -393,6 +432,10 @@ impl Sim {
             endgame_outcome: EndgameOutcome::Undecided,
             colonies: default_colonies(),
             controlled: vec![false; default_colonies().len()],
+            coalition_alarm: 0,
+            next_coalition_strike: 0,
+            coalition_forecast_sent: false,
+            pending_coalition: None,
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -1265,6 +1308,7 @@ impl Sim {
             incursions_survived: self.incursions_survived,
             endgame_outcome: self.endgame_outcome,
             controlled_colonies: self.controlled.clone(),
+            coalition_alarm: self.coalition_alarm,
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1374,6 +1418,9 @@ impl Sim {
         if s.controlled_colonies.len() == self.controlled.len() {
             self.controlled = s.controlled_colonies.clone();
         }
+        // E3: restore the coalition alarm; the strike schedule re-arms from it.
+        self.coalition_alarm = s.coalition_alarm.clamp(0, ALARM_MAX);
+        self.next_coalition_strike = 0;
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1411,6 +1458,7 @@ impl Sim {
         self.run_fleet_nav();
         self.run_contracts();
         self.run_holdings();
+        self.run_coalition(self.tick);
         // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
         // keeps the economy bit-identical whether or not anyone salvages.
         if let Some(id) = self.salvage.maybe_sight(self.tick) {
@@ -1617,6 +1665,8 @@ impl Sim {
         self.controlled[i] = true;
         // The political cost: expansion is never free (be careful not to overextend).
         self.relations.on_player_expand();
+        // …and it spikes the great powers' alarm — expand too fast and they unite (E3).
+        self.raise_alarm(ALARM_PER_ACQUISITION);
         self.events.push(Event::ColonyAcquired { colony: i });
         self.complete_op();
         Ok(())
@@ -1677,6 +1727,173 @@ impl Sim {
             let drain = (-net).min(self.corp.credits());
             self.corp.debit(drain);
         }
+    }
+
+    // ---- faction alarm & the coalition (E3) ---------------------------------
+
+    /// The great powers' current alarm at the player's expansion (E3), `0..=ALARM_MAX`.
+    pub fn coalition_alarm(&self) -> i64 {
+        self.coalition_alarm
+    }
+
+    /// Whether a great-power coalition has formed and is striking the holdings (E3).
+    pub fn coalition_active(&self) -> bool {
+        self.coalition_alarm >= COALITION_THRESHOLD
+    }
+
+    /// Whether a coalition strike is bearing on the holdings, awaiting a defense (E3).
+    pub fn coalition_strike_pending(&self) -> bool {
+        self.pending_coalition.is_some()
+    }
+
+    fn raise_alarm(&mut self, by: i64) {
+        self.coalition_alarm = (self.coalition_alarm + by).clamp(0, ALARM_MAX);
+    }
+
+    /// The alarm a coalition strike answers to — tighter cadence + bigger packs the
+    /// more threatened the powers are.
+    fn coalition_period(&self) -> u64 {
+        // From the base period at threshold, tightening toward the floor at max alarm.
+        let over = (self.coalition_alarm - COALITION_THRESHOLD).max(0);
+        let span = (ALARM_MAX - COALITION_THRESHOLD).max(1);
+        let tighten = (COALITION_BASE_PERIOD - COALITION_MIN_PERIOD) as i64 * over / span;
+        COALITION_BASE_PERIOD.saturating_sub(tighten as u64)
+    }
+
+    /// Per-tick coalition layer (E3): the alarm drifts toward its size baseline, and
+    /// once a coalition forms it telegraphs + lands strikes on the holdings. Inert
+    /// while the player controls nothing (alarm pinned at 0) — so a fresh sim is
+    /// byte-identical and the §7c gate holds.
+    fn run_coalition(&mut self, now: u64) {
+        // Alarm trends toward the empire's size baseline (a big empire stays watched);
+        // with no holdings the baseline is 0, so alarm decays to 0 and nothing fires.
+        let baseline = (self.holding_count() as i64 * ALARM_PER_HOLDING).min(ALARM_MAX);
+        if self.coalition_alarm < baseline {
+            self.coalition_alarm = (self.coalition_alarm + ALARM_DRIFT).min(baseline);
+        } else if self.coalition_alarm > baseline {
+            self.coalition_alarm = (self.coalition_alarm - ALARM_DRIFT).max(baseline);
+        }
+        if !self.coalition_active() {
+            // Cooled below the threshold: the coalition stands down.
+            self.coalition_forecast_sent = false;
+            self.next_coalition_strike = 0;
+            return;
+        }
+        // Resolve an undefended strike whose window has lapsed.
+        if let Some((strength, deadline)) = self.pending_coalition {
+            if now >= deadline {
+                self.pending_coalition = None;
+                self.coalition_seize_holding(strength);
+            }
+        }
+        // Schedule the first strike when the coalition forms.
+        if self.next_coalition_strike == 0 {
+            self.next_coalition_strike = now + self.coalition_period();
+        }
+        // Telegraph the incoming strike (§13 forecasting).
+        if !self.coalition_forecast_sent
+            && now + super::pressure::FORECAST_LEAD >= self.next_coalition_strike
+        {
+            let eta = self.next_coalition_strike.saturating_sub(now);
+            self.events.push(Event::ThreatForecast {
+                kind: PressureKind::FactionWar,
+                eta,
+            });
+            self.coalition_forecast_sent = true;
+        }
+        // Land a strike (only if none is already pending — one crisis at a time).
+        if self.pending_coalition.is_none() && now >= self.next_coalition_strike {
+            let strength = self.coalition_alarm;
+            self.pending_coalition = Some((strength, now + COALITION_RESPONSE_WINDOW));
+            self.events.push(Event::CoalitionStrike { strength });
+            self.next_coalition_strike = now + self.coalition_period();
+            self.coalition_forecast_sent = false;
+        }
+    }
+
+    /// An undefended coalition strike seizes a holding (E3): the inners liberate the
+    /// player's most valuable controlled colony back to the Independents. Taking it
+    /// *relieves* the coalition's alarm (they got what they came for). With no colony
+    /// to seize, they exact reparations from the treasury instead.
+    fn coalition_seize_holding(&mut self, _strength: i64) {
+        // Prefer to seize a market colony (the prize), else any controlled one.
+        let target = (0..self.colonies.len())
+            .filter(|&i| self.controlled[i])
+            .max_by_key(|&i| self.colonies[i].is_market as i64);
+        if let Some(i) = target {
+            self.controlled[i] = false;
+            self.events.push(Event::HoldingLost { colony: i });
+            self.raise_alarm(-ALARM_RELIEF_ON_DEFEND);
+        } else {
+            let drain = COALITION_REPARATIONS.min(self.corp.credits());
+            self.corp.debit(drain);
+            self.events.push(Event::HoldingLost { colony: usize::MAX });
+        }
+    }
+
+    /// **Defend the holdings** against the pending coalition strike (E3): rally the
+    /// fleet against a coalition pack scaled by the strike's strength. A win repels
+    /// it (no holding lost, alarm relieved, an op); a loss lets the strike through
+    /// (a holding is seized). Returns the battle outcome, or `None` if there's no
+    /// strike to answer or no warships to answer with.
+    pub fn defend_holdings(&mut self, band: Band) -> Option<BattleOutcome> {
+        let (strength, _) = self.pending_coalition?;
+        let player_ships: Vec<Loadout> = self
+            .corp
+            .fleet()
+            .iter()
+            .map(|s| s.loadout.clone())
+            .collect();
+        if player_ships.is_empty() {
+            return None;
+        }
+        let over = (strength - COALITION_THRESHOLD).max(0);
+        let pack_size = (2 + over / COALITION_STRENGTH_PER_SHIP) as usize;
+        let pack: Vec<Loadout> = (0..pack_size)
+            .map(|_| {
+                ships::reference_loadout_quality(
+                    ShipClass::Frigate,
+                    COALITION_QUALITY,
+                    &mut self.rng,
+                )
+            })
+            .collect();
+        let player_doctrine = Doctrine {
+            band,
+            ..self.combat_doctrine
+        };
+        let raider_doctrine = Doctrine {
+            band,
+            ..Doctrine::default()
+        };
+        let outcome = combat::resolve(
+            &Fleet {
+                ships: &player_ships,
+                doctrine: player_doctrine,
+            },
+            &Fleet {
+                ships: &pack,
+                doctrine: raider_doctrine,
+            },
+            &mut self.rng,
+        );
+        let survivors = outcome.survivors[0];
+        let losses = player_ships.len() - survivors;
+        let won = outcome.winner == Some(0);
+        let all: Vec<usize> = (0..player_ships.len()).collect();
+        self.corp.resolve_engagement_for(all, survivors, won);
+        self.pending_coalition = None;
+        self.feed.resolve_holdings();
+        if won {
+            // Repelled — the holdings stand and the coalition's resolve cools.
+            self.raise_alarm(-ALARM_RELIEF_ON_DEFEND);
+            self.complete_op();
+        } else {
+            self.coalition_seize_holding(strength);
+        }
+        self.events.push(Event::BattleResolved { won, losses });
+        self.last_battle = Some((band, [player_ships.len(), pack.len()], outcome.clone()));
+        Some(outcome)
     }
 
     /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
@@ -2738,6 +2955,77 @@ mod tests {
             sim.holdings_efficiency_bp() < 10_000,
             "overextension cuts efficiency"
         );
+    }
+
+    #[test]
+    fn overexpansion_provokes_a_coalition_that_seizes_an_undefended_holding() {
+        // E3: grow too big and the great powers unite; an undefended strike pries a
+        // holding from your grip — the geopolitical cap on reckless expansion.
+        let mut sim = Sim::new(3);
+        sim.corp_mut().credit(5_000_000);
+        for i in sim.acquirable_colonies() {
+            let _ = sim.acquire_colony(i);
+        }
+        // A couple of stations push the empire past the alarm baseline.
+        let _ = sim.found_refinery(0, 0, 1);
+        let _ = sim.found_refinery(1, 0, 1);
+        assert!(sim.holding_count() >= 6, "a sizeable empire");
+        let mut struck = false;
+        for _ in 0..600 {
+            sim.step();
+            if sim.coalition_strike_pending() {
+                struck = true;
+                break;
+            }
+        }
+        assert!(
+            sim.coalition_active(),
+            "overexpansion united the great powers"
+        );
+        assert!(struck, "the coalition moved on the holdings");
+        // Leave it undefended — a holding is seized.
+        let before = sim.controlled_colony_count();
+        for _ in 0..(COALITION_RESPONSE_WINDOW + 5) {
+            sim.step();
+        }
+        assert!(
+            sim.controlled_colony_count() < before,
+            "an undefended coalition strike costs a colony"
+        );
+    }
+
+    #[test]
+    fn defending_repels_the_coalition_and_keeps_the_holdings() {
+        // E3: with a fleet, you can answer the coalition and hold what you took.
+        let mut sim = Sim::new(8);
+        sim.corp_mut().credit(5_000_000);
+        for i in sim.acquirable_colonies() {
+            let _ = sim.acquire_colony(i);
+        }
+        let _ = sim.found_refinery(0, 0, 1);
+        let _ = sim.found_refinery(1, 0, 1);
+        for _ in 0..5 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        assert!(!sim.corp().fleet().is_empty());
+        let mut defended = false;
+        for _ in 0..600 {
+            sim.step();
+            if sim.coalition_strike_pending() {
+                let held = sim.controlled_colony_count();
+                let outcome = sim.defend_holdings(Band::Close);
+                assert!(outcome.is_some(), "the fleet answers");
+                assert!(!sim.coalition_strike_pending(), "the strike is resolved");
+                assert_eq!(
+                    sim.controlled_colony_count(),
+                    held,
+                    "a won defense loses no holding"
+                );
+                defended = true;
+                break;
+            }
+        }
+        assert!(defended, "a coalition strike arrived to defend against");
     }
 
     #[test]

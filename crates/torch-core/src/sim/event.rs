@@ -62,4 +62,10 @@ pub enum Event {
     /// The player took control of a frontier colony (the empire layer) — `colony`
     /// indexes `frontier::default_colonies`.
     ColonyAcquired { colony: usize },
+    /// A great-power **coalition** is striking the player's holdings (the empire
+    /// layer, E3) — act-now: defend, or lose a holding. `strength` scales the pack.
+    CoalitionStrike { strength: i64 },
+    /// The coalition seized one of the player's holdings (E3) — `colony` was
+    /// liberated back to the Independents (or, if none, reparations were exacted).
+    HoldingLost { colony: usize },
 }

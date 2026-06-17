@@ -73,14 +73,26 @@ efficiency on your holdings. Reckless expansion stops paying for itself.
   (strained · x%)` status readout. Inert with no holdings → §7c + QA body byte-identical.
   Test `overextension_strains_an_empire_past_its_administrative_reach`.
 
-### E3 — Faction alarm & the coalition 🚨 (the geopolitical teeth)
-**Goal:** the *political* cap. A per-faction **alarm** that rises with your total size
-and with each acquisition **in that faction's sphere of influence**; high alarm →
-embargo, targeted raids, and finally a **coalition** that actively comes for your
-holdings. Reuses `pressure` + `faction`. Bodies gain a `sphere` (which great power
-claims that region), so taking Mars's backyard angers Mars most.
-- **Core:** `alarm[faction]`; sphere-aware expansion cost; coalition escalation.
-- **Shell:** alarm meters; coalition forecasts in the feed.
+### E3 — Faction alarm & the coalition 🚨 ✅ DONE (the geopolitical teeth)
+**Goal:** the *political* cap. Expansion raises a **coalition alarm**; high alarm →
+a **coalition** that actively comes for your holdings.
+- **Built:** `coalition_alarm` (0..=1000) trends toward a size baseline
+  (`holdings × 90`) and spikes `+120` per acquisition — so a *big* empire stays
+  watched and *fast* expansion unites them early. Above `COALITION_THRESHOLD` (500) a
+  coalition forms: `run_coalition` telegraphs (`ThreatForecast{FactionWar}`) then
+  lands an **act-now `CoalitionStrike`** carrying a `DefendHoldings` verb + a window;
+  unanswered it **seizes your most valuable controlled colony** (`HoldingLost`,
+  liberated back to the Independents — which *relieves* alarm, a natural equilibrium)
+  or exacts reparations if you hold none. `defend_holdings(band)` rallies the fleet vs
+  an alarm-scaled pack (2→7 ships, quality 65); a win repels it (alarm relief + an op),
+  a loss lets it seize. Cadence tightens with alarm. Persisted via `coalition_alarm`
+  (schedule re-arms on load). 4 bindings + a `⚠ COALITION (alarm n)` / `inners wary`
+  status warning + a DEFEND HOLDINGS button (lit only under strike). Inert with no
+  holdings (alarm pinned at 0) → §7c + QA body byte-identical. Tests
+  `overexpansion_provokes_a_coalition_that_seizes_an_undefended_holding`,
+  `defending_repels_the_coalition_and_keeps_the_holdings`.
+- *Refinement deferred:* per-faction, sphere-aware alarm (taking Mars's backyard
+  angers Mars most) — v1 models the coalition as a single united gauge.
 
 ### E4 — Diplomatic annexation 🤝
 **Goal:** the *peaceful* path. Persuade an independent colony to **join** you on high

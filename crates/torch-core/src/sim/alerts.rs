@@ -43,6 +43,8 @@ pub enum Verb {
     ExploitShortage { market: usize, commodity: usize },
     /// An incursion is at the bridgehead (§17, G4): rally the fleet and repel it.
     DefendBridgehead,
+    /// A great-power coalition is striking your holdings (E3): rally the fleet.
+    DefendHoldings,
 }
 
 /// One entry in the feed.
@@ -156,6 +158,20 @@ impl AlertFeed {
         }
     }
 
+    /// Mark the active "defend the holdings" act-now alert as answered (E3).
+    pub fn resolve_holdings(&mut self) -> bool {
+        if let Some(pos) = self
+            .alerts
+            .iter()
+            .rposition(|a| a.verb == Some(Verb::DefendHoldings))
+        {
+            self.alerts.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Classify a world event into an alert (or nothing, for routine noise).
     pub fn ingest(&mut self, event: &Event, tick: u64) {
         // Age out unanswered act-now shortages — the shortage has passed (§7b/§19).
@@ -180,6 +196,8 @@ impl AlertFeed {
             Event::EndgameWon => Some(Self::endgame_won(tick)),
             Event::EndgameLost => Some(Self::endgame_lost(tick)),
             Event::ColonyAcquired { .. } => Some(self.colony_acquired(tick)),
+            Event::CoalitionStrike { .. } => Some(self.coalition_strike(tick)),
+            Event::HoldingLost { .. } => Some(self.holding_lost(tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -243,6 +261,38 @@ impl AlertFeed {
             voice: mgr.name.clone(),
             message: format!(
                 "{}: A frontier colony flies our flag now. The inners will have noticed.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// A great-power coalition is striking the player's holdings (E3) — act-now.
+    fn coalition_strike(&self, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::ActNow,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: A great-power coalition is moving on our holdings. Defend them.",
+                mgr.name
+            ),
+            verb: Some(Verb::DefendHoldings),
+        }
+    }
+
+    /// The coalition seized one of the player's holdings (E3).
+    fn holding_lost(&self, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: We've lost a holding — the inners pried it from our grip.",
                 mgr.name
             ),
             verb: None,

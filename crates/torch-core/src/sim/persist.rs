@@ -102,11 +102,15 @@ pub struct SaveState {
     #[serde(default)]
     pub endgame_outcome: EndgameOutcome,
 
-    // ---- the empire layer (E1) ----
+    // ---- the empire layer (E1/E3) ----
     /// Which frontier colonies the player controls (the empire layer); empty for a
     /// fresh game / old saves.
     #[serde(default)]
     pub controlled_colonies: Vec<bool>,
+    /// The great powers' alarm at the player's expansion (E3); 0 for a fresh game /
+    /// old saves. The coalition schedule is reconstructed from it on load.
+    #[serde(default)]
+    pub coalition_alarm: i64,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

@@ -327,7 +327,9 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                 | Event::BridgeheadFell
                 | Event::EndgameWon
                 | Event::EndgameLost
-                | Event::ColonyAcquired { .. } => t.tier_ascended_events += 1,
+                | Event::ColonyAcquired { .. }
+                | Event::CoalitionStrike { .. }
+                | Event::HoldingLost { .. } => t.tier_ascended_events += 1,
                 Event::Tick { .. } => {}
             }
         }
@@ -379,7 +381,9 @@ fn event_kind_bit(e: &Event) -> u32 {
         | Event::BridgeheadFell
         | Event::EndgameWon
         | Event::EndgameLost
-        | Event::ColonyAcquired { .. } => 1 << 4,
+        | Event::ColonyAcquired { .. }
+        | Event::CoalitionStrike { .. }
+        | Event::HoldingLost { .. } => 1 << 4,
     }
 }
 

@@ -268,6 +268,42 @@ impl TorchSim {
         self.sim.holdings_efficiency_bp() / 100
     }
 
+    /// The great powers' alarm at the player's expansion, 0..=1000 (E3).
+    #[func]
+    fn coalition_alarm(&self) -> i64 {
+        self.sim.coalition_alarm()
+    }
+
+    /// Whether a great-power coalition has formed against the player (E3).
+    #[func]
+    fn coalition_active(&self) -> bool {
+        self.sim.coalition_active()
+    }
+
+    /// Whether a coalition strike is bearing on the holdings right now (E3) — the
+    /// shell lights the DEFEND HOLDINGS verb while this holds.
+    #[func]
+    fn coalition_strike_pending(&self) -> bool {
+        self.sim.coalition_strike_pending()
+    }
+
+    /// Defend the holdings against the pending coalition strike at `band` (0 close,
+    /// 1 medium, 2 long) (E3). Returns: 1 repelled, 0 the line broke, −1 nothing to
+    /// answer / no warships.
+    #[func]
+    fn defend_holdings(&mut self, band: i64) -> i64 {
+        let band = match band {
+            0 => sim::Band::Close,
+            2 => sim::Band::Long,
+            _ => sim::Band::Medium,
+        };
+        match self.sim.defend_holdings(band) {
+            Some(o) if o.winner == Some(0) => 1,
+            Some(_) => 0,
+            None => -1,
+        }
+    }
+
     /// Whether the player controls colony `i`.
     #[func]
     fn colony_controlled(&self, i: i64) -> bool {

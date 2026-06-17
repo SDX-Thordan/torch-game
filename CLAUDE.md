@@ -173,6 +173,33 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Empire layer E2 + E3: the overextension teeth (`EMPIRE_LAYER_PLAN.md`).**
+  The caps that make E1's expansion *careful*, both inert until the player holds
+  colonies (so the §7c gate + QA body stay byte-identical). **E2 (administrative
+  capacity)** — the *economic* cap: `admin_capacity()` = `ADMIN_BASE`(3) + CEO-level/3
+  (earned, Stellaris admin-cap style); `run_holdings` now scales tribute by
+  `holdings_efficiency_bp()` (−15%/excess holding, floored 20%) **and** bleeds
+  `STRAIN_UPKEEP`(35/tick) per over-capacity holding, so past your reach holdings go
+  net-negative. `⚠ Holdings n/cap (strained · x%)` readout. **E3 (faction alarm &
+  coalition)** — the *political* cap, structurally a clone of the G4 incursion loop:
+  `coalition_alarm` (0..=1000) trends toward a size baseline (`holdings×90`) and spikes
+  +120/acquisition, so a *big* empire stays watched and *fast* expansion unites them
+  early; above `COALITION_THRESHOLD`(500) `run_coalition` telegraphs → lands an act-now
+  `CoalitionStrike` (verb `DefendHoldings` + window) → unanswered it **seizes your most
+  valuable colony** (`HoldingLost`, which *relieves* alarm → a self-correcting
+  equilibrium where sustainable empire size = the fleet you can field).
+  `defend_holdings(band)` fights an alarm-scaled pack (2→7 ships). *Two balance catches:*
+  (1) first pass scaled the pack by **raw alarm / 30 → ~18 ships** (unwinnable) — refit
+  to `2 + (alarm−threshold)/100` (2→7). (2) the coalition only bites with ≥~6 holdings,
+  so the provoke-test acquires the whole independent frontier (4 colonies) **plus** two
+  founded refineries to clear the baseline. *Event churn reflex:* each new `Event`
+  variant (`CoalitionStrike`/`HoldingLost`, and E1's `ColonyAcquired`) needs the two QA
+  exhaustive matches — fold into the `1<<4` ascent bit so `EVENT_KIND_COUNT` is
+  unchanged (personas don't expand → QA byte-identical). 175 core + QA + 17 GUT green.
+  **Critical path E1→E2→E3 done — expansion now has real economic *and* military
+  teeth.** Next: E4 (diplomatic annexation + an Influence resource), E5 (military
+  seizure), E6 (expansion-as-spine + EMPIRE view + an Expansionist QA persona).
+
 - **2026-06-17 — Vision re-aim: the empire layer (`docs/EMPIRE_LAYER_PLAN.md`) + E1.**
   A player vision-check found a genuine genre divergence: TORCH had been built
   *faithfully to the GDD* — an **X4-style corporate sandbox** (you're a CEO who

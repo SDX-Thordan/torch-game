@@ -121,6 +121,7 @@ var _transit_btn: Button
 var _bridge_found_btn: Button
 var _bridge_upgrade_btn: Button
 var _defend_btn: Button
+var _defend_holdings_btn: Button
 var _sys_mission: Label
 var _sys_lore: Label
 var _tg_patrol: CheckButton
@@ -657,6 +658,11 @@ func _build_systems_view() -> void:
 	# The empire layer (E1): buy out an independent frontier colony. Mobile-friendly
 	# one-press expansion — takes the cheapest acquirable colony.
 	fo.add_child(_make_op_button("⊕ ACQUIRE COLONY", _acquire_colony))
+	# The empire layer (E3): answer a great-power coalition strike on your holdings —
+	# lit only while the inners are moving on you.
+	_defend_holdings_btn = _make_op_button("⚔ DEFEND HOLDINGS", _defend_holdings)
+	_defend_holdings_btn.visible = false
+	fo.add_child(_defend_holdings_btn)
 	# The climactic endgame verb (§0.1/§17) — only lit when standing at the open gate.
 	_transit_btn = _make_op_button("⟁ TRANSIT GATE", _transit_gate)
 	_transit_btn.visible = false
@@ -868,6 +874,22 @@ func _acquire_colony() -> void:
 			status = "Not enough credits to acquire %s (needs %d cr)." % [name, best_cost]
 		_:
 			status = "%s can't be acquired." % name
+
+
+## Defend the holdings against a great-power coalition strike (the empire layer, E3).
+func _defend_holdings() -> void:
+	var result: int = sim.defend_holdings(combat_band)
+	match result:
+		1:
+			ascend_flash = 1.0
+			status = "⚔ Coalition strike repelled — the holdings stand."
+			_open_diorama()
+		0:
+			flash = 1.0
+			status = "⚔ The line broke — the inners pried a holding loose."
+			_open_diorama()
+		-1:
+			status = "No fleet to answer the coalition. Commission warships."
 
 
 ## Found the far-side bridgehead (§17, G3) — the first foothold beyond the ring.
@@ -1719,6 +1741,14 @@ func _refresh_systems() -> void:
 	if sim.admin_strain() > 0:
 		# Overextended (E2): flag the strain + the income hit.
 		hold_txt = "⚠ Holdings %d/%d (strained · %d%%)" % [holdings, cap, sim.holdings_efficiency_pct()]
+	# Coalition alarm (E3): warn as the great powers turn against your expansion.
+	if sim.coalition_active():
+		hold_txt += "   ·   ⚠ COALITION (alarm %d)" % sim.coalition_alarm()
+	elif sim.coalition_alarm() >= 300:
+		hold_txt += "   ·   inners wary (%d)" % sim.coalition_alarm()
+	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
+	if _defend_holdings_btn:
+		_defend_holdings_btn.visible = sim.coalition_strike_pending()
 	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%" % [sim.tier_name(), hold_txt, sim.gate_progress_pct()]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
