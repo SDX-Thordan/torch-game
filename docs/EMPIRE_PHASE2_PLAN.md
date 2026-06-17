@@ -36,7 +36,7 @@ every tick — so holdings are *supply sources*, not a credit drip.
   logistics, end-to-end. The EMPIRE view shows each holding's "supplies X". Binding
   `colony_specialty`. Test `controlled_colonies_supply_raw_goods_into_your_warehouse`.
 
-### EP2 — Owned markets 💱
+### EP2 — Owned markets 💱 ✅ DONE
 **Goal:** a controlled colony's market is *yours*. Trade there at a **reduced/zero
 brokerage fee** (you own the broker), and the EMPIRE/MARKET views flag it as owned.
 Optionally: preferential (cheaper) station siting at your holdings.

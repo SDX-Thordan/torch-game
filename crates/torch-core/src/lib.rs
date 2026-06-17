@@ -337,6 +337,13 @@ impl TorchSim {
         self.sim.colony_specialty(i as usize) as i64
     }
 
+    /// Whether the player owns market `m` (EP2) — trades there are fee-reduced and NPC
+    /// deliveries pay a tariff into the treasury.
+    #[func]
+    fn market_is_owned(&self, m: i64) -> bool {
+        self.sim.market_is_owned(m as usize)
+    }
+
     /// Whether colony `i` can be **bought** right now (an independent, not already
     /// yours) — the economic acquisition target.
     #[func]

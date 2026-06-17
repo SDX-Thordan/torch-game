@@ -1853,7 +1853,14 @@ func _refresh_empire() -> void:
 			any_held = true
 			var fac := _faction_name(sim.colony_faction(i))
 			var good := String(sim.commodity_name(sim.colony_specialty(i)))
-			t += "[color=#78e68c]✦ %s[/color]  (%s)  ·  supplies [color=#cfd8e0]%s[/color]\n" % [String(sim.colony_name(i)), fac, good]
+			var line := "[color=#78e68c]✦ %s[/color]  (%s)  ·  supplies [color=#cfd8e0]%s[/color]" % [String(sim.colony_name(i)), fac, good]
+			# EP2: flag the ones that are markets you now own (fee-reduced + NPC tariff).
+			var body := sim.colony_body(i)
+			for m in sim.market_count():
+				if sim.market_body(m) == body and sim.market_is_owned(m):
+					line += "  ·  [color=#9fd8ff]your market[/color]"
+					break
+			t += line + "\n"
 	if sim.station_count() > 0:
 		t += "[color=#78e68c]✦ %d production station(s)[/color]\n" % sim.station_count()
 		any_held = true

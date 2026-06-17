@@ -158,6 +158,12 @@ const COLONY_TRIBUTE_OUTPOST: i64 = 16;
 /// Raw units a controlled colony produces into your warehouse each tick (EP1) — the
 /// supply that integrates holdings into your production/logistics chain.
 const COLONY_OUTPUT_PER_TICK: i64 = 3;
+/// Brokerage fee in basis points at a market you **own** (EP2) — you run the broker,
+/// so trade is cheaper than the standard `TRADE_FEE_BP`, but not free (a sink stays).
+const OWNED_TRADE_FEE_BP: i64 = 100;
+/// Tariff (basis points of cargo value) you collect on an NPC delivery into a market
+/// you own (EP2) — your empire earns from the living economy autonomously.
+const NPC_TARIFF_BP: i64 = 120;
 
 // ---- administrative capacity: the overextension cap (E2) ----
 /// Holdings a green CEO can govern efficiently before strain sets in.
@@ -624,12 +630,28 @@ impl Sim {
         }
     }
 
-    /// Brokerage fee on a `value`-credit instant market order (§5). This is the
-    /// cost of *immediate* liquidity the standing route (which pays transit
-    /// instead) doesn't incur — so hand-trading is a real decision against the
-    /// fee, not a riskless faucet (gameplay-QA economy finding).
-    fn trade_fee(value: i64) -> i64 {
-        value * Self::TRADE_FEE_BP / FEE_DEN
+    /// Whether the player **owns** market `m` (EP2) — a controlled colony sits on its
+    /// body. Owned markets trade fee-reduced and earn a tariff on NPC deliveries.
+    pub fn market_is_owned(&self, m: usize) -> bool {
+        let Some(market) = self.markets.get(m) else {
+            return false;
+        };
+        let body = market.body();
+        self.colonies
+            .iter()
+            .zip(self.controlled.iter())
+            .any(|(c, &held)| held && c.body == body)
+    }
+
+    /// The brokerage fee for a trade of `value` at market `m` (EP2): reduced at a
+    /// market you own (you run the broker), the standard fee elsewhere.
+    fn market_trade_fee(&self, m: usize, value: i64) -> i64 {
+        let bp = if self.market_is_owned(m) {
+            OWNED_TRADE_FEE_BP
+        } else {
+            Self::TRADE_FEE_BP
+        };
+        value * bp / FEE_DEN
     }
 
     /// Buy `qty` of commodity `c` at market `m` (§5): debits the goods cost plus
@@ -641,7 +663,7 @@ impl Sim {
         }
         let price = self.markets[m].price(c);
         let cost = price * qty;
-        let total = cost + Self::trade_fee(cost);
+        let total = cost + self.market_trade_fee(m, cost);
         if self.markets[m].stock(c) < qty {
             return Err(TradeError::InsufficientStock);
         }
@@ -666,7 +688,7 @@ impl Sim {
         }
         let price = self.markets[m].price(c);
         let revenue = price * qty;
-        let net = revenue - Self::trade_fee(revenue);
+        let net = revenue - self.market_trade_fee(m, revenue);
         self.corp.unstore(c, qty);
         self.markets[m].add_stock(c, qty);
         self.corp.credit(net);
@@ -2556,6 +2578,13 @@ impl Sim {
             }
         });
         for (dest, commodity, qty, id) in landed {
+            // EP2: an NPC delivery into a market you own pays a tariff to the treasury
+            // — your empire earns from the living economy autonomously. (Pure credit,
+            // no RNG; owned-only, so a fresh sim is byte-identical and §7c holds.)
+            if self.market_is_owned(dest) {
+                let value = self.markets[dest].price(commodity) * qty;
+                self.corp.credit(value * NPC_TARIFF_BP / FEE_DEN);
+            }
             self.markets[dest].add_stock(commodity, qty);
             self.events.push(Event::HaulerArrived { id });
         }
@@ -3314,6 +3343,48 @@ mod tests {
             }
         }
         assert!(defended, "a coalition strike arrived to defend against");
+    }
+
+    #[test]
+    fn owning_a_market_cuts_your_fee_and_earns_a_tariff_on_npc_trade() {
+        // EP2: a colony you control is a market you own — you trade there fee-reduced,
+        // and NPC deliveries into it pay your treasury a tariff (your empire earns from
+        // the living economy). A market you don't own does neither.
+        let mut sim = Sim::new(1);
+        // A modest buffer (kept under the upkeep free-float so the wealth sink doesn't
+        // swamp the tribute/tariff we're measuring).
+        sim.corp_mut().credit(40_000);
+        // Find a market-colony to take, and its market index (same body).
+        let colony = (0..sim.colonies().len())
+            .find(|&i| {
+                sim.colonies()[i].is_market && sim.colonies()[i].faction == Faction::Independents
+            })
+            .expect("an independent market colony");
+        let body = sim.colonies()[colony].body;
+        let m = (0..sim.markets().len())
+            .find(|&m| sim.markets()[m].body() == body)
+            .expect("its market");
+        assert!(!sim.market_is_owned(m), "not owned before acquiring");
+        assert_eq!(sim.acquire_colony(colony), Ok(()));
+        assert!(sim.market_is_owned(m), "owned after acquiring");
+        // The fee on a buy at the owned market is the reduced rate.
+        let owned_fee = sim.market_trade_fee(m, 100_000);
+        let other = (0..sim.markets().len())
+            .find(|&x| !sim.market_is_owned(x))
+            .expect("an unowned market");
+        assert!(
+            owned_fee < sim.market_trade_fee(other, 100_000),
+            "owning the broker is cheaper"
+        );
+        // NPC deliveries into the owned market grow the treasury over time (the tariff).
+        let before = sim.corp().credits();
+        for _ in 0..800 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().credits() > before,
+            "tariff + tribute grow the treasury from NPC trade through your market"
+        );
     }
 
     #[test]
