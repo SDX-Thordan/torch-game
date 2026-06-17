@@ -1852,7 +1852,8 @@ func _refresh_empire() -> void:
 		if sim.colony_controlled(i):
 			any_held = true
 			var fac := _faction_name(sim.colony_faction(i))
-			t += "[color=#78e68c]✦ %s[/color]  (%s)\n" % [String(sim.colony_name(i)), fac]
+			var good := String(sim.commodity_name(sim.colony_specialty(i)))
+			t += "[color=#78e68c]✦ %s[/color]  (%s)  ·  supplies [color=#cfd8e0]%s[/color]\n" % [String(sim.colony_name(i)), fac, good]
 	if sim.station_count() > 0:
 		t += "[color=#78e68c]✦ %d production station(s)[/color]\n" % sim.station_count()
 		any_held = true

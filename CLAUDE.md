@@ -173,6 +173,28 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Empire Phase 2 + EP1: holdings supply your chain (`EMPIRE_PHASE2_PLAN.md`).**
+  A player review found two real depth gaps after E1–E6: controlled colonies were a
+  flat **credit tribute**, not economic nodes (no supply/production/logistics), and
+  nothing preyed on a large trade empire (pirates hit only NPC haulers; no faction
+  enforcement). Wrote the Phase-2 plan — **economic integration** (EP1 colony
+  production → EP2 owned/fee-reduced markets) + **security** (EP3 piracy on your
+  empire → EP4 faction inspections/enforcement). **EP1 shipped:** each controlled
+  colony has a deterministic `colony_specialty` (thematic by faction — Belt→Ice,
+  Mars→Ore, Earth→Volatiles, independents vary by index) and `run_holdings` deposits
+  `COLONY_OUTPUT_PER_TICK` (3) of it into the **warehouse** each tick. **Warehouse-only
+  ⇒ no market RNG**, so a fresh sim (controls nothing) is byte-identical and §7c holds.
+  *Lovely emergent integration the QA harness proved:* `run_industry` already sources a
+  refinery's input from the **warehouse** before buying from the market — so colony
+  output now *feeds your refineries directly* (supply → production → logistics,
+  end-to-end), which is why the **Expansionist** persona's review shifted (its
+  refineries now run partly on colony-supplied raws, less market-buying) while every
+  non-expanding persona + the §7c gate stayed put. EMPIRE view shows each holding's
+  "supplies X"; binding `colony_specialty`. Test
+  `controlled_colonies_supply_raw_goods_into_your_warehouse`. 178 core + QA + 17 GUT
+  green. **Next: EP2** (owned markets — fee-reduced trade at your colonies), then the
+  security thread (EP3 piracy on your empire, EP4 faction inspections).
+
 - **2026-06-17 — PC (desktop) control mode alongside mobile.** TORCH is Android-first
   (§33), but the same shell now has a proper **desktop mode**. Most plumbing was already
   there (mouse-wheel zoom was kept as a desktop fallback when pinch replaced

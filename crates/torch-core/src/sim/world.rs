@@ -155,6 +155,9 @@ const COLONY_PRICE_OUTPOST: i64 = 25_000;
 const COLONY_TRIBUTE_MARKET: i64 = 40;
 /// …and a controlled outpost colony's smaller tribute.
 const COLONY_TRIBUTE_OUTPOST: i64 = 16;
+/// Raw units a controlled colony produces into your warehouse each tick (EP1) — the
+/// supply that integrates holdings into your production/logistics chain.
+const COLONY_OUTPUT_PER_TICK: i64 = 3;
 
 // ---- administrative capacity: the overextension cap (E2) ----
 /// Holdings a green CEO can govern efficiently before strain sets in.
@@ -1919,6 +1922,29 @@ impl Sim {
             let drain = (-net).min(self.corp.credits());
             self.corp.debit(drain);
         }
+        // EP1: each controlled colony produces its specialty raw into your warehouse —
+        // holdings are supply nodes feeding your production (refine it) and logistics
+        // (route/sell it), not just a credit drip. Warehouse-only ⇒ no market RNG, so
+        // a fresh sim (which controls nothing) stays byte-identical and §7c holds.
+        let outputs: Vec<usize> = (0..self.controlled.len())
+            .filter(|&i| self.controlled[i])
+            .map(|i| self.colony_specialty(i))
+            .collect();
+        for c in outputs {
+            self.corp.store(c, COLONY_OUTPUT_PER_TICK);
+        }
+    }
+
+    /// The specialty raw commodity a colony produces (EP1) — thematic by its faction
+    /// (Belters mine ice, Mars ore, Earth volatiles), independents varying by location.
+    /// Deterministic; one of the raw tiers `[0,1,2]`.
+    pub fn colony_specialty(&self, i: usize) -> usize {
+        match self.colonies.get(i).map(|c| c.faction) {
+            Some(Faction::Belt) => 0,  // Ice
+            Some(Faction::Mars) => 1,  // Ore
+            Some(Faction::Earth) => 2, // Volatiles
+            _ => i % 3,                // Independents vary by location
+        }
     }
 
     // ---- faction alarm & the coalition (E3) ---------------------------------
@@ -3288,6 +3314,26 @@ mod tests {
             }
         }
         assert!(defended, "a coalition strike arrived to defend against");
+    }
+
+    #[test]
+    fn controlled_colonies_supply_raw_goods_into_your_warehouse() {
+        // EP1: a controlled colony produces its specialty raw into your warehouse each
+        // tick — holdings feed your supply chain, not just a credit drip.
+        let mut sim = Sim::new(1);
+        sim.corp_mut().credit(100_000);
+        let i = sim.acquirable_colonies()[0];
+        let specialty = sim.colony_specialty(i);
+        let before = sim.corp().cargo(specialty);
+        assert_eq!(sim.acquire_colony(i), Ok(()));
+        for _ in 0..50 {
+            sim.step();
+        }
+        let after = sim.corp().cargo(specialty);
+        assert!(
+            after >= before + 50 * COLONY_OUTPUT_PER_TICK,
+            "the colony stocked your warehouse with its specialty good"
+        );
     }
 
     #[test]

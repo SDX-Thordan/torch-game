@@ -331,6 +331,12 @@ impl TorchSim {
         self.sim.colony_controlled(i as usize)
     }
 
+    /// The commodity index a controlled colony `i` produces into your warehouse (EP1).
+    #[func]
+    fn colony_specialty(&self, i: i64) -> i64 {
+        self.sim.colony_specialty(i as usize) as i64
+    }
+
     /// Whether colony `i` can be **bought** right now (an independent, not already
     /// yours) — the economic acquisition target.
     #[func]
