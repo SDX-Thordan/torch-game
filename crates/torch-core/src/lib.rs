@@ -731,6 +731,18 @@ impl TorchSim {
             .unwrap_or(-1)
     }
 
+    /// The faction owning hauler `index` (its origin market's owner — the party a cut
+    /// angers): 0 Earth, 1 Mars, 2 Belt, 3 Independents. −1 if out of range. For
+    /// faction-liveried orrery traffic (§4/§24).
+    #[func]
+    fn hauler_faction(&self, index: i64) -> i64 {
+        self.sim
+            .haulers()
+            .get(index as usize)
+            .map(|h| self.sim.markets()[h.origin].faction().index() as i64)
+            .unwrap_or(-1)
+    }
+
     /// Position of the in-flight hauler at `index` (for the orrery, §21).
     #[func]
     fn hauler_x(&self, index: i64) -> i64 {

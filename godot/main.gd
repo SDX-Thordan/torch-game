@@ -191,6 +191,7 @@ var _orrery_root: Node3D
 var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []
 var _hauler_pool: Array[MeshInstance3D] = []
+var _faction_haul_mats: Array[StandardMaterial3D] = []   # per-faction hauler livery (§4)
 var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
 var _freighter_pool: Array[MeshInstance3D] = []  # §6 player freighters on the lanes
 var _wreck_pool: Array[MeshInstance3D] = []
@@ -287,6 +288,9 @@ func _build_world() -> void:
 	_orrery_root.add_child(key)
 
 	_hauler_mat = _emissive_mat(HAULER_COL)
+	# Faction-liveried hauler markers (§4/§24): NPC traffic reads by its owner's colour.
+	for fc in FACTION_COL:
+		_faction_haul_mats.append(_emissive_mat((fc as Color).lerp(HAULER_COL, 0.35)))
 	_ship_mat = _emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
 	_freighter_mat = _emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
 	_select_mat = _emissive_mat(SELECT_COL)
@@ -1826,7 +1830,9 @@ func _update_world(delta: float) -> void:
 			node.visible = true
 			_smooth_to(node, _world3d(sim.hauler_x(i), sim.hauler_y(i)), delta, fresh)
 			var sel := i == selected
-			node.material_override = _select_mat if sel else _hauler_mat
+			var fi := sim.hauler_faction(i)
+			var livery: StandardMaterial3D = _hauler_mat if fi < 0 else _faction_haul_mats[clampi(fi, 0, 3)]
+			node.material_override = _select_mat if sel else livery
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
 		else:
 			node.visible = false

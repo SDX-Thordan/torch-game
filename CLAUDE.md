@@ -179,6 +179,23 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art: faction-liveried orrery traffic (§4/§24).** The faction palette/shape
+  work only showed in the BUILD bench + the §22 diorama; now NPC haulers read by their owner's
+  colour on the live map. New read-only binding `hauler_faction(i)` = the hauler's **origin
+  market's owner faction** (the party a cut angers — `markets()[h.origin].faction().index()`),
+  0..3 / −1 out of range. The shell caches four faction-tinted hauler materials (each
+  `FACTION_COL[f].lerp(HAULER_COL, 0.35)` so they stay legible as traffic) and the orrery loop
+  picks one per hauler (selection still overrides to the reticle material). *Deliberately kept
+  the lightweight single-mesh markers* (A5's call — full baked hulls are wasted detail at the
+  1-AU/dot orrery zoom *and* ×16 markers); a **colour** swap is the right-cost livery cue.
+  **Determinism:** read-only binding, no sim/RNG touch → §7c gate + cargo tests (187) +
+  GUT (17) unchanged, and the QA *gameplay* body is byte-identical — only the UI-wiring facet
+  moved (231→232 bindings, 176→177 wired, the new binding *is* wired), so I regenerated
+  `SAMPLE_GAMEPLAY_REVIEW.md` (restoring its hand-added do-not-edit header line). *Tooling
+  reflex:* a new `#[func]` needs a **debug** `cargo build` (the editor loads `target/debug`),
+  and verify the binding end-to-end headless (`TorchSim.new()` → `reset(7)` → step → print
+  `hauler_faction`) before trusting the tint.
+
 - **2026-06-17 — Art A6: bake the forge to a single optimized mesh (§25).** The forge built a
   ship as ~80–166 separate `MeshInstance3D` children (one draw call each) — fine for one
   turntable hull, dear for a fleet. `ShipForge.bake(src)` collapses the whole node tree into a
