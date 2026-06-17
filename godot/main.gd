@@ -975,6 +975,36 @@ func _seize_colony() -> void:
 			status = "%s can't be seized." % name
 
 
+## Court an independent company (the diplomacy layer, E8) — invest Influence to deepen
+## your best non-allied relationship toward alliance. Macro: a standing investment, not
+## a per-event choice. Allies' colonies join you free and their ships screen your trade.
+func _court_company() -> void:
+	# Advance the most-promising relationship that isn't already an ally.
+	var target := -1
+	var best_rel := -2000000000
+	for i in sim.company_count():
+		var st: int = sim.company_stance(i)
+		if st < 4:  # not yet Ally
+			var rel: int = sim.company_relation(i)
+			if rel > best_rel:
+				best_rel = rel
+				target = i
+	if target < 0:
+		status = "Every independent company is already allied with us."
+		return
+	var name := String(sim.company_name(target))
+	var code: int = sim.court_company(target)
+	match code:
+		0:
+			var sn: int = sim.company_stance(target)
+			var stance: String = ["Rival", "Cold", "Neutral", "Partner", "Ally"][sn]
+			status = "🤝 Courted %s — now %s." % [name, stance]
+		2:
+			status = "Not enough Influence to court %s (need 100)." % name
+		_:
+			status = "Can't court %s." % name
+
+
 ## Defend the holdings against a great-power coalition strike (the empire layer, E3).
 func _defend_holdings() -> void:
 	var result: int = sim.defend_holdings(combat_band)
@@ -1803,6 +1833,7 @@ func _build_empire_view() -> void:
 	ops.add_child(_make_op_button("⊕ ANNEX", _annex_colony))
 	ops.add_child(_make_op_button("⚔ SEIZE", _seize_colony))
 	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
+	ops.add_child(_make_op_button("🤝 COURT", _court_company))
 	v.add_child(UiKit.rule())
 
 	# The master-table: holdings + acquirable targets.
@@ -1904,6 +1935,14 @@ func _refresh_empire() -> void:
 		var name2 := String(sim.colony_name(i))
 		var fac2 := _faction_name(sim.colony_faction(i))
 		t += "[color=#e0b0b0]⚔ %s[/color]  (%s)  ·  garrison %d\n" % [name2, fac2, sim.colony_garrison(i)]
+	# Independent companies — the negotiable actors (E8). Macro diplomacy.
+	if sim.company_count() > 0:
+		t += "\n[color=#9fb0c0]── INDEPENDENT RELATIONS  (Influence %d) ──[/color]\n" % sim.influence()
+		var stance_names := ["Rival", "Cold", "Neutral", "Partner", "Ally"]
+		var stance_cols := ["#e0708a", "#9fb0c0", "#cfd8e0", "#9fd8ff", "#78e68c"]
+		for i in sim.company_count():
+			var s: int = sim.company_stance(i)
+			t += "[color=%s]🤝 %s — %s[/color]  (rel %d)\n" % [stance_cols[s], String(sim.company_name(i)), stance_names[s], sim.company_relation(i)]
 	_emp_table.text = t
 
 

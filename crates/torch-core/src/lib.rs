@@ -326,6 +326,72 @@ impl TorchSim {
         }
     }
 
+    // ---- corporate diplomacy with the independent companies (E8) ----
+
+    /// Number of independent companies — the negotiable diplomatic actors (E8).
+    #[func]
+    fn company_count(&self) -> i64 {
+        self.sim.company_count() as i64
+    }
+
+    /// Company `i`'s name (E8).
+    #[func]
+    fn company_name(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .companies()
+                .get(i as usize)
+                .map(|c| c.name)
+                .unwrap_or(""),
+        )
+    }
+
+    /// Company `i`'s relation dial with the player (E8).
+    #[func]
+    fn company_relation(&self, i: i64) -> i64 {
+        self.sim.company_relation(i as usize)
+    }
+
+    /// Company `i`'s stance (E8): 0 Rival, 1 Cold, 2 Neutral, 3 Partner, 4 Ally.
+    #[func]
+    fn company_stance(&self, i: i64) -> i64 {
+        match self.sim.company_stance(i as usize) {
+            sim::Stance::Rival => 0,
+            sim::Stance::Cold => 1,
+            sim::Stance::Neutral => 2,
+            sim::Stance::Partner => 3,
+            sim::Stance::Ally => 4,
+        }
+    }
+
+    /// The colony company `i` operates (E8).
+    #[func]
+    fn company_home_colony(&self, i: i64) -> i64 {
+        self.sim
+            .companies()
+            .get(i as usize)
+            .map(|c| c.home_colony as i64)
+            .unwrap_or(-1)
+    }
+
+    /// Allied companies lending you escorts against piracy (E8).
+    #[func]
+    fn ally_count(&self) -> i64 {
+        self.sim.ally_count() as i64
+    }
+
+    /// Court independent company `i` up a step (E8) — spends Influence. Returns: 0 ok,
+    /// 1 invalid company, 2 not enough Influence.
+    #[func]
+    fn court_company(&mut self, i: i64) -> i64 {
+        use sim::world::CourtError as E;
+        match self.sim.court_company(i as usize) {
+            Ok(()) => 0,
+            Err(E::InvalidCompany) => 1,
+            Err(E::NotEnoughInfluence) => 2,
+        }
+    }
+
     /// Whether a coalition strike is bearing on the holdings right now (E3) — the
     /// shell lights the DEFEND HOLDINGS verb while this holds.
     #[func]

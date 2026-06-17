@@ -12,6 +12,7 @@ use super::campaign::{Campaign, EndgameOutcome, Tier};
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
+use super::diplomacy::{Diplomacy, Stance};
 use super::economy::{default_markets, Market};
 use super::event::Event;
 use super::faction::{Faction, Relations};
@@ -239,11 +240,39 @@ const ANNEX_STANDING_REQ: i64 = 200;
 /// A diplomatic annexation spikes coalition alarm less than a hostile buyout (E4).
 const ALARM_PER_ANNEX: i64 = 60;
 
+// ---- corporate diplomacy with the independent companies (E8) ----
+/// Influence to court an independent company up a step toward alliance.
+const COURT_INFLUENCE_COST: i64 = 100;
+/// Relation gained per courting (Neutral→Ally is ~4 courtings).
+const COURT_RELATION_GAIN: i64 = 150;
+/// How much buying a company's colony out from under it sours the relationship.
+const BUYOUT_RELATION_HIT: i64 = 80;
+/// How much seizing a company's colony by force craters the relationship (→ Rival).
+const SEIZE_RELATION_HIT: i64 = 600;
+
 // ---- military seizure (E5) ----
 /// A successful seizure is open aggression — the biggest coalition-alarm spike (E5).
 const ALARM_PER_SEIZE: i64 = 220;
 /// Crew quality of a colony's defending garrison (E5).
 const GARRISON_QUALITY: i64 = 60;
+
+/// How a colony may be annexed (E4/E8 internal).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnnexKind {
+    /// An Ally company's colony joins for free.
+    Free,
+    /// Costs Influence (a Partner company, or good Independents standing).
+    Influence,
+    /// Can't be annexed (a Rival won't join, or not an acquirable target).
+    Blocked,
+}
+
+/// Why courting an independent company could not proceed (E8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CourtError {
+    InvalidCompany,
+    NotEnoughInfluence,
+}
 
 /// Why a diplomatic annexation could not proceed (E4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -425,8 +454,11 @@ pub struct Sim {
     /// A coalition strike bearing on the holdings, awaiting a defense (E3):
     /// `(strength, deadline tick)`. Transient — a reload re-opens a fresh window.
     pending_coalition: Option<(i64, u64)>,
-    /// Influence — the slow statecraft resource spent on diplomatic annexation (E4).
+    /// Influence — the slow statecraft resource spent on diplomatic annexation (E4)
+    /// and courting independent companies (E8).
     influence: i64,
+    /// Diplomacy with the independent companies (E8) — the negotiable actors.
+    diplomacy: Diplomacy,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -509,6 +541,7 @@ impl Sim {
             coalition_forecast_sent: false,
             pending_coalition: None,
             influence: 0,
+            diplomacy: Diplomacy::new(),
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -1406,6 +1439,7 @@ impl Sim {
             controlled_colonies: self.controlled.clone(),
             faction_alarm: self.faction_alarm,
             influence: self.influence,
+            company_relations: self.diplomacy.relations(),
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1522,6 +1556,9 @@ impl Sim {
         }
         self.next_coalition_strike = 0;
         self.influence = s.influence.clamp(0, INFLUENCE_MAX); // E4
+        if !s.company_relations.is_empty() {
+            self.diplomacy.restore(&s.company_relations); // E8
+        }
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1796,6 +1833,10 @@ impl Sim {
         // taking the independent frontier is watched by Earth and Mars alike.
         self.raise_alarm(Faction::Earth, ALARM_PER_ACQUISITION);
         self.raise_alarm(Faction::Mars, ALARM_PER_ACQUISITION);
+        // Buying a colony out from under its operator sours the relationship (E8).
+        if let Some(ci) = self.diplomacy.company_for_colony(i) {
+            self.diplomacy.adjust(ci, -BUYOUT_RELATION_HIT);
+        }
         self.events.push(Event::ColonyAcquired { colony: i });
         self.complete_op();
         Ok(())
@@ -1807,33 +1848,112 @@ impl Sim {
         self.influence
     }
 
-    /// Whether colony `i` can be **diplomatically annexed** right now (E4): an
-    /// acquirable independent, with the Independents at the required standing and
-    /// enough Influence banked.
-    pub fn can_annex(&self, i: usize) -> bool {
-        self.is_acquirable(i)
-            && self.relations.standing(Faction::Independents) >= ANNEX_STANDING_REQ
-            && self.influence >= ANNEX_INFLUENCE_COST
+    // ---- corporate diplomacy with the independent companies (E8) ----
+
+    /// The independent companies — the negotiable diplomatic actors (E8).
+    pub fn companies(&self) -> &[super::diplomacy::Company] {
+        self.diplomacy.companies()
     }
 
-    /// **Diplomatically annex an independent colony** (E4) — the peaceful path: spend
-    /// Influence (not credits), gated on good standing with the Independents, and pay
-    /// a *reduced* political cost (`on_player_annex` + a smaller alarm spike) than a
-    /// hostile buyout. The reward for patient, reputation-built statecraft.
+    /// Number of independent companies (E8).
+    pub fn company_count(&self) -> usize {
+        self.diplomacy.companies().len()
+    }
+
+    /// Company `i`'s relation dial with the player (E8).
+    pub fn company_relation(&self, i: usize) -> i64 {
+        self.diplomacy.relation(i)
+    }
+
+    /// Company `i`'s stance toward the player (E8).
+    pub fn company_stance(&self, i: usize) -> Stance {
+        self.diplomacy.stance(i)
+    }
+
+    /// How many allied companies are lending you escorts (E8).
+    pub fn ally_count(&self) -> usize {
+        self.diplomacy.ally_count()
+    }
+
+    /// The company operating colony `colony`, if any (E8).
+    pub fn colony_company(&self, colony: usize) -> Option<usize> {
+        self.diplomacy.company_for_colony(colony)
+    }
+
+    /// The stance of the company operating `colony` (Neutral if none) (E8).
+    fn colony_company_stance(&self, colony: usize) -> Stance {
+        self.colony_company(colony)
+            .map(|ci| self.diplomacy.stance(ci))
+            .unwrap_or(Stance::Neutral)
+    }
+
+    /// **Court an independent company** (E8) — the macro diplomacy move: spend
+    /// Influence to deepen the relationship a step (Neutral → Partner → Ally). An
+    /// Ally's colony joins you freely and its ships help screen your trade.
+    pub fn court_company(&mut self, i: usize) -> Result<(), CourtError> {
+        if i >= self.diplomacy.companies().len() {
+            return Err(CourtError::InvalidCompany);
+        }
+        if self.influence < COURT_INFLUENCE_COST {
+            return Err(CourtError::NotEnoughInfluence);
+        }
+        self.influence -= COURT_INFLUENCE_COST;
+        self.diplomacy.adjust(i, COURT_RELATION_GAIN);
+        Ok(())
+    }
+
+    /// How a colony may be annexed (E4/E8): free (its company is an Ally), influence-
+    /// gated (a Partner company, or good generic Independents standing), or blocked
+    /// (a Rival won't join, or it isn't an acquirable target).
+    fn annex_kind(&self, i: usize) -> AnnexKind {
+        if !self.is_acquirable(i) {
+            return AnnexKind::Blocked;
+        }
+        match self.colony_company_stance(i) {
+            Stance::Ally => AnnexKind::Free,
+            Stance::Rival => AnnexKind::Blocked,
+            stance => {
+                let eligible = stance >= Stance::Partner
+                    || self.relations.standing(Faction::Independents) >= ANNEX_STANDING_REQ;
+                if eligible {
+                    AnnexKind::Influence
+                } else {
+                    AnnexKind::Blocked
+                }
+            }
+        }
+    }
+
+    /// Whether colony `i` can be **diplomatically annexed** right now (E4/E8): a
+    /// Partner/Ally company's colony (or good Independents standing), with the
+    /// Influence to pay (waived for an Ally).
+    pub fn can_annex(&self, i: usize) -> bool {
+        match self.annex_kind(i) {
+            AnnexKind::Free => true,
+            AnnexKind::Influence => self.influence >= ANNEX_INFLUENCE_COST,
+            AnnexKind::Blocked => false,
+        }
+    }
+
+    /// **Diplomatically annex an independent colony** (E4/E8) — the peaceful path: it
+    /// *joins* you. An **Ally** company's colony joins for free; otherwise it costs
+    /// Influence and a Partner relationship (or good Independents standing). Pays the
+    /// gentler political cost (`on_player_annex` + a smaller alarm spike) than a buyout.
     pub fn annex_colony(&mut self, i: usize) -> Result<(), AnnexError> {
         if self.colony_controlled(i) {
             return Err(AnnexError::AlreadyControlled);
         }
-        if !self.is_acquirable(i) {
-            return Err(AnnexError::NotAcquirable);
+        match self.annex_kind(i) {
+            AnnexKind::Blocked if !self.is_acquirable(i) => return Err(AnnexError::NotAcquirable),
+            AnnexKind::Blocked => return Err(AnnexError::StandingTooLow),
+            AnnexKind::Influence => {
+                if self.influence < ANNEX_INFLUENCE_COST {
+                    return Err(AnnexError::NotEnoughInfluence);
+                }
+                self.influence -= ANNEX_INFLUENCE_COST;
+            }
+            AnnexKind::Free => {} // an Ally joins willingly, no Influence spent
         }
-        if self.relations.standing(Faction::Independents) < ANNEX_STANDING_REQ {
-            return Err(AnnexError::StandingTooLow);
-        }
-        if self.influence < ANNEX_INFLUENCE_COST {
-            return Err(AnnexError::NotEnoughInfluence);
-        }
-        self.influence -= ANNEX_INFLUENCE_COST;
         self.controlled[i] = true;
         self.relations.on_player_annex();
         // A peaceful annexation alarms the inners less (E7).
@@ -1922,6 +2042,10 @@ impl Sim {
             }
             if owner != Faction::Mars {
                 self.raise_alarm(Faction::Mars, ALARM_PER_ACQUISITION);
+            }
+            // Taking a company's colony by force makes it a Rival (E8).
+            if let Some(ci) = self.diplomacy.company_for_colony(i) {
+                self.diplomacy.adjust(ci, -SEIZE_RELATION_HIT);
             }
             self.events.push(Event::ColonyAcquired { colony: i });
             self.complete_op();
@@ -2238,10 +2362,16 @@ impl Sim {
         }
     }
 
-    /// Whether the empire's shipping is adequately escorted (EP3) — warships on
-    /// station meet or exceed the need.
+    /// Escorts effectively screening your trade (EP3/E8): your warships on station
+    /// plus the ships **allied companies** lend you — diplomacy buys security.
+    pub fn effective_escorts(&self) -> usize {
+        self.warships_on_station() + self.diplomacy.ally_count()
+    }
+
+    /// Whether the empire's shipping is adequately escorted (EP3/E8) — your navy plus
+    /// allied support meet or exceed the need.
     pub fn empire_secure(&self) -> bool {
-        self.warships_on_station() >= self.escorts_needed()
+        self.effective_escorts() >= self.escorts_needed()
     }
 
     /// Standing predation on your trade (EP3): if your empire's shipping outruns its
@@ -2253,9 +2383,9 @@ impl Sim {
             return;
         }
         let needed = self.escorts_needed();
-        let escorts = self.warships_on_station();
+        let escorts = self.effective_escorts();
         if escorts >= needed {
-            return; // well-screened — the patrols hold (no spam on a quiet success)
+            return; // well-screened (navy + allies) — the patrols hold
         }
         let shortfall = (needed - escorts) as i64;
         let loss = (shortfall * PIRACY_LOSS_PER_ESCORT_SHORT).min(self.corp.credits());
@@ -3362,6 +3492,68 @@ mod tests {
             sim.holdings_efficiency_bp() < 10_000,
             "overextension cuts efficiency"
         );
+    }
+
+    #[test]
+    fn courting_a_company_to_ally_opens_a_free_annex_and_lends_an_escort() {
+        // E8: the macro diplomacy loop — invest Influence to court an independent
+        // company; an Ally's colony joins you for free and its ships screen your trade.
+        let mut sim = Sim::new(4);
+        // Pick a company and its colony.
+        assert!(!sim.companies().is_empty());
+        let colony = sim.companies()[0].home_colony;
+        let company = 0usize;
+        // Bank influence and court the company up to Ally (≈4 courtings).
+        for _ in 0..1_000 {
+            sim.step();
+        }
+        let mut courted = 0;
+        while sim.company_stance(company) != crate::sim::diplomacy::Stance::Ally && courted < 10 {
+            if sim.court_company(company).is_err() {
+                // ran out of influence — let it accrue
+                for _ in 0..120 {
+                    sim.step();
+                }
+            } else {
+                courted += 1;
+            }
+        }
+        assert_eq!(
+            sim.company_stance(company),
+            crate::sim::diplomacy::Stance::Ally,
+            "courting reaches alliance"
+        );
+        // An Ally's colony annexes for free (no Influence spent).
+        assert!(sim.can_annex(colony));
+        let infl_before = sim.influence();
+        assert_eq!(sim.annex_colony(colony), Ok(()));
+        assert!(sim.colony_controlled(colony));
+        assert_eq!(sim.influence(), infl_before, "an ally joins for free");
+    }
+
+    #[test]
+    fn seizing_a_companys_colony_makes_it_a_rival() {
+        // E8: cross a company (take its colony by force) and it turns Rival, refusing
+        // to be annexed thereafter.
+        let mut sim = Sim::new(5);
+        sim.corp_mut().credit(5_000_000);
+        for _ in 0..5 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        let colony = sim.companies()[0].home_colony;
+        let company = 0usize;
+        assert_ne!(
+            sim.company_stance(company),
+            crate::sim::diplomacy::Stance::Rival
+        );
+        let _ = sim.seize_colony(colony, Band::Close);
+        if sim.colony_controlled(colony) {
+            assert_eq!(
+                sim.company_stance(company),
+                crate::sim::diplomacy::Stance::Rival,
+                "force makes an enemy"
+            );
+        }
     }
 
     #[test]

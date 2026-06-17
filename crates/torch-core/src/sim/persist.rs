@@ -115,6 +115,10 @@ pub struct SaveState {
     /// fresh game / old saves.
     #[serde(default)]
     pub influence: i64,
+    /// Player relations with the independent companies (E8), in company order; empty
+    /// for a fresh game / old saves (companies reconstructed from code).
+    #[serde(default)]
+    pub company_relations: Vec<i64>,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

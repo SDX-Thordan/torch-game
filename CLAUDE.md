@@ -173,6 +173,31 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — E8: corporate diplomacy with the independent companies (`EMPIRE_
+  DIPLOMACY_PLAN.md`).** Player call: diplomacy yes, but with **independent companies**
+  (Earth/Mars stay watchful giants = the coalition, not negotiable), and **macro not
+  micro** (standing relationships with passive effects, no per-event prompts). Built
+  `sim::diplomacy`: a `Company { name, home_colony, relation }` per independent colony
+  (Ganymede Free Traders / Callisto Shipwrights / Enceladus Hydro / Triton Pioneers)
+  and a `Stance` ladder (Rival<Cold<Neutral<Partner<Ally, `derive(Ord)`). The macro
+  move is `court_company(i)` — spend Influence (the E4 resource) to climb a step. **The
+  passive payoffs make diplomacy worth it:** an **Ally**'s colony annexes **for free**
+  (joins willingly), and each ally **lends an escort** (`effective_escorts` = navy +
+  `ally_count`, wired into EP3 `empire_secure`/`run_empire_piracy`) — so diplomacy buys
+  trade security. A **Rival** (made by *seizing* its colony) refuses to be annexed; a
+  **buyout** just sours it. *Determinism/persistence reflexes that held:* (1) the
+  `&'static str` company name hit the **serde wall** — dropped `Serialize/Deserialize`
+  from `Company`/`Diplomacy` and persisted only the **relation dials** as a plain
+  `Vec<i64>` (`restore`/`relations`, the §31 content-in-code split). (2) Everything is
+  gated on the player courting/acquiring (personas do neither) → §7c gate + QA review
+  body **byte-identical** (only UI-wiring moved). (3) The annex path became a small
+  `AnnexKind` (Free/Influence/Blocked) so the Ally-free / Partner-or-standing /
+  Rival-blocked logic reads cleanly. 7 bindings + a 🤝 COURT verb + an INDEPENDENT
+  RELATIONS section in the EMPIRE view (render-verified — the 5-button deck still fits).
+  *GDScript gotchas:* `-1 << 30` is rejected ("only positive operands for <<") — use a
+  literal; and an array-indexed-by-gdext-int needs the index typed (`var sn: int =
+  …; arr[sn]`). 186 core + QA + 17 GUT green.
+
 - **2026-06-17 — E7: sphere-aware geopolitics — the coalition is per-faction now.** The
   refinement that makes *whose* space you expand into matter. Replaced the single
   `coalition_alarm: i64` with **`faction_alarm: [i64;4]`** (by `Faction`): the inners
