@@ -76,6 +76,10 @@ var _zoom := 10.0
 var _focus_body := 0
 var _touches := {}
 var _pinch_prev := 0.0
+# PC mode (desktop): mouse-wheel zoom + keyboard, no touch-zoom buttons. Auto-detected
+# on desktop, manually toggleable (F8) so it can be forced on either platform.
+var pc_mode := false
+var _map_controls: Control
 var _was_multitouch := false
 var _last_chart_tick := -1
 
@@ -208,6 +212,26 @@ func _ready() -> void:
 	_build_empire_view()
 	_build_diorama()
 	_select_view(V_SYSTEMS)
+	# Default to PC mode on desktop, touch on a handheld (§33). Either can be forced
+	# with F8 — handy for testing the desktop layout on a dev machine.
+	_set_pc_mode(OS.has_feature("pc"))
+
+
+## Switch between desktop (mouse + keyboard) and touch (pinch + on-screen buttons)
+## control schemes. On PC, the window is resizable and the touch-only zoom buttons
+## give way to the mouse wheel; on touch they return.
+func _set_pc_mode(on: bool) -> void:
+	pc_mode = on
+	if _map_controls:
+		_map_controls.visible = not on
+	if on:
+		# A desktop window: resizable, a sensible default, mouse cursor shown.
+		var win := get_window()
+		win.mode = Window.MODE_WINDOWED
+		win.title = "TORCH"
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	status = "PC mode — mouse wheel zooms, F1–F4 switch views, click to focus." if on \
+		else "Touch mode — pinch to zoom, tap a world to focus."
 
 
 func _resolve_commodity_indices() -> void:
@@ -644,6 +668,7 @@ func _build_systems_view() -> void:
 	mc.offset_right = -322
 	mc.offset_bottom = -132
 	root.add_child(mc)
+	_map_controls = mc
 	mc.add_child(_make_map_button("+", func(): _zoom_by(0.8)))
 	mc.add_child(_make_map_button("–", func(): _zoom_by(1.25)))
 	mc.add_child(_make_map_button("◉", _reset_view))
@@ -1886,7 +1911,10 @@ func _refresh() -> void:
 			_refresh_empire()
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
-	_help.text = "[Space/1/2/3] time   [↑↓] commodity   [←→] market   [ [ / ] ] qty   [B]uy [S]ell   [Tab] target   [I]nterdict [E]xploit   [N]ew ship   [F]reighter [D]route [M]refinery   [K]/[J] contract   [H]salvage   [F5]/[F9] save·load"
+	if pc_mode:
+		_help.text = "PC ·  [Space/1/2/3] time   [F1–F4/F6] views   wheel: zoom · click: focus   [↑↓] commodity [←→] market   [B]uy [S]ell   [Tab] target [I]nterdict [E]xploit   [N]ew ship   [F5]/[F9] save·load   [F8] touch mode"
+	else:
+		_help.text = "Touch ·  [Space/1/2/3] time   pinch: zoom · tap: focus   [B]uy [S]ell   [I]nterdict [E]xploit   [F8] PC mode"
 
 
 func _refresh_chrome() -> void:
@@ -2313,6 +2341,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_select_view(V_BUILD)
 		KEY_F4:
 			_select_view(V_MARKET)
+		KEY_F6:
+			_select_view(V_EMPIRE)
+		KEY_F8:
+			_set_pc_mode(not pc_mode)
 		KEY_UP:
 			sel_comm = (sel_comm - 1 + sim.commodity_count()) % sim.commodity_count()
 		KEY_DOWN:

@@ -173,6 +173,24 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — PC (desktop) control mode alongside mobile.** TORCH is Android-first
+  (§33), but the same shell now has a proper **desktop mode**. Most plumbing was already
+  there (mouse-wheel zoom was kept as a desktop fallback when pinch replaced
+  `MagnifyGesture`; the keyboard verbs + F1–F4 views exist), so PC mode is a thin
+  additive layer: a `pc_mode` flag **auto-detected from `OS.has_feature("pc")`** (true on
+  desktop, false on a handheld) and **toggleable with F8** (test the desktop layout on a
+  dev box, or let a tablet user pick). `_set_pc_mode(on)` hides the touch-only
+  `[+]/[–]/[◉]` map-zoom buttons (mouse wheel + RMB-reset replace them), sets the window
+  resizable/windowed (`project.godot window/size/resizable=true` — ignored on
+  handhelds), and swaps the bottom legend between a PC line (`wheel: zoom · click:
+  focus`, F-keys) and a touch line (`pinch: zoom · tap: focus`). Also wired **F6 →
+  EMPIRE view** (the fifth view lacked a key). Render-verified under xvfb (zoom buttons
+  gone, desktop legend reads correctly). *No Rust change* → core/§7c untouched; the QA
+  UI-audit only ticked the keyboard-binding count (40→42), regenerated. *Lesson:* PC
+  mode **adds** desktop affordances rather than replacing touch ones — both schemes live
+  at once (the flag just flips which zoom-control + legend show), so the Android target
+  stays first-class.
+
 - **2026-06-17 — Empire layer E6: expansion-as-spine + the EMPIRE view + an Expansionist
   QA persona — the loop is complete.** The capstone, in three parts. (1) **Spine** —
   `empire_rank()` (Independent Operator → Local → Regional → Great Power → Hegemon by

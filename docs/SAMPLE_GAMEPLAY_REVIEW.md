@@ -238,7 +238,7 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 | --- | --- |
 | bindings exposed | 211 |
 | wired by the shell | 163 (77%) |
-| keyboard bindings | 40 |
+| keyboard bindings | 42 |
 | pointer/touch | 10 pointer hit(s), native touch: true |
 | controls legend | true |
 
@@ -249,7 +249,7 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 - **[GOOD]** _UI · exception→verb_ — The act-now exception loop is pressable: the shell wires a one-press answer to shortages/contracts, so an alert resolves into a verb rather than a dead notification (§0.4).
 - **[GOOD]** _UI · status visibility_ — The load-bearing state is on screen — treasury, the tier/destination, the alert feed, and the now-goal are all read by the shell (Nielsen #1, the §0 three-horizon stack).
 - **[GOOD]** _UI · recognition_ — A controls legend is on screen — the keymap is recognised, not recalled (Nielsen #6).
-- **[NOTE]** _UI · platform fit_ — 40 keyboard bindings, with native touch handling. Keep the touch surface first-class for the Android target (§33).
+- **[NOTE]** _UI · platform fit_ — 42 keyboard bindings, with native touch handling. Keep the touch surface first-class for the Android target (§33).
 
 ## Design review — cross-cutting
 
