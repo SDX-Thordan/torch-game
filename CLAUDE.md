@@ -179,6 +179,28 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art: Expanse-direction warship forge — tower-like + class signatures (§24).**
+  Player direction on the reference fleet: an Expanse ship is **utilitarian and tower-like,
+  built around thrust gravity** (drive at the base, prow up top — you stand "down" toward
+  the engine), and each class maps to a canonical hull — **Corvette = Morrigan** (1 drive,
+  *no* railguns), **Destroyer = MCRN heavy frigate** (1 drive, a *fixed forward spinal*
+  railgun), **Cruiser = Pella** (4 drives, *one* railgun turret), **Battleship = Donnager**
+  (4 drives, *two* railgun turrets), size running **Corvette < Destroyer < Cruiser <
+  Battleship** (Battleship largest — confirmed via AskUserQuestion; their "Corvette>…" was
+  list order, not size). Reworked `ShipForge.build()` (pure shell): the envelope went
+  **tall-and-narrow** (length `lerpf(3.2,6.4)`, width `lerpf(0.5,0.92)` across the classes —
+  first pass at 0.42–0.74 rendered *too thin*, widened) so the silhouette reads as a
+  thrust-gravity stack, not an aircraft; **drive bells 1/1/4/4** (single central bell for
+  Corvette/Destroyer, a 2×2 cluster for Cruiser/Battleship); and a **class-branched railgun**
+  — none on the Corvette, a single `_railgun` fixed spinal on the Destroyer, and `railgun`-many
+  dorsal `_railgun_turret`s (new helper: turret ring base + body box + twin forward barrels
+  angled −8°) spaced along the spine on the Cruiser/Battleship. **Pure shell + existing
+  read-only bindings → §7c gate + QA review byte-identical.** Render-verified all four classes
+  under xvfb with a **neutral grey background + class label lower-right** (per the player's
+  explicit presentation ask): `transparent_bg=false`, env BG_COLOR grey, ship scale `5.6/len`,
+  PIL-drawn label, crop `(338,62,1012,414)`. The tower silhouette + per-class drive/railgun
+  count now read clearly. **Remaining art:** A3 (faction-distinct hull *shapes*) + A6 (bake).
+
 - **2026-06-17 — Art: warship forge look-polish to the reference fleet (§24).** The
   player supplied four class reference renders (Corvette/Destroyer/Cruiser/Battleship,
   Expanse/SE-style) for the look. Rewrote `ShipForge.build()` (pure shell) to the shared
