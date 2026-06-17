@@ -5,7 +5,13 @@ the authoritative GDD). Read at the start of every session; update whenever a
 decision is made or a lesson is learned.
 
 **Companion authorities (in `docs/`):**
-- `docs/PLAYABLE_STATE_REVIEW.md` — the playable-state review (gaps + sequenced path).
+- `TORCH_Unified_Design_Document2.md` (root) — the authoritative GDD. **Part VI
+  (2026-06-17)** documents the empire-sim re-aim + everything built since.
+- `docs/EMPIRE_LAYER_PLAN.md` / `EMPIRE_PHASE2_PLAN.md` / `EMPIRE_DIPLOMACY_PLAN.md` /
+  `POST_GATE_PLAN.md` — the sequenced empire/endgame roadmaps (E1–E8, EP1–EP4, G1–G5),
+  all ✅ done; the live record of what shipped and why.
+- `docs/SAMPLE_GAMEPLAY_REVIEW.md` — the QA harness's current output (regenerated each
+  run; not hand-edited).
 - `docs/TORCH_Player_Influence_and_Interaction_Model.md` — *what* the player can
   influence, *how*, and *where it's pressable*. Identity: a **spreadsheet sim in
   space** (Aurora 4X / EVE); depth of decision is the fun. The heart is
@@ -172,6 +178,24 @@ Status: [x] done, [~] in progress, [ ] todo.
   (A1 procedural assembly/baking, A2 voxel diorama) + deeper Tier-3 geopolitics.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-17 — Docs cleanup + GDD re-aim (Part VI).** Tidied the doc set now that the
+  empire layer is deep. **Deleted** two stale point-in-time *review* docs whose findings
+  are all addressed: `docs/GDD_DEVIATION_REVIEW.md` (the pre-empire deviation audit) and
+  `docs/PLAYABLE_STATE_REVIEW.md` (the early playable-state gaps). Kept the plan docs
+  (decision records, not reviews) and `SAMPLE_GAMEPLAY_REVIEW.md` (live QA output).
+  **Extended the GDD** (`TORCH_Unified_Design_Document2.md`): a re-aim **banner** under
+  the high-concept (Parts 0–V = the X4 foundation, still load-bearing; **Part VI** =
+  the canonical empire-sim re-aim, wins on genre/identity where they disagree); a
+  **BUILT** status note on §17; and a full **PART VI — THE EMPIRE LAYER** (§37–§46):
+  the re-aim rationale, the acquisition loop (buy/annex/seize), overextension (admin
+  cap + per-faction coalition), economic integration (EP1–EP2), security (EP3–EP4),
+  corporate diplomacy (E8), the empire spine + EMPIRE view, the post-gate endgame as
+  built (G1–G5), the determinism discipline, and **§46 Next Steps** (living-diplomacy
+  payoffs, a Diplomat QA persona, a light pops/development tier — the deepest remaining
+  4X gap, war-as-a-state, the art track, audio). Fixed the dangling refs (CLAUDE.md
+  "Companion authorities" header now points at the GDD Part VI + the empire plans;
+  `POST_GATE_PLAN.md`'s deviation-review mention de-linked). No code change.
 
 - **2026-06-17 — E8: corporate diplomacy with the independent companies (`EMPIRE_
   DIPLOMACY_PLAN.md`).** Player call: diplomacy yes, but with **independent companies**

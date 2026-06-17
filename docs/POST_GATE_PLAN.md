@@ -1,10 +1,11 @@
 # TORCH — Post-Gate Sandbox Plan (§17 endgame)
 
-The deviation review (`docs/GDD_DEVIATION_REVIEW.md`) is closed: every 🔴/🟠/🟡 is
-done, and the endgame's **climax** is in — `transit_gate` crosses into `Tier::Beyond`
+The pre-empire GDD-deviation audit is closed (every 🔴/🟠/🟡 was done before this
+plan), and the endgame's **climax** is in — `transit_gate` crosses into `Tier::Beyond`
 and voices the gate's answer (#79). This doc sequences the rest of §17 — *the larger
 game beyond the ring* — into focused, individually-shippable PRs, in the project's
-established style (small PRs, headless-first, `main` always green).
+established style (small PRs, headless-first, `main` always green). **Status: G1–G5 all
+✅ done** (see below); the post-gate sandbox is a complete loop.
 
 ## The through-line
 
