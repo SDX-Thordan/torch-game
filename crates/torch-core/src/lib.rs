@@ -344,6 +344,19 @@ impl TorchSim {
         self.sim.market_is_owned(m as usize)
     }
 
+    /// Escorts (warships on station) the empire needs to screen its shipping from
+    /// piracy (EP3) — scales with holdings.
+    #[func]
+    fn escorts_needed(&self) -> i64 {
+        self.sim.escorts_needed() as i64
+    }
+
+    /// Whether the empire's shipping is adequately escorted against piracy (EP3).
+    #[func]
+    fn empire_secure(&self) -> bool {
+        self.sim.empire_secure()
+    }
+
     /// Whether colony `i` can be **bought** right now (an independent, not already
     /// yours) — the economic acquisition target.
     #[func]

@@ -207,6 +207,14 @@ const COALITION_STRENGTH_PER_SHIP: i64 = 100;
 /// Reparations debited when the coalition strikes but you hold no colony to seize.
 const COALITION_REPARATIONS: i64 = 15_000;
 
+// ---- piracy on your trade empire: the security cost (EP3) ----
+/// Ticks between pirate-raid attempts on your shipping (a standing predation).
+const PIRACY_INTERVAL: u64 = 90;
+/// Holdings each warship on station can screen — escorts needed scale with the empire.
+const HOLDINGS_PER_ESCORT: usize = 3;
+/// Cargo (credits) pirates take per under-covered escort slot when you fall short.
+const PIRACY_LOSS_PER_ESCORT_SHORT: i64 = 800;
+
 // ---- diplomatic annexation (E4) ----
 /// Influence accrued per tick (a slow statecraft resource, capped) — the currency
 /// of the peaceful acquisition path.
@@ -1529,6 +1537,7 @@ impl Sim {
         self.run_contracts();
         self.run_holdings();
         self.run_coalition(self.tick);
+        self.run_empire_piracy(self.tick);
         // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
         // keeps the economy bit-identical whether or not anyone salvages.
         if let Some(id) = self.salvage.maybe_sight(self.tick) {
@@ -2134,6 +2143,47 @@ impl Sim {
         self.events.push(Event::BattleResolved { won, losses });
         self.last_battle = Some((band, [player_ships.len(), pack.len()], outcome.clone()));
         Some(outcome)
+    }
+
+    // ---- piracy on your trade empire (EP3) ----------------------------------
+
+    /// How many escorts (warships on station) the empire needs to screen its shipping
+    /// from piracy (EP3) — scales with holdings, so a bigger empire needs a bigger
+    /// navy. Zero when you hold nothing.
+    pub fn escorts_needed(&self) -> usize {
+        let h = self.holding_count();
+        if h == 0 {
+            0
+        } else {
+            1 + h / HOLDINGS_PER_ESCORT
+        }
+    }
+
+    /// Whether the empire's shipping is adequately escorted (EP3) — warships on
+    /// station meet or exceed the need.
+    pub fn empire_secure(&self) -> bool {
+        self.warships_on_station() >= self.escorts_needed()
+    }
+
+    /// Standing predation on your trade (EP3): if your empire's shipping outruns its
+    /// escorts, pirates skim cargo on a cadence. Countered by keeping a navy **on
+    /// station** that scales with the empire — neglect it and a big empire bleeds.
+    /// Gated on holding anything, draws no RNG → a fresh sim is byte-identical.
+    fn run_empire_piracy(&mut self, now: u64) {
+        if self.holding_count() == 0 || !now.is_multiple_of(PIRACY_INTERVAL) {
+            return;
+        }
+        let needed = self.escorts_needed();
+        let escorts = self.warships_on_station();
+        if escorts >= needed {
+            return; // well-screened — the patrols hold (no spam on a quiet success)
+        }
+        let shortfall = (needed - escorts) as i64;
+        let loss = (shortfall * PIRACY_LOSS_PER_ESCORT_SHORT).min(self.corp.credits());
+        if loss > 0 {
+            self.corp.debit(loss);
+        }
+        self.events.push(Event::EmpireRaided { loss });
     }
 
     /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
@@ -3343,6 +3393,51 @@ mod tests {
             }
         }
         assert!(defended, "a coalition strike arrived to defend against");
+    }
+
+    #[test]
+    fn an_unescorted_trade_empire_is_raided_but_a_navy_protects_it() {
+        // EP3: a growing empire with too few escorts on station is preyed upon by
+        // pirates; a navy that scales with the empire deters them. Real but counterable.
+        let mut sim = Sim::new(2);
+        sim.corp_mut().credit(150_000);
+        for i in sim.acquirable_colonies() {
+            let _ = sim.acquire_colony(i);
+        }
+        assert!(sim.holding_count() > 0);
+        assert!(sim.escorts_needed() >= 1);
+        assert!(!sim.empire_secure(), "no warships yet → unescorted");
+        // With no navy, a raid event fires within a few cadences.
+        let mut raided = false;
+        for _ in 0..(PIRACY_INTERVAL * 3) {
+            if sim
+                .step()
+                .iter()
+                .any(|e| matches!(e, Event::EmpireRaided { .. }))
+            {
+                raided = true;
+            }
+        }
+        assert!(raided, "an unescorted empire is preyed upon");
+        // Stand up a navy that covers the empire → secure, and raids stop.
+        for _ in 0..(sim.escorts_needed() + 2) {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        assert!(
+            sim.empire_secure(),
+            "a navy that scales with the empire protects it"
+        );
+        let mut raided_after = false;
+        for _ in 0..(PIRACY_INTERVAL * 3) {
+            if sim
+                .step()
+                .iter()
+                .any(|e| matches!(e, Event::EmpireRaided { .. }))
+            {
+                raided_after = true;
+            }
+        }
+        assert!(!raided_after, "escorted shipping is no longer raided");
     }
 
     #[test]

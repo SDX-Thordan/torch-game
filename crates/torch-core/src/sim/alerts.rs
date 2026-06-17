@@ -198,6 +198,7 @@ impl AlertFeed {
             Event::ColonyAcquired { .. } => Some(self.colony_acquired(tick)),
             Event::CoalitionStrike { .. } => Some(self.coalition_strike(tick)),
             Event::HoldingLost { .. } => Some(self.holding_lost(tick)),
+            Event::EmpireRaided { loss } => Some(self.empire_raided(*loss, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -280,6 +281,22 @@ impl AlertFeed {
                 mgr.name
             ),
             verb: Some(Verb::DefendHoldings),
+        }
+    }
+
+    /// Pirates raided the trade empire because escorts were too thin (EP3).
+    fn empire_raided(&self, loss: i64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: Pirates hit our shipping — lost {loss} cr of cargo. The empire needs more escorts on station.",
+                mgr.name
+            ),
+            verb: None,
         }
     }
 

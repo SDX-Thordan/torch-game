@@ -125,6 +125,8 @@ pub struct Transcript {
     pub wrecks_salvaged: u64,
     /// Player ships lost across all engagements (the felt cost of combat, §13).
     pub battle_losses: u64,
+    /// Pirate raids on the player's trade empire (EP3) — fires when escorts fall short.
+    pub empire_raids: u64,
     /// Distinct event *kinds* the run produced — a breadth-of-systems proxy.
     pub distinct_event_kinds: u32,
     /// Highest pressure gauge reached at any sample (§13 tension peak, 0..=100).
@@ -166,6 +168,7 @@ impl Transcript {
             wrecks_sighted: 0,
             wrecks_salvaged: 0,
             battle_losses: 0,
+            empire_raids: 0,
             distinct_event_kinds: 0,
             peak_pressure: 0,
             battles_won: 0,
@@ -336,6 +339,9 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                 | Event::ColonyAcquired { .. }
                 | Event::CoalitionStrike { .. }
                 | Event::HoldingLost { .. } => t.tier_ascended_events += 1,
+                // Piracy on the empire (EP3) — counted via its own telemetry, not the
+                // NPC-hauler interdiction tally (kept distinct).
+                Event::EmpireRaided { .. } => t.empire_raids += 1,
                 Event::Tick { .. } => {}
             }
         }
@@ -390,6 +396,8 @@ fn event_kind_bit(e: &Event) -> u32 {
         | Event::ColonyAcquired { .. }
         | Event::CoalitionStrike { .. }
         | Event::HoldingLost { .. } => 1 << 4,
+        // Piracy on the empire (EP3) — folds into the piracy/interdiction bit.
+        Event::EmpireRaided { .. } => 1 << 2,
     }
 }
 

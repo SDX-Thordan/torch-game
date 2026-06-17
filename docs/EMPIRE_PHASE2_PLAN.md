@@ -44,7 +44,7 @@ Optionally: preferential (cheaper) station siting at your holdings.
   at owned markets. Watch the faucet risk (the §5 fee is a sink — a *reduced* fee, not
   zero, likely safest; let the Expansionist persona catch a runaway).
 
-### EP3 — Piracy against your empire 🏴‍☠️
+### EP3 — Piracy against your empire 🏴‍☠️ ✅ DONE
 **Goal:** as your trade grows, pirates prey on **your** freighters and holdings, not
 just NPC lanes. A piracy pressure that scales with holdings + trade volume; raids deny
 a route delivery (the §7b cut, applied to *your* freighter) or chip a holding —

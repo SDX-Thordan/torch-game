@@ -68,4 +68,7 @@ pub enum Event {
     /// The coalition seized one of the player's holdings (E3) — `colony` was
     /// liberated back to the Independents (or, if none, reparations were exacted).
     HoldingLost { colony: usize },
+    /// Pirates raided the player's trade empire (EP3) — `loss` credits of cargo were
+    /// taken because escorts on station were too thin to cover the holdings.
+    EmpireRaided { loss: i64 },
 }

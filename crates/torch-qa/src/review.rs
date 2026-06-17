@@ -116,6 +116,17 @@ fn review_empire(t: &Transcript, f: &mut Vec<Finding>) {
             ),
         ));
     }
+    // EP3: did the trade empire's shipping get preyed upon when escorts fell short?
+    if t.empire_raids > 0 {
+        f.push(Finding::new(
+            Severity::Good,
+            "Empire · security",
+            format!(
+                "The trade empire drew piracy — {} raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.",
+                t.empire_raids
+            ),
+        ));
+    }
 }
 
 /// §13 pressure: is the world telegraphing its threats? Each ambient-raid window

@@ -1835,6 +1835,14 @@ func _refresh_empire() -> void:
 	if strain > 0:
 		meters += " ⚠ strained (%d%% efficiency)" % sim.holdings_efficiency_pct()
 	meters += "      Influence %d" % sim.influence()
+	# Security (EP3): escorts on station vs. what the empire's shipping needs.
+	if holdings > 0:
+		var need: int = sim.escorts_needed()
+		var have: int = sim.warships_on_station()
+		if sim.empire_secure():
+			meters += "      Escorts %d/%d ✓" % [have, need]
+		else:
+			meters += "      ⚠ Escorts %d/%d — piracy bleeds you" % [have, need]
 	var alarm: int = sim.coalition_alarm()
 	if sim.coalition_active():
 		meters += "      ⚠ COALITION alarm %d/1000" % alarm
