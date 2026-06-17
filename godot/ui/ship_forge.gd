@@ -15,12 +15,12 @@ extends RefCounted
 
 # Faction palettes (the §4 visual signatures): hull / accent / structural tone / band
 # style. Pulled well apart so the powers read at a glance —
-#   Earth/UNN : olive-drab military, bold yellow-black hazard banding (the heavy navy).
+#   Earth/UNN : navy blue-grey, bold yellow-black hazard banding (the heavy navy).
 #   Mars/MCRN : sleek dark gunmetal, clean deep-red trim, minimal striping (high-tech).
 #   Belt/OPA  : scavenged ochre/rust, irregular slapped-on hazard patches (welded).
 #   Indie     : civilian light-grey + classic orange edge stripes (practical).
 const PALETTE := {
-	0: {"hull": Color(0.43, 0.46, 0.34), "accent": Color(0.55, 0.40, 0.14), "struct": Color(0.22, 0.25, 0.16), "band": "yellow", "name": "Earth"},
+	0: {"hull": Color(0.33, 0.44, 0.60), "accent": Color(0.55, 0.40, 0.14), "struct": Color(0.16, 0.21, 0.31), "band": "yellow", "name": "Earth"},
 	1: {"hull": Color(0.31, 0.32, 0.37), "accent": Color(0.64, 0.16, 0.13), "struct": Color(0.15, 0.15, 0.18), "band": "red", "name": "Mars"},
 	2: {"hull": Color(0.66, 0.55, 0.36), "accent": Color(0.80, 0.46, 0.14), "struct": Color(0.33, 0.27, 0.17), "band": "patch", "name": "Belt"},
 	3: {"hull": Color(0.75, 0.76, 0.79), "accent": Color(0.85, 0.49, 0.16), "struct": Color(0.30, 0.31, 0.34), "band": "edge", "name": "Indie"},
