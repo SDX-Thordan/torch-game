@@ -126,11 +126,26 @@ ships+blood) and a distinct political price (alarm 120 / 60 / 220), all governed
 the E2 administrative cap and the E3 coalition. Remaining: **E6** (expansion as the
 spine metric + the EMPIRE master-table view + an Expansionist QA persona).
 
-### E6 — Expansion as the spine + the EMPIRE command view 👑
-**Goal:** make "empire grown" the real tier metric (reframing the §0 three-horizon
-stack around holdings/territory), and a full EMPIRE master-table (holdings, capacity,
-alarm). Add an **Expansionist** QA persona so the new core loop is exercised and
-critiqued; regenerate the gameplay review around it.
+### E6 — Expansion as the spine + the EMPIRE command view 👑 ✅ DONE
+**Goal:** make "empire grown" a legible spine metric, a full EMPIRE master-table, and
+an Expansionist QA persona so the new core loop is exercised and critiqued.
+- **Built:** (1) *Spine* — `empire_rank()` (Independent Operator → Local → Regional →
+  Great Power → Hegemon by holdings) + `next_empire_rank()`, surfaced as the headline
+  of the SYSTEMS status and the EMPIRE view. (2) *EMPIRE view* — a fifth nav-rail view
+  (`✪`): the rank + next-rung headline, an Admin/Influence/alarm meter row, the
+  BUY/ANNEX/SEIZE/DEFEND verb deck, and a **master-table** listing your holdings, the
+  acquirable independents (cost + garrison), and the seizable great-power colonies
+  (color-coded by garrison strength) — the "map + master-tables" empire command
+  surface, render-verified. (3) *Expansionist persona* — buys colonies, founds
+  stations, defends the coalition; the harness samples `holdings`+`coalition_alarm`
+  and `review_empire` reports the loop. **This is the first rung that legitimately
+  moves the QA review** (now 7 personas): the Expansionist grew to 13 holdings, maxed
+  coalition alarm to 1000, fought 3 defenses, lost a holding to the inners, and soured
+  Earth/Mars to −392 — the whole loop, exercised and critiqued. Regenerated honestly.
+
+**The empire layer (E1–E6) is complete** — expansion-by-acquisition (economy /
+diplomacy / military) is the core loop, capped by administrative capacity + the
+faction coalition, legible through the EMPIRE view, and exercised by its own QA lens.
 
 ## Order & risk
 

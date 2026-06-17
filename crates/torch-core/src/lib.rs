@@ -243,6 +243,27 @@ impl TorchSim {
         self.sim.controlled_colony_count() as i64
     }
 
+    /// The empire's rank by holdings (E6) — the headline of the expansion spine.
+    #[func]
+    fn empire_rank(&self) -> GString {
+        GString::from(self.sim.empire_rank())
+    }
+
+    /// The next empire rank's name (E6), or "" at the summit.
+    #[func]
+    fn next_empire_rank_name(&self) -> GString {
+        GString::from(self.sim.next_empire_rank().map(|(n, _)| n).unwrap_or(""))
+    }
+
+    /// Holdings needed to reach the next empire rank (E6), or −1 at the summit.
+    #[func]
+    fn next_empire_rank_at(&self) -> i64 {
+        self.sim
+            .next_empire_rank()
+            .map(|(_, n)| n as i64)
+            .unwrap_or(-1)
+    }
+
     /// Holdings the player can govern efficiently before overextension (E2).
     #[func]
     fn admin_capacity(&self) -> i64 {

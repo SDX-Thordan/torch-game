@@ -71,8 +71,51 @@ pub fn review(t: &Transcript) -> Vec<Finding> {
     review_pressure(t, &mut f);
     review_reputation(t, &mut f);
     review_fleet(t, &mut f);
+    review_empire(t, &mut f);
 
     f
+}
+
+/// The empire layer (E1–E6): did expansion happen, did it pay, and did the
+/// overextension/coalition caps bite? Only speaks for styles that actually expand.
+fn review_empire(t: &Transcript, f: &mut Vec<Finding>) {
+    let peak_holdings = t.samples.iter().map(|s| s.holdings).max().unwrap_or(0);
+    if peak_holdings == 0 {
+        return; // this style doesn't touch the empire loop
+    }
+    let peak_alarm = t
+        .samples
+        .iter()
+        .map(|s| s.coalition_alarm)
+        .max()
+        .unwrap_or(0);
+    let final_holdings = t.samples.last().map(|s| s.holdings).unwrap_or(0);
+    f.push(Finding::new(
+        Severity::Good,
+        "Empire",
+        format!(
+            "Expansion-by-acquisition is reachable and exercised: grew to {peak_holdings} holding(s) at peak (ending at {final_holdings}). The §0 spine now has a territorial dimension."
+        ),
+    ));
+    if peak_alarm >= 500 {
+        let lost = final_holdings < peak_holdings;
+        f.push(Finding::new(
+            Severity::Good,
+            "Empire · overextension",
+            format!(
+                "Growth provoked the great-power coalition (alarm peaked {peak_alarm}/1000){}. The political cap on reckless expansion bites — careful growth is a real decision.",
+                if lost { ", which pried a holding loose" } else { ", answered by the fleet" }
+            ),
+        ));
+    } else {
+        f.push(Finding::new(
+            Severity::Note,
+            "Empire · overextension",
+            format!(
+                "Expansion stayed under the coalition threshold (alarm peaked {peak_alarm}/1000) — the great powers watched but never struck. A more aggressive expander would test the cap harder."
+            ),
+        ));
+    }
 }
 
 /// §13 pressure: is the world telegraphing its threats? Each ambient-raid window
@@ -529,6 +572,22 @@ fn render_persona(out: &mut String, t: &Transcript) {
             out,
             "| battles | {} fought, {} won |",
             t.battles_fought, t.battles_won
+        );
+    }
+    // The empire layer (E6) — only shown for styles that actually expand, so the
+    // other persona tables are unchanged.
+    let peak_holdings = t.samples.iter().map(|s| s.holdings).max().unwrap_or(0);
+    if peak_holdings > 0 {
+        let peak_alarm = t
+            .samples
+            .iter()
+            .map(|s| s.coalition_alarm)
+            .max()
+            .unwrap_or(0);
+        let _ = writeln!(
+            out,
+            "| empire | {} holding(s) at peak · coalition alarm peak {} |",
+            peak_holdings, peak_alarm
         );
     }
     let _ = writeln!(

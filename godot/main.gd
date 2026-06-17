@@ -33,13 +33,15 @@ const V_SYSTEMS := 0
 const V_FLEET := 1
 const V_BUILD := 2
 const V_MARKET := 3
-const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄"]
-const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET"]
+const V_EMPIRE := 4
+const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪"]
+const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE"]
 const VIEW_TITLE := [
 	"Orrery — Sol System",
 	"Fleet Management",
 	"Orbital Shipyard",
 	"Market & Logistics",
+	"Empire — Holdings & Expansion",
 ]
 
 # 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit.
@@ -99,6 +101,9 @@ var _views: Array[Control] = []
 var _nav_buttons: Array[Button] = []
 var _title: Label
 var _date: Label
+var _emp_header: Label
+var _emp_meters: Label
+var _emp_table: RichTextLabel
 var _res_credits: Label
 var _res_ore: Label
 var _res_fuel: ProgressBar
@@ -200,6 +205,7 @@ func _ready() -> void:
 	_build_fleet_view()
 	_build_build_view()
 	_build_market_view()
+	_build_empire_view()
 	_build_diorama()
 	_select_view(V_SYSTEMS)
 
@@ -1740,6 +1746,126 @@ func _update_world(delta: float) -> void:
 	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
 
 
+# ============================================================================
+# EMPIRE VIEW (holdings master-table + acquisition verbs — the empire layer E6)
+# ============================================================================
+
+func _build_empire_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+
+	# Headline: the empire rank + the next rung (the expansion spine, E6).
+	v.add_child(UiKit.kicker("The Company"))
+	_emp_header = UiKit.label("", 16, UiKit.TEXT_HI)
+	v.add_child(_emp_header)
+	# Meters: capacity / efficiency / coalition alarm / influence.
+	_emp_meters = UiKit.label("", 12, UiKit.TEXT)
+	v.add_child(_emp_meters)
+	v.add_child(UiKit.rule())
+
+	# Acquisition verbs — the three pathways + the defense (the empire master-deck).
+	v.add_child(UiKit.kicker("Acquire / Defend"))
+	var ops := HBoxContainer.new()
+	ops.add_theme_constant_override("separation", 6)
+	v.add_child(ops)
+	ops.add_child(_make_op_button("⊕ BUY", _acquire_colony))
+	ops.add_child(_make_op_button("⊕ ANNEX", _annex_colony))
+	ops.add_child(_make_op_button("⚔ SEIZE", _seize_colony))
+	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
+	v.add_child(UiKit.rule())
+
+	# The master-table: holdings + acquirable targets.
+	v.add_child(UiKit.kicker("Holdings & Targets"))
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	_emp_table = RichTextLabel.new()
+	_emp_table.bbcode_enabled = true
+	_emp_table.fit_content = true
+	_emp_table.scroll_active = false
+	_emp_table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_emp_table.add_theme_font_size_override("normal_font_size", 12)
+	sc.add_child(_emp_table)
+
+
+func _refresh_empire() -> void:
+	var holdings: int = sim.holding_count()
+	var cap: int = sim.admin_capacity()
+	var rank := String(sim.empire_rank())
+	var next_name := String(sim.next_empire_rank_name())
+	var head := "%s   ·   %d holding(s)" % [rank, holdings]
+	if next_name != "":
+		head += "   →   %s at %d" % [next_name, sim.next_empire_rank_at()]
+	_emp_header.text = head
+
+	var strain: int = sim.admin_strain()
+	var meters := "Admin %d/%d" % [holdings, cap]
+	if strain > 0:
+		meters += " ⚠ strained (%d%% efficiency)" % sim.holdings_efficiency_pct()
+	meters += "      Influence %d" % sim.influence()
+	var alarm: int = sim.coalition_alarm()
+	if sim.coalition_active():
+		meters += "      ⚠ COALITION alarm %d/1000" % alarm
+	else:
+		meters += "      Inner alarm %d/1000" % alarm
+	if sim.coalition_strike_pending():
+		meters += "  —  STRIKE INBOUND, DEFEND"
+	_emp_meters.text = meters
+
+	# Build the holdings + targets table.
+	var t := ""
+	t += "[color=#9fb0c0]── YOUR HOLDINGS ──[/color]\n"
+	var any_held := false
+	for i in sim.colony_count():
+		if sim.colony_controlled(i):
+			any_held = true
+			var fac := _faction_name(sim.colony_faction(i))
+			t += "[color=#78e68c]✦ %s[/color]  (%s)\n" % [String(sim.colony_name(i)), fac]
+	if sim.station_count() > 0:
+		t += "[color=#78e68c]✦ %d production station(s)[/color]\n" % sim.station_count()
+		any_held = true
+	if not any_held:
+		t += "[color=#6f8a93](none yet — acquire a frontier colony below)[/color]\n"
+	t += "\n[color=#9fb0c0]── ACQUIRABLE (independents) ──[/color]\n"
+	var any_target := false
+	for i in sim.colony_count():
+		if sim.colony_controlled(i):
+			continue
+		var fac_i: int = sim.colony_faction(i)
+		var name := String(sim.colony_name(i))
+		var garrison: int = sim.colony_garrison(i)
+		if fac_i == 3:  # Independents — buyable / annexable
+			any_target = true
+			var cost: int = sim.colony_acquire_cost(i)
+			var annex := "  ·  annex" if sim.colony_annexable(i) else ""
+			t += "[color=#cfd8e0]· %s[/color]  buy %d cr%s  ·  garrison %d\n" % [name, cost, annex, garrison]
+	if not any_target:
+		t += "[color=#6f8a93](the independent frontier is yours — seize a great power's colony for more)[/color]\n"
+	t += "\n[color=#9fb0c0]── SEIZABLE (by force) ──[/color]\n"
+	for i in sim.colony_count():
+		if sim.colony_controlled(i) or sim.colony_faction(i) == 3:
+			continue
+		var name2 := String(sim.colony_name(i))
+		var fac2 := _faction_name(sim.colony_faction(i))
+		t += "[color=#e0b0b0]⚔ %s[/color]  (%s)  ·  garrison %d\n" % [name2, fac2, sim.colony_garrison(i)]
+	_emp_table.text = t
+
+
+func _faction_name(f: int) -> String:
+	match f:
+		0: return "Earth"
+		1: return "Mars"
+		2: return "Belt/OPA"
+		_: return "Independent"
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 		speed_idx = 0
@@ -1756,6 +1882,8 @@ func _refresh() -> void:
 			_refresh_build()
 		V_MARKET:
 			_refresh_market()
+		V_EMPIRE:
+			_refresh_empire()
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
 	_help.text = "[Space/1/2/3] time   [↑↓] commodity   [←→] market   [ [ / ] ] qty   [B]uy [S]ell   [Tab] target   [I]nterdict [E]xploit   [N]ew ship   [F]reighter [D]route [M]refinery   [K]/[J] contract   [H]salvage   [F5]/[F9] save·load"
@@ -1805,7 +1933,8 @@ func _refresh_systems() -> void:
 	_sys_sub.text = "Trading Node  ·  Sol System"
 	var holdings: int = sim.holding_count()
 	var cap: int = sim.admin_capacity()
-	var hold_txt := "Holdings %d/%d" % [holdings, cap]
+	# The expansion spine (E6): lead with the empire rank, then the holdings/cap.
+	var hold_txt := "%s · Holdings %d/%d" % [String(sim.empire_rank()), holdings, cap]
 	if sim.admin_strain() > 0:
 		# Overextended (E2): flag the strain + the income hit.
 		hold_txt = "⚠ Holdings %d/%d (strained · %d%%)" % [holdings, cap, sim.holdings_efficiency_pct()]

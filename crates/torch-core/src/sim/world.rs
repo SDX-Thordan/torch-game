@@ -1662,6 +1662,30 @@ impl Sim {
         self.stations.len() + self.controlled_colony_count()
     }
 
+    /// The empire's standing in the system, by holdings (E6) — the headline of the
+    /// expansion spine: a legible rank that climbs as you consolidate the frontier.
+    pub fn empire_rank(&self) -> &'static str {
+        match self.holding_count() {
+            0 => "Independent Operator",
+            1..=2 => "Local Power",
+            3..=5 => "Regional Power",
+            6..=9 => "Great Power",
+            _ => "Hegemon",
+        }
+    }
+
+    /// The next empire rank and the holdings it takes to reach it (E6), or `None` at
+    /// the summit — the *next* rung of the expansion spine, always visible.
+    pub fn next_empire_rank(&self) -> Option<(&'static str, usize)> {
+        match self.holding_count() {
+            0 => Some(("Local Power", 1)),
+            1..=2 => Some(("Regional Power", 3)),
+            3..=5 => Some(("Great Power", 6)),
+            6..=9 => Some(("Hegemon", 10)),
+            _ => None,
+        }
+    }
+
     /// Independent colonies the player could **buy** right now (not a great power's
     /// territory, not already controlled) — the economic acquisition targets.
     pub fn acquirable_colonies(&self) -> Vec<usize> {

@@ -32,6 +32,10 @@ pub struct Sample {
     pub act_now_open: usize,
     /// Standings in [`Faction::ALL`] order: Earth, Mars, Belt, Independents.
     pub standings: [i64; 4],
+    /// Holdings the player controls — stations + colonies (the empire layer, E6).
+    pub holdings: usize,
+    /// The great powers' alarm at the player's expansion, 0..=1000 (E3/E6).
+    pub coalition_alarm: i64,
 }
 
 impl Sample {
@@ -66,6 +70,8 @@ impl Sample {
             surfaced_alerts: surfaced.len(),
             act_now_open,
             standings,
+            holdings: sim.holding_count(),
+            coalition_alarm: sim.coalition_alarm(),
         }
     }
 }

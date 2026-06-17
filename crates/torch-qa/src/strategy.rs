@@ -285,6 +285,64 @@ impl Strategy for Warlord {
     }
 }
 
+/// Grows a station/colony empire by acquisition, then holds it — the QA lens on the
+/// empire layer (E1–E6): does expansion pay, and do overextension + the coalition bite?
+#[derive(Default)]
+pub struct Expansionist;
+
+impl Strategy for Expansionist {
+    fn name(&self) -> &'static str {
+        "Expansionist"
+    }
+    fn intent(&self) -> &'static str {
+        "Buys frontier colonies and holds them — does expansion pay off, and do administrative strain + the great-power coalition cap it? (Empire layer E1–E6)"
+    }
+    fn setup(&mut self, sim: &mut Sim) {
+        // A standing squadron to answer the coalition when it comes for the holdings.
+        for _ in 0..3 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+    }
+    fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
+        let mut actions = 0;
+        // Answer a coalition strike the moment it lands (defend the empire, E3).
+        if sim.coalition_strike_pending() && !sim.corp().fleet().is_empty() {
+            sim.defend_holdings(Band::Close);
+            actions += 1;
+        }
+        // Fund expansion by hand-trading — but only while saving up, so this is a war
+        // chest, not an unbounded arbitrage faucet.
+        if sim.corp().credits() < 150_000
+            && sim.tick().is_multiple_of(8)
+            && arbitrage_once(sim, 300)
+        {
+            actions += 1;
+        }
+        // Reinforce the squadron between defenses, until the §8c crew pool runs dry.
+        if sim.tick().is_multiple_of(50) && sim.commission_ship(ShipClass::Frigate).is_ok() {
+            actions += 1;
+        }
+        // Expand: buy the cheapest acquirable colony whenever affordable (E1)…
+        if sim.tick().is_multiple_of(90) {
+            if let Some(&i) = sim
+                .acquirable_colonies()
+                .iter()
+                .min_by_key(|&&i| sim.colony_acquire_cost(i).unwrap_or(i64::MAX))
+            {
+                if sim.acquire_colony(i).is_ok() {
+                    actions += 1;
+                }
+            }
+        }
+        // …and build out industry, deliberately pushing the empire past the coalition
+        // threshold so the QA lens exercises the overextension teeth (E2/E3).
+        if sim.tick().is_multiple_of(140) && sim.found_refinery(0, 0, 1).is_ok() {
+            actions += 1;
+        }
+        actions
+    }
+}
+
 /// The full roster the report runs.
 pub fn roster() -> Vec<Box<dyn Strategy>> {
     vec![
@@ -294,5 +352,6 @@ pub fn roster() -> Vec<Box<dyn Strategy>> {
         Box::new(Privateer),
         Box::new(Warlord),
         Box::new(Tycoon::default()),
+        Box::new(Expansionist),
     ]
 }

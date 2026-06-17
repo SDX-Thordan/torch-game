@@ -173,6 +173,36 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Empire layer E6: expansion-as-spine + the EMPIRE view + an Expansionist
+  QA persona — the loop is complete.** The capstone, in three parts. (1) **Spine** —
+  `empire_rank()` (Independent Operator → Local → Regional → Great Power → Hegemon by
+  `holding_count`) + `next_empire_rank()`, surfaced as the headline of the SYSTEMS
+  status bar and the EMPIRE view, so "grow the empire" is the legible goal. (2) **EMPIRE
+  view** — a fifth nav-rail view (`✪`, the first added to the multi-view shell): the
+  rank/next-rung headline, an Admin-capacity/Influence/coalition-alarm meter row, the
+  BUY/ANNEX/SEIZE/DEFEND verb deck, and a **master-table** (RichTextLabel) listing your
+  holdings, the acquirable independents (cost + garrison), and the seizable great-power
+  colonies (red, by garrison strength) — the "map + master-tables" empire command
+  surface. *Adding a view is mechanical:* extend `V_*`/`VIEW_GLYPH`/`VIEW_CAP`/
+  `VIEW_TITLE` (the nav rail + `_select_view` iterate them), add `_build_*_view()` (append
+  to `_views`) + a `_refresh_*()` arm. Render-verified under xvfb (the new-view layout
+  read perfectly first try). (3) **Expansionist persona** (`torch-qa`) — buys colonies,
+  founds stations to push past the coalition threshold, and defends; the harness now
+  samples `holdings`+`coalition_alarm` and `review_empire` reports the loop. **This is
+  the first rung that *legitimately* moves the QA review** (7 personas now): the
+  Expansionist grew to 13 holdings, maxed alarm to 1000, fought 3 defenses, lost one
+  holding to the inners, soured Earth/Mars to −392 — so we regenerate the review
+  honestly rather than chasing byte-identity. *QA-tuning catch:* the first Expansionist
+  hand-traded every 6 ticks → a ~36× treasury faucet (the review's own runaway-arbitrage
+  CONCERN fired) — gated trading on `credits < 150k` so it's a war chest, not a faucet.
+  *Empire-finding heuristic:* the per-persona `review_empire` only speaks for styles
+  that actually expand (peak holdings > 0), so the other six persona sections are
+  unchanged. **The whole empire layer (E1–E6) is in** — expansion-by-acquisition
+  (economy/diplomacy/military), capped by admin capacity + the faction coalition,
+  legible through the EMPIRE view, exercised by its own QA lens. 177 core + QA + 17 GUT
+  green. *Next candidates:* sphere-aware per-faction alarm (E3 refinement), or a PC
+  desktop input mode.
+
 - **2026-06-17 — Empire layer E4 + E5: the other two acquisition paths complete.**
   With E1 (buy) the economic path, **E4 (diplomacy)** and **E5 (military)** finish the
   trio — each a distinct cost *and* a distinct political price, so *how* you expand is a
