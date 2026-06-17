@@ -135,6 +135,17 @@ static func _railgun(parent: Node3D, pos: Vector3, mat: Material, length: float)
 	_cyl(parent, pos + Vector3(0, 0.02, length * 0.5 + 0.18), 0.035, length, _mat(TRIM, 0.45, 0.7), "z")  # barrel
 
 
+# A railgun **turret** (Cruiser/Battleship) — a rotatable mount on the dorsal hull,
+# vs the Destroyer's fixed spinal gun.
+static func _railgun_turret(parent: Node3D, pos: Vector3, mat: Material, length: float) -> void:
+	_cyl(parent, pos, 0.1, 0.05, mat, "y")                     # turret ring base
+	_box(parent, pos + Vector3(0, 0.05, 0), Vector3(0.16, 0.09, 0.2), mat)   # turret body
+	# Twin barrels jutting forward, angled slightly up.
+	for bx in [-0.03, 0.03]:
+		var barrel := _cyl(parent, pos + Vector3(bx, 0.08, length * 0.5), 0.022, length, _mat(TRIM, 0.45, 0.7), "z")
+		barrel.rotation_degrees = Vector3(-8, 0, 0)
+
+
 # ---- civilian ships (A4) ---------------------------------------------------
 
 ## A civilian hull (no weapons): kind 0 = freighter (stacked cargo containers),
@@ -263,11 +274,13 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	var hazard := _hazard()
 	var glow := _emissive(Color(0.45, 0.72, 1.0), 4.0)
 
-	# Class envelope: bigger ships are longer, wider, with more modular sections.
+	# Class envelope: bigger ships are longer, with more modular sections. Expanse
+	# hulls are **tower-like** (built around thrust gravity) — slim for their length,
+	# the engine the wide base, the bow the narrow top.
 	var t: float = float(class_idx) / 3.0
-	var total_len: float = lerpf(3.0, 6.0, t)
-	var width: float = lerpf(0.5, 1.0, t)
-	var sections: int = 4 + class_idx                 # 4 (frigate) .. 7 (battleship)
+	var total_len: float = lerpf(3.2, 6.4, t)
+	var width: float = lerpf(0.5, 0.92, t)
+	var sections: int = 4 + class_idx                 # 4 (corvette) .. 7 (battleship)
 	if faction == 1:    # Mars — longer, leaner
 		total_len *= 1.12
 		width *= 0.9
@@ -338,26 +351,33 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	dish.material_override = plate_mat
 	root.add_child(dish)
 
-	# Fat aft engine block: a wide ribbed drum + the bell cluster with a glowing plume.
+	# Fat aft engine block (the wide "base" of the tower): a ribbed drum + the drive
+	# cluster. Epstein-drive count by class — Corvette/Destroyer 1, Cruiser/Battleship 4
+	# (a 2×2 cluster, like the Pella/Donnager).
 	var az: float = -total_len * 0.5
-	var eb: float = width * 0.62
+	var eb: float = width * 0.66
 	_cyl(root, Vector3(0, 0, az + 0.02), eb, 0.34, trim_mat, "z")
 	for k in 3:
 		_ring(root, Vector3(0, 0, az + lerpf(-0.12, 0.12, float(k) / 2.0)), eb + 0.012, panel_mat)
-	var bells: int = 2 + class_idx / 2                  # 2..3
-	var spread: float = width * 0.3
-	for bi in bells:
-		var bx: float = 0.0 if bells == 1 else lerpf(-spread, spread, float(bi) / float(bells - 1))
-		_cyl(root, Vector3(bx, 0, az - 0.14), width * 0.17, 0.18, panel_mat, "z")
+	var bell_pos: Array = []
+	var s: float = width * 0.26
+	var bsize: float = width * 0.17
+	if class_idx >= 2:                                   # Cruiser/Battleship: 4 drives
+		bell_pos = [Vector2(-s, -s), Vector2(s, -s), Vector2(-s, s), Vector2(s, s)]
+		bsize = width * 0.13
+	else:                                                # Corvette/Destroyer: 1 drive
+		bell_pos = [Vector2(0, 0)]
+	for bp in bell_pos:
+		_cyl(root, Vector3(bp.x, bp.y, az - 0.14), bsize, 0.18, panel_mat, "z")
 		var cone := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
-		cm.top_radius = width * 0.04
-		cm.bottom_radius = width * 0.16
+		cm.top_radius = bsize * 0.25
+		cm.bottom_radius = bsize * 0.95
 		cm.height = 0.18
 		cm.radial_segments = 12
 		cone.mesh = cm
 		cone.rotation_degrees = Vector3(-90, 0, 0)
-		cone.position = Vector3(bx, 0, az - 0.28)
+		cone.position = Vector3(bp.x, bp.y, az - 0.28)
 		cone.material_override = glow
 		root.add_child(cone)
 	var plume := OmniLight3D.new()
@@ -381,10 +401,15 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 		var side2: float = -1.0 if tp % 2 == 0 else 1.0
 		var fwd: float = seg_z[sections - 1] - 0.1 - float(tp / 2) * 0.18
 		_torpedo(root, Vector3(side2 * width * 0.22, top_y[sections - 1] * 0.2, fwd), accent_mat)
-	# Spinal railgun(s) jut from the nose — long on a destroyer (the reference look, §8b).
-	var rg_len: float = lerpf(1.0, 1.5, t) * (1.4 if class_idx == 1 else 1.0)
-	for rg in railgun:
-		var off: float = (float(rg) - float(railgun - 1) * 0.5) * 0.12
-		_railgun(root, Vector3(off, -width * 0.02, fz + seg * 1.0), hull_mat, rg_len)
+	# Railguns by class (the Expanse-ship mapping, §8b): a Destroyer mounts a single
+	# **fixed/spinal** gun jutting far forward (like the MCRN heavy frigate); a Cruiser
+	# (Pella) and Battleship (Donnager) mount railgun **turrets** on the dorsal hull.
+	if class_idx == 1 and railgun > 0:
+		_railgun(root, Vector3(0, -width * 0.02, fz + seg * 1.0), hull_mat, lerpf(1.5, 1.8, t))
+	elif railgun > 0:
+		for rg in railgun:
+			# Space turrets along the dorsal spine (fore for one, fore+aft for two).
+			var ti: int = clampi(int(round(lerpf(float(sections) * 0.45, float(sections) * 0.8, float(rg) / maxf(float(railgun - 1), 1.0)))), 1, sections - 1)
+			_railgun_turret(root, Vector3(0, top_y[ti] + 0.05, seg_z[ti]), hull_mat, lerpf(0.7, 0.95, t))
 
 	return root
