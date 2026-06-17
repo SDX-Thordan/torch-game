@@ -64,10 +64,18 @@ miner, tanker, Q-ship) — the trade backbone and prime interdiction targets.
 small forged hulls (LOD'd/instanced) so the live map shows real ships — your fleet,
 NPC haulers, raiders — colored by livery/faction.
 
-### A6 — Bake & optimize (later) 📦
+### A6 — Bake & optimize 📦 ✅ DONE (geometry merge; atlas deferred)
 **Goal:** the §25 bake step — merge a forged ship's primitives into one optimized mesh
-(+ atlas) so a fleet of them is cheap. Premature while hulls are primitive-light;
-revisit when ships populate the orrery at scale (A5) or detail grows.
+so a fleet of them is cheap.
+- **Built:** `ShipForge.bake(src)` walks the forged node tree and merges every
+  `MeshInstance3D` into a **single `ArrayMesh`** (one surface per unique material, via
+  `SurfaceTool.append_from` with each primitive's accumulated transform), preserving the
+  drive `Light3D`. `ShipForge.build_baked(...)` = build → bake → free the source. Measured
+  **166 nodes → 2** per Battleship (1 mesh of ~9 material-surfaces + the plume light), and
+  render-verified pixel-identical to the unbaked hull. The §22 diorama now fields **baked**
+  hulls so a whole fight is cheap. **Atlas/UV-merge** (collapsing to one surface) is left for
+  later — premature while the palette is flat-shaded primitives; the per-material surface
+  merge is the load-bearing win. Pure shell → §7c gate + QA body byte-identical.
 
 ### A7 — The 3D combat diorama 🎆 ✅ DONE
 **Goal:** turn the §22 engagement report from a text BattleLog playback into a real

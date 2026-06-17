@@ -497,3 +497,67 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 			_railgun_turret(root, Vector3(0, top_y[ti] + 0.06, seg_z[ti]), hull_mat, lerpf(1.0, 1.25, t))
 
 	return root
+
+
+# ---- A6: bake to an optimized single mesh (§25) ----------------------------
+
+## Build a ship and **bake** it: collapse its ~80 primitive MeshInstance3D children
+## into one ArrayMesh with a single surface per material (so a hull is 1 node / ~9
+## draw calls instead of ~80). Returns a Node3D holding the baked mesh + the drive
+## light. Use this for fleets (the §22 diorama, future orrery hulls); `build()` keeps
+## the editable node tree for the BUILD bench.
+static func build_baked(class_idx: int, faction: int, pdc: int, torpedo: int, railgun: int, seed: int) -> Node3D:
+	var src := build(class_idx, faction, pdc, torpedo, railgun, seed)
+	var baked := bake(src)
+	src.free()              # discard the unbaked tree (geometry already copied)
+	return baked
+
+
+## Merge every MeshInstance3D under `src` into one ArrayMesh (one surface per unique
+## material), preserving any Light3D nodes. Pure geometry merge — no atlas yet.
+static func bake(src: Node3D, keep_lights := true) -> Node3D:
+	var by_mat: Dictionary = {}     # material (or "∅") -> SurfaceTool
+	_collect_geo(src, Transform3D.IDENTITY, by_mat)
+	var am := ArrayMesh.new()
+	for key in by_mat:
+		am = (by_mat[key] as SurfaceTool).commit(am)
+	var out := Node3D.new()
+	var mi := MeshInstance3D.new()
+	mi.mesh = am
+	out.add_child(mi)
+	if keep_lights:
+		_collect_lights(src, Transform3D.IDENTITY, out)
+	return out
+
+
+static func _collect_geo(node: Node, xform: Transform3D, by_mat: Dictionary) -> void:
+	for child in node.get_children():
+		if not (child is Node3D):
+			continue
+		var ct: Transform3D = xform * (child as Node3D).transform
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh != null:
+			var mi := child as MeshInstance3D
+			var mat: Material = mi.material_override
+			var key: Variant = mat if mat != null else "∅"
+			var st: SurfaceTool = by_mat.get(key)
+			if st == null:
+				st = SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				if mat != null:
+					st.set_material(mat)
+				by_mat[key] = st
+			for s in mi.mesh.get_surface_count():
+				st.append_from(mi.mesh, s, ct)
+		_collect_geo(child, ct, by_mat)
+
+
+static func _collect_lights(node: Node, xform: Transform3D, into: Node3D) -> void:
+	for child in node.get_children():
+		if not (child is Node3D):
+			continue
+		var ct: Transform3D = xform * (child as Node3D).transform
+		if child is Light3D:
+			var l := child.duplicate() as Light3D
+			l.transform = ct
+			into.add_child(l)
+		_collect_lights(child, ct, into)

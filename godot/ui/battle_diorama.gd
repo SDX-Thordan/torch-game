@@ -67,7 +67,8 @@ func _spawn_fleet(into: Array[Node3D], count: int, faction: int, side: float, se
 		# A cruiser flagship leads; the rest are corvettes/destroyers.
 		var cls: int = 2 if i == 0 else (1 if i % 2 == 0 else 0)
 		var mounts: Array = [[2, 2, 0], [3, 4, 1], [4, 2, 1], [6, 4, 2]][cls]
-		var ship: Node3D = ShipForge.build(cls, faction, int(mounts[0]), int(mounts[1]), int(mounts[2]), seed0 + i * 7)
+		# Baked single-mesh hulls — cheap to field a whole fleet (A6/§25).
+		var ship: Node3D = ShipForge.build_baked(cls, faction, int(mounts[0]), int(mounts[1]), int(mounts[2]), seed0 + i * 7)
 		ship.scale = Vector3.ONE * (0.34 if cls < 2 else 0.4)
 		var col: int = i / 2
 		var rowy: float = (float(i % 2) - 0.5) * 1.25

@@ -179,6 +179,25 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art A6: bake the forge to a single optimized mesh (§25).** The forge built a
+  ship as ~80–166 separate `MeshInstance3D` children (one draw call each) — fine for one
+  turntable hull, dear for a fleet. `ShipForge.bake(src)` collapses the whole node tree into a
+  **single `ArrayMesh`**: walk the children accumulating transforms, group geometry by
+  `material_override` (object identity — the forge reuses shared material instances, so the
+  dominant hull/plate/accent/trim merge; a few per-weapon `_mat()` instances stay separate),
+  and `SurfaceTool.append_from(mesh, surface, accumulated_xform)` each primitive into that
+  material's surface tool, then `commit()` all tools into one mesh (one **surface per
+  material**, ~9). Lights are duplicated across (the drive plume preserved). `build_baked()` =
+  build → bake → `free()` the transient source (geometry is already copied, so freeing is
+  safe). **Measured 166 nodes → 2** per Battleship, render-verified **pixel-identical** to the
+  unbaked hull; the §22 diorama now fields baked hulls. *Key API:* `SurfaceTool.commit(am)`
+  *appends* a surface to an existing `ArrayMesh` and returns it, so a loop over the per-material
+  tools builds one multi-surface mesh; `set_material()` on the tool before commit carries the
+  material onto the surface. *Determinism:* pure shell, no sim/RNG → §7c gate + QA body
+  byte-identical; 17 GUT green. **Deferred:** a true **UV atlas** (one surface, one texture) —
+  premature while hulls are flat-shaded primitives; the per-material merge is the real win. The
+  art track (A1–A7) is now complete bar the optional atlas pass.
+
 - **2026-06-17 — Art A7: the 3D combat diorama (§22).** Turned the engagement report from a
   text BattleLog playback into a real **3D battle**. New `godot/ui/battle_diorama.gd`
   (`class_name BattleDiorama`) — a self-contained `Node3D` (own camera/lights/env) hosted in a
