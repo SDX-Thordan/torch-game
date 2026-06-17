@@ -1420,19 +1420,33 @@ func _build_build_view() -> void:
 	var sv := SubViewport.new()
 	sv.own_world_3d = true
 	sv.transparent_bg = true
-	sv.debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
 	svc.add_child(sv)
+	# Light the bench so the procedural hull reads: a key directional + a warm fill +
+	# ambient from a WorldEnvironment (the SubViewport owns its own world).
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.42, 0.46, 0.55)
+	e.ambient_light_energy = 1.15
+	env.environment = e
+	sv.add_child(env)
 	var scam := Camera3D.new()
-	scam.position = Vector3(0, 1.1, 4.2)
+	scam.position = Vector3(0.4, 1.5, 4.8)
 	sv.add_child(scam)
 	scam.look_at(Vector3.ZERO, Vector3.UP)   # after entering the tree (uses global xform)
-	var slight := OmniLight3D.new()
-	slight.position = Vector3(2, 3, 4)
-	slight.omni_range = 30
-	sv.add_child(slight)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-40, 125, 0)
+	key.light_energy = 1.7
+	sv.add_child(key)
+	# A camera-side fill so faces toward the viewer don't fall to shadow.
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-15, -35, 0)
+	fill.light_color = Color(0.85, 0.9, 1.0)
+	fill.light_energy = 0.7
+	sv.add_child(fill)
 	_ship_pivot = Node3D.new()
 	sv.add_child(_ship_pivot)
-	_build_blueprint_ship(_ship_pivot)
+	_forge_ship()
 	_build_caption = UiKit.label("", 15, UiKit.TEXT_HI)
 	centre.add_child(_build_caption)
 	_build_stats = UiKit.label("", 12, UiKit.TEXT_DIM)
@@ -1459,41 +1473,27 @@ func _build_build_view() -> void:
 	right.add_child(_build_queue)
 
 
-func _build_blueprint_ship(pivot: Node3D) -> void:
-	var mat := _emissive_mat(UiKit.ACCENT)
-	mat.emission_energy_multiplier = 0.6
-	# Hull.
-	var hull := MeshInstance3D.new()
-	var cap := CapsuleMesh.new()
-	cap.radius = 0.32
-	cap.height = 2.4
-	hull.mesh = cap
-	hull.rotation_degrees = Vector3(90, 0, 0)
-	hull.material_override = mat
-	pivot.add_child(hull)
-	# Bridge.
-	var bridge := MeshInstance3D.new()
-	var bx := BoxMesh.new()
-	bx.size = Vector3(0.4, 0.3, 0.6)
-	bridge.mesh = bx
-	bridge.position = Vector3(0, 0.32, 0.5)
-	bridge.material_override = mat
-	pivot.add_child(bridge)
-	# Nacelles.
-	for sx in [-1.0, 1.0]:
-		var nac := MeshInstance3D.new()
-		var nb := BoxMesh.new()
-		nb.size = Vector3(0.22, 0.22, 1.4)
-		nac.mesh = nb
-		nac.position = Vector3(0.5 * sx, -0.1, -0.3)
-		nac.material_override = mat
-		pivot.add_child(nac)
+## Build (or rebuild) the procedural ship in the BUILD bench for the selected class,
+## using the sim's hull slot counts + the player's faction livery (§24/§25).
+func _forge_ship() -> void:
+	if _ship_pivot == null:
+		return
+	for c in _ship_pivot.get_children():
+		c.queue_free()
+	var pdc: int = shipyard.pdc_mounts(build_pick)
+	var torp: int = shipyard.torpedo_mounts(build_pick)
+	var rail: int = shipyard.railgun_mounts(build_pick)
+	# The player flies the Belt livery by default (home turf); a stable per-class seed.
+	var fac := 3
+	var ship := ShipForge.build(build_pick, fac, pdc, torp, rail, 1000 + build_pick)
+	_ship_pivot.add_child(ship)
 
 
 func _pick_build(i: int) -> void:
 	build_pick = i
 	for c in _build_list.get_child_count():
 		(_build_list.get_child(c) as Button).set_pressed_no_signal(c == i)
+	_forge_ship()
 
 
 func _commission_selected() -> void:
@@ -2204,6 +2204,9 @@ func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: Strin
 
 
 func _refresh_build() -> void:
+	# Slow turntable so the procedural hull shows off (§24).
+	if _ship_pivot:
+		_ship_pivot.rotate_y(get_process_delta_time() * 0.5)
 	var nm := String(shipyard.class_name(build_pick))
 	_build_caption.text = nm
 	_build_stats.text = "railguns %d   ·   alpha %d   ·   Δv %d   ·   mobility %d" % [

@@ -2121,6 +2121,9 @@ fn warship_class(class: i64) -> sim::ShipClass {
 #[class(base = RefCounted)]
 struct TorchShipyard {
     classes: Vec<(GString, sim::ShipStats)>,
+    /// Per-class weapon mounts `[pdc, torpedo, railgun, utility]` — the hardpoint
+    /// counts the procedural ship forge places weapon models on (§24/§25).
+    mounts: Vec<[u32; 4]>,
     _base: Base<RefCounted>,
 }
 
@@ -2129,20 +2132,27 @@ impl IRefCounted for TorchShipyard {
     fn init(base: Base<RefCounted>) -> Self {
         use sim::ships::{reference_loadout, ShipClass};
         let mut rng = sim::rng::Pcg32::new(1);
-        let classes = [
+        let mut classes = Vec::new();
+        let mut mounts = Vec::new();
+        for c in [
             ShipClass::Frigate,
             ShipClass::Destroyer,
             ShipClass::Cruiser,
             ShipClass::Battleship,
-        ]
-        .into_iter()
-        .map(|c| {
+        ] {
             let lo = reference_loadout(c, &mut rng);
-            (GString::from(lo.hull().name), lo.stats())
-        })
-        .collect();
+            let h = lo.hull();
+            mounts.push([
+                h.pdc_mounts,
+                h.torpedo_mounts,
+                h.railgun_mounts,
+                h.utility_mounts,
+            ]);
+            classes.push((GString::from(h.name), lo.stats()));
+        }
         Self {
             classes,
+            mounts,
             _base: base,
         }
     }
@@ -2192,6 +2202,42 @@ impl TorchShipyard {
         self.classes
             .get(index as usize)
             .map(|c| c.1.thrust_to_mass)
+            .unwrap_or(0)
+    }
+
+    /// PDC mounts on class `index` — point-defence hardpoints (§8a/§24).
+    #[func]
+    fn pdc_mounts(&self, index: i64) -> i64 {
+        self.mounts
+            .get(index as usize)
+            .map(|m| m[0] as i64)
+            .unwrap_or(0)
+    }
+
+    /// Torpedo mounts on class `index` (§8a/§24).
+    #[func]
+    fn torpedo_mounts(&self, index: i64) -> i64 {
+        self.mounts
+            .get(index as usize)
+            .map(|m| m[1] as i64)
+            .unwrap_or(0)
+    }
+
+    /// Railgun mounts on class `index` — the capital-defining hardpoints (§8b/§24).
+    #[func]
+    fn railgun_mounts(&self, index: i64) -> i64 {
+        self.mounts
+            .get(index as usize)
+            .map(|m| m[2] as i64)
+            .unwrap_or(0)
+    }
+
+    /// Utility mounts on class `index` — radiators/sensors/etc. (§8a/§24).
+    #[func]
+    fn utility_mounts(&self, index: i64) -> i64 {
+        self.mounts
+            .get(index as usize)
+            .map(|m| m[3] as i64)
             .unwrap_or(0)
     }
 

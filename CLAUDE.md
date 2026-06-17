@@ -179,6 +179,33 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art track A1: the procedural ship forge + the BUILD bench (§24/§25,
+  `docs/ART_TRACK_PLAN.md`).** Player wants Expanse-style procedural ships + a designer.
+  Realized as a **pure-shell forge** (no sim/determinism dependency): `godot/ui/
+  ship_forge.gd` (`class_name ShipForge`) assembles a warship from Godot primitives via
+  a shape grammar — a modular spine of stacked box/cylinder hull sections (cylindrical
+  drums for non-Earth hulls), orange accent panels + a **diagonal hazard-stripe**
+  material (a procedural `Image` texture), an aft drive cluster (engine bells + emissive
+  plume + an `OmniLight`), a forward bridge, radiator fins, plating greebles, and
+  **named weapon hardpoints** carrying their own models (PDC turrets / torpedo launchers
+  / spinal railgun barrels). Hull envelope scales with class; **faction = a parameter
+  set** (Earth boxy blue-grey / Mars lean rust-red / Belt chunky ochre / Indie
+  grey+orange). Deterministic from a seed. The forge reads the sim's per-class slot
+  counts via **4 new read-only `TorchShipyard` bindings** (`pdc_mounts`/`torpedo_mounts`/
+  `railgun_mounts`/`utility_mounts`). The BUILD view renders it **solid** (dropped the
+  old wireframe-pill `DEBUG_DRAW_WIREFRAME`) in a lit `SubViewport` (key+fill
+  `DirectionalLight3D` + a `WorldEnvironment` ambient — the SubViewport owns its world,
+  so it needs its own lights) on a slow turntable, rebuilt on class change. **Gameplay-
+  neutral** (pure shell + read-only bindings) → §7c gate + QA body byte-identical (only
+  the UI-audit binding count moved). *GDScript gotchas:* `lerp()` and `Dictionary`
+  access return **Variant**, which trips warnings-as-errors `:=` inference — type every
+  float local explicitly and use `lerpf`/`maxf`/`maxi`. Render-verified across all four
+  classes under xvfb (modular hull + livery + hazard stripes + the railgun barrel read
+  clearly). 186 core + QA + 17 GUT green. *Ceiling note:* with primitives the realistic
+  target is "believable industrial silhouette + livery + snap-on weapons," not SE-voxel
+  detail — true voxel meshes would be the offline §25 tool path. **Next: A2** (the
+  interactive designer — swap weapons/drives on slots, re-validate the fit, re-forge).
+
 - **2026-06-17 — Docs cleanup + GDD re-aim (Part VI).** Tidied the doc set now that the
   empire layer is deep. **Deleted** two stale point-in-time *review* docs whose findings
   are all addressed: `docs/GDD_DEVIATION_REVIEW.md` (the pre-empire deviation audit) and
