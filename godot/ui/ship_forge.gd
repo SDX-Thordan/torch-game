@@ -84,6 +84,35 @@ static func _cyl(parent: Node3D, pos: Vector3, radius: float, height: float, mat
 	return mi
 
 
+# A thin rib ring around a drum section (the ribbed reactor/engine look).
+static func _ring(parent: Node3D, pos: Vector3, radius: float, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = 0.035
+	cm.radial_segments = 14
+	mi.mesh = cm
+	mi.rotation_degrees = Vector3(90, 0, 0)
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
+# A small sensor dome / dish atop the command tower.
+static func _dome(parent: Node3D, pos: Vector3, r: float, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = r
+	sm.height = r * 1.4
+	sm.radial_segments = 10
+	sm.rings = 5
+	mi.mesh = sm
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
 # ---- weapon models on hardpoints ------------------------------------------
 
 static func _pdc(parent: Node3D, pos: Vector3, mat: Material) -> void:
@@ -223,110 +252,139 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
 	var hull_col: Color = pal["hull"]
 	var accent_col: Color = pal["accent"]
-	var hull_mat := _mat(hull_col)
-	var accent_mat := _mat(accent_col, 0.55, 0.4)
+	# Weathered-industrial palette (the reference look): white-grey plating, a darker
+	# mid plate, rust-orange accents, dark metal recesses, dark sensor glass.
+	var hull_mat := _mat(hull_col, 0.7, 0.35)
+	var plate_mat := _mat(hull_col * 0.7, 0.75, 0.4)
+	var accent_mat := _mat(accent_col, 0.6, 0.4)
 	var trim_mat := _mat(TRIM, 0.8, 0.5)
+	var panel_mat := _mat(DARK, 0.6, 0.6)
+	var dome_mat := _emissive(Color(0.25, 0.55, 0.7), 0.6)
 	var hazard := _hazard()
 	var glow := _emissive(Color(0.45, 0.72, 1.0), 4.0)
 
 	# Class envelope: bigger ships are longer, wider, with more modular sections.
 	var t: float = float(class_idx) / 3.0
-	var total_len: float = lerpf(2.6, 5.4, t)
-	var width: float = lerpf(0.42, 0.92, t)
-	var sections: int = 3 + class_idx                 # 3 (frigate) .. 6 (battleship)
-	# Mars runs longer/leaner; the Belt is chunkier; Earth is boxy.
-	if faction == 1:
+	var total_len: float = lerpf(3.0, 6.0, t)
+	var width: float = lerpf(0.5, 1.0, t)
+	var sections: int = 4 + class_idx                 # 4 (frigate) .. 7 (battleship)
+	if faction == 1:    # Mars — longer, leaner
 		total_len *= 1.12
 		width *= 0.9
-	elif faction == 2:
-		width *= 1.12
+	elif faction == 2:  # Belt — chunkier
+		width *= 1.1
 
-	# Keel spine (a low central beam tying the modules together).
-	_box(root, Vector3(0, -width * 0.12, 0), Vector3(width * 0.5, width * 0.28, total_len * 0.96), trim_mat)
+	# Lower keel hull (the wide armored base the modules ride on).
+	_box(root, Vector3(0, -width * 0.22, 0), Vector3(width * 0.62, width * 0.34, total_len * 0.9), trim_mat)
 
-	# Stacked hull modules from aft (-Z) to fore (+Z).
+	# Stacked hull modules from aft (-Z) to fore (+Z), layered (lower body + upper deck).
 	var seg: float = total_len / float(sections)
-	var z: float = -total_len * 0.5 + seg * 0.5
-	var top_y: Array[float] = []      # remember each module's deck height for hardpoints
+	var z: float = -total_len * 0.5 + seg * 0.55
+	var top_y: Array[float] = []
 	var seg_z: Array[float] = []
 	for i in sections:
-		var frac: float = float(i) / float(sections - 1)   # 0 aft .. 1 fore
-		# The hull tapers toward the bow; the bow module is a wedge nose.
-		var w: float = width * lerpf(1.0, 0.62, frac) * rng.randf_range(0.9, 1.06)
-		var h: float = width * lerpf(0.95, 0.6, frac) * rng.randf_range(0.92, 1.05)
-		var is_drum: bool = (faction != 0) and (i % 2 == 1)   # cylindrical drums (not Earth)
+		var frac: float = float(i) / float(sections - 1)        # 0 aft .. 1 fore
+		var w: float = width * lerpf(1.0, 0.66, frac) * rng.randf_range(0.94, 1.04)
+		var h: float = width * lerpf(0.92, 0.58, frac) * rng.randf_range(0.95, 1.04)
+		var is_drum: bool = (i % 3 == 1) and frac < 0.7          # ribbed reactor drums (mid/aft)
 		if is_drum:
-			_cyl(root, Vector3(0, 0, z), maxf(w, h) * 0.5, seg * 0.92, hull_mat, "z")
+			var dr: float = maxf(w, h) * 0.52
+			_cyl(root, Vector3(0, 0, z), dr, seg * 0.92, hull_mat, "z")
+			for k in 3:                                          # rib rings
+				_ring(root, Vector3(0, 0, z + lerpf(-seg * 0.3, seg * 0.3, float(k) / 2.0)), dr + 0.01, trim_mat)
 		else:
-			_box(root, Vector3(0, 0, z), Vector3(w, h, seg * 0.92), hull_mat)
-		# Orange accent side-panels + a hazard band on every other module.
+			_box(root, Vector3(0, -h * 0.08, z), Vector3(w, h * 0.7, seg * 0.94), hull_mat)   # lower body
+			_box(root, Vector3(0, h * 0.4, z), Vector3(w * 0.74, h * 0.36, seg * 0.78), plate_mat)  # upper deck
+		# Rust-orange accent stripe down each flank + a hazard band on alternate decks.
 		for sx in [-1.0, 1.0]:
-			_box(root, Vector3(sx * w * 0.5, 0, z), Vector3(0.02, h * 0.6, seg * 0.6), accent_mat)
-		if i % 2 == 0:
-			_box(root, Vector3(0, h * 0.5 + 0.005, z), Vector3(w * 0.7, 0.012, seg * 0.4), hazard)
-		# Plating greebles for industrial texture.
-		for _g in range(2 + class_idx):
-			var gx: float = rng.randf_range(-w * 0.45, w * 0.45)
-			var gy: float = h * 0.5 * (1.0 if rng.randf() > 0.5 else -1.0)
-			var gz: float = z + rng.randf_range(-seg * 0.35, seg * 0.35)
-			var gs: float = rng.randf_range(0.04, 0.1)
-			_box(root, Vector3(gx, gy, gz), Vector3(gs, 0.02, gs * 1.4), trim_mat)
-		top_y.append(h * 0.5)
+			_box(root, Vector3(sx * w * 0.5, 0, z), Vector3(0.025, h * 0.5, seg * 0.66), accent_mat)
+		if i % 2 == 0 and not is_drum:
+			_box(root, Vector3(0, h * 0.58 + 0.004, z), Vector3(w * 0.5, 0.012, seg * 0.34), hazard)
+		# Plating greebles (panel detail) on the decks and flanks.
+		for _g in range(3 + class_idx):
+			var gx: float = rng.randf_range(-w * 0.46, w * 0.46)
+			var gy: float = (h * 0.58) * (1.0 if rng.randf() > 0.45 else -0.5)
+			var gz: float = z + rng.randf_range(-seg * 0.38, seg * 0.38)
+			var gs: float = rng.randf_range(0.035, 0.09)
+			_box(root, Vector3(gx, gy, gz), Vector3(gs, 0.018, gs * 1.5), panel_mat if rng.randf() > 0.5 else trim_mat)
+		top_y.append(h * 0.58)
 		seg_z.append(z)
 		z += seg
 
-	# Forward bridge / superstructure (a stepped block atop the fore module).
+	# Pointed prow: a stepped taper to a nose cap + a thin forward sensor mast.
 	var fz: float = seg_z[sections - 1]
 	var fy: float = top_y[sections - 1]
-	_box(root, Vector3(0, fy + 0.07, fz - 0.05), Vector3(width * 0.42, 0.14, seg * 0.5), hull_mat)
-	_box(root, Vector3(0, fy + 0.16, fz - 0.02), Vector3(width * 0.26, 0.06, seg * 0.28), _emissive(accent_col, 0.8))
+	_box(root, Vector3(0, -width * 0.04, fz + seg * 0.55), Vector3(width * 0.34, width * 0.28, seg * 0.5), hull_mat)
+	_box(root, Vector3(0, -width * 0.02, fz + seg * 0.86), Vector3(width * 0.16, width * 0.16, seg * 0.34), plate_mat)
+	_cyl(root, Vector3(0, 0, fz + seg * 1.15), 0.012, seg * 0.6, trim_mat, "z")    # forward mast
+	_dome(root, Vector3(0, 0, fz + seg * 1.42), 0.03, dome_mat)                    # sensor tip
 
-	# Aft drive cluster: a thrust frame + engine bells with a glowing plume.
-	var az: float = -total_len * 0.5 - 0.04
-	var bells: int = 1 + class_idx / 2 + class_idx % 2     # 1..3
-	_box(root, Vector3(0, 0, az + 0.12), Vector3(width * 0.9, width * 0.7, 0.16), trim_mat)
-	var spread: float = width * 0.28
+	# Command tower amidships-aft: a stepped superstructure with sensor domes + a dish.
+	var tz: float = lerpf(seg_z[0], fz, 0.62)
+	var ty: float = width * 0.52
+	_box(root, Vector3(0, ty, tz), Vector3(width * 0.4, width * 0.3, seg * 0.9), plate_mat)
+	_box(root, Vector3(0, ty + width * 0.22, tz - seg * 0.1), Vector3(width * 0.26, width * 0.18, seg * 0.5), hull_mat)
+	_dome(root, Vector3(width * 0.08, ty + width * 0.36, tz - seg * 0.1), 0.04, dome_mat)
+	_dome(root, Vector3(-width * 0.07, ty + width * 0.34, tz), 0.03, dome_mat)
+	var dish := MeshInstance3D.new()                                              # radar dish
+	var dm := CylinderMesh.new()
+	dm.top_radius = width * 0.12
+	dm.bottom_radius = width * 0.12
+	dm.height = 0.02
+	dm.radial_segments = 12
+	dish.mesh = dm
+	dish.rotation_degrees = Vector3(60, 0, 0)
+	dish.position = Vector3(0, ty + width * 0.4, tz - seg * 0.1)
+	dish.material_override = plate_mat
+	root.add_child(dish)
+
+	# Fat aft engine block: a wide ribbed drum + the bell cluster with a glowing plume.
+	var az: float = -total_len * 0.5
+	var eb: float = width * 0.62
+	_cyl(root, Vector3(0, 0, az + 0.02), eb, 0.34, trim_mat, "z")
+	for k in 3:
+		_ring(root, Vector3(0, 0, az + lerpf(-0.12, 0.12, float(k) / 2.0)), eb + 0.012, panel_mat)
+	var bells: int = 2 + class_idx / 2                  # 2..3
+	var spread: float = width * 0.3
 	for bi in bells:
 		var bx: float = 0.0 if bells == 1 else lerpf(-spread, spread, float(bi) / float(bells - 1))
-		_cyl(root, Vector3(bx, 0, az - 0.02), width * 0.16, 0.22, trim_mat, "z")     # bell housing
+		_cyl(root, Vector3(bx, 0, az - 0.14), width * 0.17, 0.18, panel_mat, "z")
 		var cone := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
 		cm.top_radius = width * 0.04
-		cm.bottom_radius = width * 0.15
+		cm.bottom_radius = width * 0.16
 		cm.height = 0.18
 		cm.radial_segments = 12
 		cone.mesh = cm
 		cone.rotation_degrees = Vector3(-90, 0, 0)
-		cone.position = Vector3(bx, 0, az - 0.16)
+		cone.position = Vector3(bx, 0, az - 0.28)
 		cone.material_override = glow
 		root.add_child(cone)
 	var plume := OmniLight3D.new()
-	plume.position = Vector3(0, 0, az - 0.2)
+	plume.position = Vector3(0, 0, az - 0.32)
 	plume.light_color = Color(0.5, 0.75, 1.0)
-	plume.light_energy = 2.2
+	plume.light_energy = 2.4
 	plume.omni_range = total_len
 	root.add_child(plume)
 
-	# Radiator fins (thin angled panels mid-hull) — the §22 heat signature.
+	# Radiator fins (thin angled panels mid-hull).
 	for sx in [-1.0, 1.0]:
-		var fin := _box(root, Vector3(sx * width * 0.6, 0.0, -total_len * 0.12), Vector3(0.02, width * 0.5, total_len * 0.28), _mat(Color(0.2, 0.2, 0.23), 0.4, 0.6))
-		fin.rotation_degrees = Vector3(0, 0, sx * 18.0)
+		var fin := _box(root, Vector3(sx * width * 0.62, 0.0, -total_len * 0.1), Vector3(0.02, width * 0.5, total_len * 0.26), _mat(Color(0.18, 0.18, 0.22), 0.4, 0.7))
+		fin.rotation_degrees = Vector3(0, 0, sx * 16.0)
 
 	# ---- weapon hardpoints (weapons are their own models on sockets) ----
-	# PDC turrets ring the upper deck along the hull.
-	for p in pdc:
+	for p in pdc:                                       # PDC turrets ring the upper deck
 		var si: int = clampi((p * sections) / maxi(pdc, 1), 0, sections - 1)
 		var side: float = -1.0 if p % 2 == 0 else 1.0
-		var pos := Vector3(side * width * 0.22, top_y[si] + 0.03, seg_z[si] + rng.randf_range(-0.1, 0.1))
-		_pdc(root, pos, hull_mat)
-	# Torpedo launchers cluster forward (the alpha/equalizer, §8a).
-	for tp in torpedo:
+		_pdc(root, Vector3(side * width * 0.24, top_y[si] + 0.03, seg_z[si] + rng.randf_range(-0.1, 0.1)), hull_mat)
+	for tp in torpedo:                                  # torpedo launchers forward
 		var side2: float = -1.0 if tp % 2 == 0 else 1.0
 		var fwd: float = seg_z[sections - 1] - 0.1 - float(tp / 2) * 0.18
-		_torpedo(root, Vector3(side2 * width * 0.2, top_y[sections - 1] * 0.2, fwd), accent_mat)
-	# Railguns mount spinal at the nose — the capital-defining weapon (§8b).
+		_torpedo(root, Vector3(side2 * width * 0.22, top_y[sections - 1] * 0.2, fwd), accent_mat)
+	# Spinal railgun(s) jut from the nose — long on a destroyer (the reference look, §8b).
+	var rg_len: float = lerpf(1.0, 1.5, t) * (1.4 if class_idx == 1 else 1.0)
 	for rg in railgun:
 		var off: float = (float(rg) - float(railgun - 1) * 0.5) * 0.12
-		_railgun(root, Vector3(off, fy + 0.02, fz + seg * 0.4), hull_mat, lerpf(0.6, 1.1, t))
+		_railgun(root, Vector3(off, -width * 0.02, fz + seg * 1.0), hull_mat, rg_len)
 
 	return root

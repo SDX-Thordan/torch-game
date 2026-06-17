@@ -179,6 +179,25 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art: warship forge look-polish to the reference fleet (§24).** The
+  player supplied four class reference renders (Corvette/Destroyer/Cruiser/Battleship,
+  Expanse/SE-style) for the look. Rewrote `ShipForge.build()` (pure shell) to the shared
+  design language: a **pointed prow** (stepped taper → nose cap + a thin forward sensor
+  mast tipped with a dome), **layered hull** (a lower armored body + a narrower upper
+  deck per module), **ribbed reactor drums** (cylinders with rib-ring greebles), a
+  raised **command tower** amidships (stepped boxes + sensor domes + an angled radar
+  dish), a **fat ribbed aft engine block** + bell cluster + plume, more **panel
+  greebles**, rust-orange flank accent stripes + hazard bands on weathered white-grey
+  plating, and the weapon hardpoints kept (PDC turrets on the upper deck, torpedoes
+  forward, **spinal railguns** that run *long on a Destroyer*). Bigger classes = more
+  sections (4→7) + a fatter engine block + more turrets. Added `_ring`/`_dome` helpers.
+  Render-verified all four classes — they now read as the layered, detailed reference
+  hulls (prow + mast + tower + drums + accents), a big step past the A1 blocks. Pure
+  shell, **no sim change** → §7c gate + QA review byte-identical; 187 core + 17 GUT
+  green. *Realistic ceiling reminder:* primitives give "believable industrial
+  silhouette + detail," not true voxel meshes (the §25 offline-tool path). Faction-
+  distinct *shapes* (A3) is still a separate axis on top of this shared class look.
+
 - **2026-06-17 — Art track A5: forge the orrery fleet (§21/§24).** Replaced the
   orrery's cyan-sphere / orange-dot ship markers with **directional hull markers** and
   the colony spheres with **station glyphs** — ships read as ships, not dots. *Key
