@@ -199,6 +199,7 @@ impl AlertFeed {
             Event::CoalitionStrike { .. } => Some(self.coalition_strike(tick)),
             Event::HoldingLost { .. } => Some(self.holding_lost(tick)),
             Event::EmpireRaided { loss } => Some(self.empire_raided(*loss, tick)),
+            Event::Inspected { fine } => Some(self.inspected(*fine, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -281,6 +282,22 @@ impl AlertFeed {
                 mgr.name
             ),
             verb: Some(Verb::DefendHoldings),
+        }
+    }
+
+    /// A soured great power inspected and fined the player's shipping (EP4).
+    fn inspected(&self, fine: i64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: A customs sweep fined us {fine} cr — a power we've crossed is squeezing our shipping. Mend fences or reroute.",
+                mgr.name
+            ),
+            verb: None,
         }
     }
 

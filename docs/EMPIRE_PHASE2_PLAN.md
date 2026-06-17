@@ -53,7 +53,7 @@ half-exists) or a garrison. Bigger empire ⇒ more raids ⇒ you must field a na
 - **Core:** a piracy gauge off holdings/trade; raids target player routes/holdings;
   a patrol/escort policy that intercepts them (reuse `interdiction::resolve`).
 
-### EP4 — Faction inspections & enforcement 🛂
+### EP4 — Faction inspections & enforcement 🛂 ✅ DONE
 **Goal:** factions you've **soured or alarmed** enforce against you — customs
 inspections of your shipping (fines / contraband seizure), embargoes at their markets,
 and sanctions on your holdings in their sphere. Countered by reputation repair

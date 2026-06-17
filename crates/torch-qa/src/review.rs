@@ -127,6 +127,17 @@ fn review_empire(t: &Transcript, f: &mut Vec<Finding>) {
             ),
         ));
     }
+    // EP4: did souring the great powers bring political enforcement?
+    if t.inspections > 0 {
+        f.push(Finding::new(
+            Severity::Good,
+            "Empire · enforcement",
+            format!(
+                "Souring the great powers brought customs enforcement — {} inspection sweeps fined the empire's shipping (EP4). Trading in hostile space is taxed; repairing relations is the counter.",
+                t.inspections
+            ),
+        ));
+    }
 }
 
 /// §13 pressure: is the world telegraphing its threats? Each ambient-raid window

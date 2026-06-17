@@ -144,7 +144,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 
 | metric | value |
 | --- | --- |
-| treasury | 33000 → 125027 cr (+92027, ~3×) |
+| treasury | 33000 → 124567 cr (+91567, ~3×) |
 | actions | 3163 over 76% of ticks |
 | pacing | 82 ticks pending · longest idle 6 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
@@ -160,7 +160,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 961 (~40 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 125027 cr (+92027, ~3×).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 33000 → 124567 cr (+91567, ~3×).
 - **[INFO]** _Agency_ — Issued 3163 actions across 76% of ticks.
 - **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 82 of 82 act-now shortages.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
@@ -174,9 +174,9 @@ _Buys frontier colonies and holds them — does expansion pay off, and do admini
 
 | metric | value |
 | --- | --- |
-| treasury | 38000 → 156909 cr (+118909, ~4×) |
-| actions | 167 over 3% of ticks |
-| pacing | 3447 ticks pending · longest idle 89 ticks |
+| treasury | 38000 → 142147 cr (+104147, ~3×) |
+| actions | 169 over 3% of ticks |
+| pacing | 3412 ticks pending · longest idle 89 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
 | gate reached | tick 2341 (~97 days) |
 | CEO level | 13 · techs 0 |
@@ -192,13 +192,14 @@ _Buys frontier colonies and holds them — does expansion pay off, and do admini
 **Findings:**
 
 - **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2341 (~97 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 38000 → 156909 cr (+118909, ~4×).
-- **[GOOD]** _Agency_ — Acted on 3% of ticks (167 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 89 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 38000 → 142147 cr (+104147, ~3×).
+- **[GOOD]** _Agency_ — Acted on 3% of ticks (169 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 89 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
 - **[NOTE]** _Alert feed_ — 18 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 103 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 - **[GOOD]** _Empire_ — Expansion-by-acquisition is reachable and exercised: grew to 13 holding(s) at peak (ending at 12). The §0 spine now has a territorial dimension.
 - **[GOOD]** _Empire · overextension_ — Growth provoked the great-power coalition (alarm peaked 1000/1000), which pried a holding loose. The political cap on reckless expansion bites — careful growth is a real decision.
 - **[GOOD]** _Empire · security_ — The trade empire drew piracy — 37 raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.
+- **[GOOD]** _Empire · enforcement_ — Souring the great powers brought customs enforcement — 11 inspection sweeps fined the empire's shipping (EP4). Trading in hostile space is taxed; repairing relations is the counter.
 
 ## Engagement & fun assessment
 
@@ -212,7 +213,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | Privateer | **90** | 100 | 100 | 60 | 100 | 100 | 79 |
 | Warlord | **49** | 33 | 78 | 19 | 23 | 92 | 72 |
 | Tycoon | **98** | 100 | 100 | 100 | 100 | 100 | 86 |
-| Expansionist | **87** | 100 | 98 | 60 | 100 | 75 | 92 |
+| Expansionist | **87** | 100 | 98 | 60 | 100 | 72 | 92 |
 
 **Per-style read (overall + weakest link):**
 
@@ -237,16 +238,16 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 
 | metric | value |
 | --- | --- |
-| bindings exposed | 215 |
-| wired by the shell | 167 (77%) |
+| bindings exposed | 216 |
+| wired by the shell | 168 (77%) |
 | keyboard bindings | 42 |
 | pointer/touch | 10 pointer hit(s), native touch: true |
 | controls legend | true |
 
 **Findings:**
 
-- **[GOOD]** _UI · wiring_ — Every one of the shell's 167 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
-- **[NOTE]** _UI · coverage_ — The shell wires 77% of the 215 exposed bindings; 48 are never referenced (e.g. ["admin_load", "alert_threshold", "alpha", "blueprint_discover", "blueprint_known_count", "ceo_branch_name"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
+- **[GOOD]** _UI · wiring_ — Every one of the shell's 168 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
+- **[NOTE]** _UI · coverage_ — The shell wires 77% of the 216 exposed bindings; 48 are never referenced (e.g. ["admin_load", "alert_threshold", "alpha", "blueprint_discover", "blueprint_known_count", "ceo_branch_name"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
 - **[GOOD]** _UI · exception→verb_ — The act-now exception loop is pressable: the shell wires a one-press answer to shortages/contracts, so an alert resolves into a verb rather than a dead notification (§0.4).
 - **[GOOD]** _UI · status visibility_ — The load-bearing state is on screen — treasury, the tier/destination, the alert feed, and the now-goal are all read by the shell (Nielsen #1, the §0 three-horizon stack).
 - **[GOOD]** _UI · recognition_ — A controls legend is on screen — the keymap is recognised, not recalled (Nielsen #6).

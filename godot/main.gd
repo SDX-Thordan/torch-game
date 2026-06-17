@@ -1843,6 +1843,9 @@ func _refresh_empire() -> void:
 			meters += "      Escorts %d/%d ✓" % [have, need]
 		else:
 			meters += "      ⚠ Escorts %d/%d — piracy bleeds you" % [have, need]
+		# Enforcement (EP4): a soured great power taxes/inspects your shipping.
+		if sim.worst_standing() <= -200:
+			meters += "      ⚠ customs sweeps (mend fences)"
 	var alarm: int = sim.coalition_alarm()
 	if sim.coalition_active():
 		meters += "      ⚠ COALITION alarm %d/1000" % alarm

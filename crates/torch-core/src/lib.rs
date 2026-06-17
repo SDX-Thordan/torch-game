@@ -357,6 +357,13 @@ impl TorchSim {
         self.sim.empire_secure()
     }
 
+    /// The most-soured great-power standing (EP4) — negative means hostile space is
+    /// taxing your trade (customs surcharges + inspection fines).
+    #[func]
+    fn worst_standing(&self) -> i64 {
+        self.sim.worst_standing()
+    }
+
     /// Whether colony `i` can be **bought** right now (an independent, not already
     /// yours) — the economic acquisition target.
     #[func]

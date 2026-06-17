@@ -173,6 +173,33 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Empire Phase 2 complete: EP2 owned markets + EP3/EP4 the security
+  layer.** Finished the trade-empire depth arc the player asked for. **EP2 (owned
+  markets):** `market_is_owned(m)` (a controlled colony on its body); a market-aware
+  fee — `OWNED_TRADE_FEE_BP` (1%) at your markets vs 3% elsewhere — and a **tariff** on
+  every NPC delivery into a market you own (`deliver_arrivals`), so *NPC trade with your
+  empire pays you autonomously*. **EP3 (piracy on your empire):** `escorts_needed()` =
+  1 + holdings/3; `run_empire_piracy` skims cargo on a cadence when warships **on
+  station** fall short, deterred by a navy that scales with the empire (`empire_secure`)
+  — countered by **military**. **EP4 (faction inspections):** a **customs surcharge** in
+  `market_trade_fee` (up to +5% at a faction's market when you've soured them) + a
+  periodic `run_inspections` fine while a great power is ≤ Cold and you hold assets —
+  countered by **reputation** (mend fences). The two security threads are deliberately
+  *distinct counters*: piracy ← navy, inspections ← diplomacy. **All gated on holding
+  assets + (for EP4) a soured faction; all pure-credit, no RNG → a fresh sim is
+  byte-identical and §7c holds.** Only the Expansionist persona moved: it drew **37
+  piracy raids** + **11 inspection sweeps**, trimming its treasury from ~157k to ~142k
+  (~3×) — *real but counterable* (still net-positive; a player who managed escorts + rep
+  would keep more). New `review_empire` findings report both; `empire_raids`/
+  `inspections` telemetry; `EmpireRaided`/`Inspected` events fold into the piracy
+  variety bit (`1<<2`) so `EVENT_KIND_COUNT` is unchanged. Tests
+  `owning_a_market_cuts_your_fee_and_earns_a_tariff_on_npc_trade`,
+  `an_unescorted_trade_empire_is_raided_but_a_navy_protects_it`,
+  `souring_a_faction_brings_customs_surcharges_and_inspection_fines`. 181 core + QA + 17
+  GUT green. **The empire is now a living thing to run** — holdings supply your chain
+  (EP1), your markets earn from NPC trade (EP2), and a big empire must be *defended*
+  militarily (EP3) and *managed* politically (EP4).
+
 - **2026-06-17 — Empire Phase 2 + EP1: holdings supply your chain (`EMPIRE_PHASE2_PLAN.md`).**
   A player review found two real depth gaps after E1–E6: controlled colonies were a
   flat **credit tribute**, not economic nodes (no supply/production/logistics), and

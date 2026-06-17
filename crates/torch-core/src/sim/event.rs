@@ -71,4 +71,7 @@ pub enum Event {
     /// Pirates raided the player's trade empire (EP3) — `loss` credits of cargo were
     /// taken because escorts on station were too thin to cover the holdings.
     EmpireRaided { loss: i64 },
+    /// A soured great power inspected the player's shipping and levied a `fine` (EP4)
+    /// — political enforcement, countered by repairing the relationship.
+    Inspected { fine: i64 },
 }

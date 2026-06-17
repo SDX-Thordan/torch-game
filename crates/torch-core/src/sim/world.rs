@@ -215,6 +215,17 @@ const HOLDINGS_PER_ESCORT: usize = 3;
 /// Cargo (credits) pirates take per under-covered escort slot when you fall short.
 const PIRACY_LOSS_PER_ESCORT_SHORT: i64 = 800;
 
+// ---- faction inspections & enforcement: the political cost (EP4) ----
+/// Max customs surcharge (basis points) added to the trade fee at a fully-hostile
+/// faction's market — scales with how negative your standing is.
+const INSPECTION_SURCHARGE_MAX_BP: i64 = 500;
+/// Ticks between customs sweeps by soured great powers.
+const INSPECTION_INTERVAL: u64 = 150;
+/// A great power at or below this standing inspects your shipping (Cold or worse).
+const INSPECTION_THRESHOLD: i64 = -200;
+/// Fine per point of (capped) hostility when a soured power inspects you.
+const INSPECTION_FINE_PER_STANDING: i64 = 5;
+
 // ---- diplomatic annexation (E4) ----
 /// Influence accrued per tick (a slow statecraft resource, capped) — the currency
 /// of the peaceful acquisition path.
@@ -651,14 +662,21 @@ impl Sim {
             .any(|(c, &held)| held && c.body == body)
     }
 
-    /// The brokerage fee for a trade of `value` at market `m` (EP2): reduced at a
-    /// market you own (you run the broker), the standard fee elsewhere.
+    /// The brokerage fee for a trade of `value` at market `m`: reduced at a market you
+    /// own (EP2, you run the broker), the standard fee at a neutral market, and a
+    /// **customs surcharge** on top at a market whose faction you've soured (EP4) —
+    /// trading in hostile space costs more, scaling with how badly you've crossed them.
     fn market_trade_fee(&self, m: usize, value: i64) -> i64 {
-        let bp = if self.market_is_owned(m) {
-            OWNED_TRADE_FEE_BP
-        } else {
-            Self::TRADE_FEE_BP
-        };
+        if self.market_is_owned(m) {
+            return value * OWNED_TRADE_FEE_BP / FEE_DEN;
+        }
+        let mut bp = Self::TRADE_FEE_BP;
+        let standing = self.relations.standing(self.markets[m].faction());
+        if standing < 0 {
+            // EP4: customs friction at a soured faction's market, up to the max
+            // surcharge at fully-hostile standing.
+            bp += (-standing).min(1_000) * INSPECTION_SURCHARGE_MAX_BP / 1_000;
+        }
         value * bp / FEE_DEN
     }
 
@@ -1538,6 +1556,7 @@ impl Sim {
         self.run_holdings();
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
+        self.run_inspections(self.tick);
         // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
         // keeps the economy bit-identical whether or not anyone salvages.
         if let Some(id) = self.salvage.maybe_sight(self.tick) {
@@ -2184,6 +2203,37 @@ impl Sim {
             self.corp.debit(loss);
         }
         self.events.push(Event::EmpireRaided { loss });
+    }
+
+    /// The harshest standing a great power holds against the player — how soured the
+    /// inners are (EP4). Negative = wary/hostile.
+    pub fn worst_standing(&self) -> i64 {
+        [Faction::Earth, Faction::Mars, Faction::Belt]
+            .iter()
+            .map(|&f| self.relations.standing(f))
+            .min()
+            .unwrap_or(0)
+    }
+
+    /// Political enforcement on a trader you've crossed (EP4): on a cadence, a great
+    /// power you've soured past the threshold inspects your shipping and fines you,
+    /// scaling with how hostile they are. Countered by **repairing the relationship**
+    /// (contracts lift standing; it also heals over time) — distinct from piracy
+    /// (countered by a navy). Gated on holding assets + a soured power; draws no RNG.
+    fn run_inspections(&mut self, now: u64) {
+        if self.holding_count() == 0 || !now.is_multiple_of(INSPECTION_INTERVAL) {
+            return;
+        }
+        // The most-soured great power leads the sweep.
+        let worst = self.worst_standing();
+        if worst > INSPECTION_THRESHOLD {
+            return; // no power is angry enough to enforce
+        }
+        let fine = ((-worst).min(1_000) * INSPECTION_FINE_PER_STANDING).min(self.corp.credits());
+        if fine > 0 {
+            self.corp.debit(fine);
+        }
+        self.events.push(Event::Inspected { fine });
     }
 
     /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
@@ -3393,6 +3443,58 @@ mod tests {
             }
         }
         assert!(defended, "a coalition strike arrived to defend against");
+    }
+
+    #[test]
+    fn souring_a_faction_brings_customs_surcharges_and_inspection_fines() {
+        // EP4: anger a great power and trading in its space costs more (customs
+        // surcharge), and — once you hold assets — it inspects and fines your
+        // shipping. Countered by repairing the relationship.
+        use crate::sim::faction::Faction;
+        let mut sim = Sim::new(3);
+        sim.corp_mut().credit(200_000);
+        // Find an Earth-owned market; the fee is the baseline while neutral.
+        let m = (0..sim.markets().len())
+            .find(|&m| sim.markets()[m].faction() == Faction::Earth)
+            .expect("an Earth market");
+        let neutral_fee = sim.market_trade_fee(m, 100_000);
+        // Sour Earth hard → trading there now carries a customs surcharge.
+        sim.relations_mut().adjust(Faction::Earth, -800);
+        assert!(
+            sim.market_trade_fee(m, 100_000) > neutral_fee,
+            "trading in soured space costs more"
+        );
+        // Take a colony so you're a trader with assets to inspect, then run.
+        let c = sim.acquirable_colonies()[0];
+        let _ = sim.acquire_colony(c);
+        let mut inspected = false;
+        for _ in 0..(INSPECTION_INTERVAL * 2) {
+            if sim
+                .step()
+                .iter()
+                .any(|e| matches!(e, Event::Inspected { .. }))
+            {
+                inspected = true;
+            }
+        }
+        assert!(inspected, "a soured power inspects and fines your shipping");
+        // Mend fences (standing back above the threshold) → inspections stop.
+        sim.relations_mut().adjust(Faction::Earth, 1_000);
+        assert!(sim.worst_standing() > INSPECTION_THRESHOLD);
+        let mut inspected_after = false;
+        for _ in 0..(INSPECTION_INTERVAL * 2) {
+            if sim
+                .step()
+                .iter()
+                .any(|e| matches!(e, Event::Inspected { .. }))
+            {
+                inspected_after = true;
+            }
+        }
+        assert!(
+            !inspected_after,
+            "repairing the relationship stops the sweeps"
+        );
     }
 
     #[test]
