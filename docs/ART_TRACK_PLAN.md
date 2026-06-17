@@ -69,6 +69,17 @@ NPC haulers, raiders — colored by livery/faction.
 (+ atlas) so a fleet of them is cheap. Premature while hulls are primitive-light;
 revisit when ships populate the orrery at scale (A5) or detail grows.
 
+### A7 — The 3D combat diorama 🎆 ✅ DONE
+**Goal:** turn the §22 engagement report from a text BattleLog playback into a real
+**3D battle**. Built `godot/ui/battle_diorama.gd` (`class_name BattleDiorama`) — a
+self-contained Node3D (own camera/lights/env) hosted in a `SubViewport` above the
+play-by-play log. On `_open_diorama` it spawns two small forged fleets (player in
+livery left, raiders as scavenged Belt hulls right, facing off); each BattleLog beat
+drives FX via `on_beat(kind, side)` — railgun volleys throw bright kinetic tracers,
+torpedo salvos slower warm streaks, a kill blooms an expanding explosion as the hull
+winks out, a retreat peels the side away. Pure shell — no sim dependency beyond the
+playback calls main.gd already made; the §7c gate + QA body stay byte-identical.
+
 ## Order & risk
 A1 (forge) → A2 (designer interactivity) are the player's core ask; A3 deepens the
 look; A4/A5 spread the forge to stations/civilians/orrery; A6 is performance, deferred.

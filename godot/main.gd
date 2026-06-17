@@ -161,6 +161,7 @@ var _dio_start := [0, 0]          # starting counts (pip denominators)
 var _dio_idx := 0
 var _dio_timer := 0.0
 var _dio_playing := false
+var _battle3d: BattleDiorama          # the 3D combat scene behind the log (§22)
 var _fleet_tabs: Array[Button] = []
 
 # Build view.
@@ -1174,8 +1175,23 @@ func _build_diorama() -> void:
 	forces.add_child(_dio_force_a)
 	forces.add_child(_dio_force_b)
 	box.add_child(UiKit.rule())
+	# The 3D battle scene (forged fleets trading fire) fills the upper area.
+	var vpc := SubViewportContainer.new()
+	vpc.stretch = true
+	vpc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vpc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vpc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(vpc)
+	var vp := SubViewport.new()
+	vp.own_world_3d = true
+	vp.transparent_bg = false
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vpc.add_child(vp)
+	_battle3d = BattleDiorama.new()
+	vp.add_child(_battle3d)
+	# A shorter play-by-play log beneath the battle.
 	var sc := ScrollContainer.new()
-	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.custom_minimum_size = Vector2(0, 132)
 	sc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(sc)
 	_dio_log = RichTextLabel.new()
@@ -1228,6 +1244,8 @@ func _open_diorama() -> void:
 	_dio_start = [sim.battle_start_count(0), sim.battle_start_count(1)]
 	_dio_surv = [_dio_start[0], _dio_start[1]]
 	_dio_refresh_forces()
+	# Spawn the 3D fleets (player in Independent livery, raiders as scavenged Belt hulls).
+	_battle3d.setup(3, _dio_start[0], _dio_start[1])
 	_diorama.visible = true
 
 
@@ -1240,6 +1258,8 @@ func _dio_refresh_forces() -> void:
 func _close_diorama() -> void:
 	_dio_playing = false
 	_diorama.visible = false
+	if _battle3d:
+		_battle3d.stop()
 
 
 ## Reveal one BattleLog beat per DIO_STEP, then the outcome (called each frame).
@@ -1251,9 +1271,12 @@ func _play_diorama(delta: float) -> void:
 	while _dio_timer >= DIO_STEP and _dio_idx < total:
 		_dio_timer -= DIO_STEP
 		_dio_log.append_text(_dio_event_line(_dio_idx) + "\n")
+		var kind := sim.battle_event_kind(_dio_idx)
+		var side := sim.battle_event_side(_dio_idx)
+		# Drive the 3D scene's fire/explosion FX from the same beat.
+		_battle3d.on_beat(kind, side)
 		# A kill depletes the victim side's roster live (§22 juice).
-		if sim.battle_event_kind(_dio_idx) == 2:
-			var side := sim.battle_event_side(_dio_idx)
+		if kind == 2:
 			_dio_surv[side] = maxi(0, _dio_surv[side] - 1)
 			_dio_refresh_forces()
 		_dio_idx += 1

@@ -179,6 +179,28 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art A7: the 3D combat diorama (§22).** Turned the engagement report from a
+  text BattleLog playback into a real **3D battle**. New `godot/ui/battle_diorama.gd`
+  (`class_name BattleDiorama`) — a self-contained `Node3D` (own camera/lights/env) hosted in a
+  `SubViewport` in the upper half of the diorama box, the play-by-play log shrunk beneath it.
+  `_open_diorama` calls `setup(player_faction, n_player, n_raider)` → spawns two small forged
+  fleets (player in livery on the left, raiders as **scavenged Belt hulls** on the right,
+  facing off); the existing beat loop calls `on_beat(kind, side)` so each BattleLog beat drives
+  FX — **railgun volleys** throw bright kinetic tracers, **torpedo salvos** slower warm streaks,
+  a **kill** blooms an expanding explosion as the hull `queue_free`s, a **retreat** peels the
+  side away (FX are pooled in a `_fx` array with per-frame ttl/fade). **Pure shell** — no sim
+  dependency beyond the playback calls main.gd already made → §7c gate + QA review
+  byte-identical; 17 GUT green. **Two GDScript traps, both fatal-not-graceful:** (1) indexing
+  an **untyped array literal** (`[[..],[..]][cls]`) returns Variant, so `var mounts :=` fails
+  inference → type it `var mounts: Array =` and `int(mounts[0])` the elements; (2) `node.
+  material_override` is typed `Material`, so assigning to a `StandardMaterial3D` local needs
+  `as StandardMaterial3D`, not `: StandardMaterial3D =`. *Critical lesson:* a parse error in a
+  `class_name` script that **main.gd depends on** doesn't fail loudly — the scene just **hangs
+  on load** (godot sits forever, even `--headless`), and a *render* timeout looks like "slow
+  GL." Diagnose with `godot --headless --path godot --import`, which prints the real
+  `Parse Error: Cannot infer the type…` with file:line. Always `--import` after adding a new
+  `class_name` (registers the global class too). **Remaining art:** A6 (bake/optimize, deferred).
+
 - **2026-06-17 — Art: military-tower look pass + faction palettes pulled apart (§24).** Player
   posted a reference render (a size-progression fleet of olive-drab **tower-like** hulls with
   bold **yellow-black hazard banding**) and the silhouette/quality target. Two parts. **(1)
