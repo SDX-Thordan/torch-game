@@ -324,6 +324,60 @@ impl TorchSim {
         self.sim.colony_acquire_cost(i as usize).unwrap_or(-1)
     }
 
+    /// The player's Influence — the statecraft resource for diplomatic annexation (E4).
+    #[func]
+    fn influence(&self) -> i64 {
+        self.sim.influence()
+    }
+
+    /// Whether colony `i` can be diplomatically annexed right now (E4).
+    #[func]
+    fn colony_annexable(&self, i: i64) -> bool {
+        self.sim.can_annex(i as usize)
+    }
+
+    /// Diplomatically annex independent colony `i` (E4 — the peaceful path). Returns:
+    /// 0 ok, 1 not acquirable, 2 already controlled, 3 standing too low, 4 not enough
+    /// influence.
+    #[func]
+    fn annex_colony(&mut self, i: i64) -> i64 {
+        use sim::world::AnnexError as E;
+        match self.sim.annex_colony(i as usize) {
+            Ok(()) => 0,
+            Err(E::NotAcquirable) => 1,
+            Err(E::AlreadyControlled) => 2,
+            Err(E::StandingTooLow) => 3,
+            Err(E::NotEnoughInfluence) => 4,
+        }
+    }
+
+    /// The defending garrison size for colony `i` (E5) — how hard it is to take by
+    /// force (the inner powers garrison hard; independents barely at all).
+    #[func]
+    fn colony_garrison(&self, i: i64) -> i64 {
+        self.sim.garrison_size(i as usize) as i64
+    }
+
+    /// Seize colony `i` by force at `band` (0 close, 1 medium, 2 long) (E5 — the
+    /// aggressive path). Returns: 1 taken, 0 the assault failed, −1 invalid target,
+    /// −2 already controlled, −3 no fleet.
+    #[func]
+    fn seize_colony(&mut self, i: i64, band: i64) -> i64 {
+        let band = match band {
+            0 => sim::Band::Close,
+            2 => sim::Band::Long,
+            _ => sim::Band::Medium,
+        };
+        use sim::world::SeizeError as E;
+        match self.sim.seize_colony(i as usize, band) {
+            Ok(o) if o.winner == Some(0) => 1,
+            Ok(_) => 0,
+            Err(E::InvalidTarget) => -1,
+            Err(E::AlreadyControlled) => -2,
+            Err(E::NoFleet) => -3,
+        }
+    }
+
     /// Buy out independent colony `i` (the empire layer's economic path). Returns:
     /// 0 ok, 1 not acquirable, 2 already controlled, 3 can't afford.
     #[func]

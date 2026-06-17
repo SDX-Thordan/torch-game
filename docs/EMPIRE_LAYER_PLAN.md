@@ -94,17 +94,37 @@ a **coalition** that actively comes for your holdings.
 - *Refinement deferred:* per-faction, sphere-aware alarm (taking Mars's backyard
   angers Mars most) — v1 models the coalition as a single united gauge.
 
-### E4 — Diplomatic annexation 🤝
+### E4 — Diplomatic annexation 🤝 ✅ DONE
 **Goal:** the *peaceful* path. Persuade an independent colony to **join** you on high
-standing + an **Influence** spend (a new slow resource, Stellaris-style), angering the
-inners *less* than buying in their sphere. Influence also offsets overextension.
-- **Core:** `Influence` resource; `annex_colony` (standing + influence gated).
+standing + an **Influence** spend, angering the inners *less* than a buyout.
+- **Built:** an `influence` resource accrues slowly each tick (`INFLUENCE_PER_TICK`,
+  capped at `INFLUENCE_MAX`); `annex_colony(i)` is gated on `can_annex` (Independents
+  at ≥ Cordial `ANNEX_STANDING_REQ` 200 **and** `ANNEX_INFLUENCE_COST` 300 banked),
+  spends Influence (not credits), pays the gentler `Relations::on_player_annex`
+  (−20 inners vs −40) + a smaller alarm spike (`ALARM_PER_ANNEX` 60 vs 120). The reward
+  for the patient, reputation-built path. `AnnexError`; persisted (`influence`). 3
+  bindings + an `⊕ ANNEX (DIPLO)` button + an `Influence n` readout. Test
+  `diplomatic_annexation_costs_influence_and_good_standing_not_credits`.
 
-### E5 — Military seizure ⚔️
-**Goal:** the *aggressive* path. Move a fleet to a target, win the engagement, **seize**
-the station/colony. The biggest alarm spike (open aggression) and the tie that makes
-the positional fleet layer (Pillar #2) serve expansion. Reuses combat.
-- **Core:** `siege`/`seize_colony` (fleet on station + a won engagement).
+### E5 — Military seizure ⚔️ ✅ DONE
+**Goal:** the *aggressive* path. Assault a colony's garrison, win, **seize** it —
+even a great power's. Reuses combat.
+- **Built:** `seize_colony(i, band)` musters the fleet vs a `garrison_size`-scaled
+  defending pack (Earth 8 / Mars 6 / Belt 4 / Independents 2 frigates, quality 60), so
+  taking the inners' ground needs a real battlefleet while an outpost falls to a
+  frigate or two. A won siege flips control (of *any* colony, not just independents),
+  applies ship losses, and pays the harshest political price — `Relations::
+  on_player_seize` craters the owner's standing (−200) + their rival's bonus + the
+  biggest alarm spike (`ALARM_PER_SEIZE` 220). A loss just costs ships. `SeizeError`.
+  4 bindings + a `⚔ SEIZE COLONY` button (assaults the lightest-garrisoned target) +
+  the diorama. Test
+  `military_seizure_takes_a_colony_by_force_at_the_harshest_political_price`.
+
+**The three acquisition pathways are complete** — economy (E1 buy), diplomacy (E4
+annex), military (E5 seize) — each with a distinct cost (credits / Influence+standing /
+ships+blood) and a distinct political price (alarm 120 / 60 / 220), all governed by
+the E2 administrative cap and the E3 coalition. Remaining: **E6** (expansion as the
+spine metric + the EMPIRE master-table view + an Expansionist QA persona).
 
 ### E6 — Expansion as the spine + the EMPIRE command view 👑
 **Goal:** make "empire grown" the real tier metric (reframing the §0 three-horizon

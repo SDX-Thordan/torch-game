@@ -71,6 +71,8 @@ const RIVAL_BONUS: i64 = 20;
 const EXPAND_INNER_ALARM: i64 = 40;
 /// …and how much it pleases the Belt, your home power (Belter ground gained).
 const EXPAND_HOME_APPROVAL: i64 = 25;
+/// How far seizing a faction's colony by force enrages the owner (E5) — open war.
+const SEIZE_PENALTY: i64 = 200;
 /// Standing is clamped to this magnitude.
 const STANDING_CAP: i64 = 1_000;
 
@@ -130,6 +132,25 @@ impl Relations {
         self.adjust(Faction::Earth, -EXPAND_INNER_ALARM);
         self.adjust(Faction::Mars, -EXPAND_INNER_ALARM);
         self.adjust(Faction::Belt, EXPAND_HOME_APPROVAL);
+    }
+
+    /// The player **diplomatically annexed** a colony (the empire layer, E4): a
+    /// peaceful merger costs the inners *less* goodwill than a hostile buyout — the
+    /// reward for the patient, reputation-built path.
+    pub fn on_player_annex(&mut self) {
+        self.adjust(Faction::Earth, -EXPAND_INNER_ALARM / 2);
+        self.adjust(Faction::Mars, -EXPAND_INNER_ALARM / 2);
+        self.adjust(Faction::Belt, EXPAND_HOME_APPROVAL);
+    }
+
+    /// The player **seized** a colony by force (the empire layer, E5): open
+    /// aggression. The asset's `owner` faction is enraged and its rival quietly
+    /// pleased — the harshest political price of the three acquisition paths.
+    pub fn on_player_seize(&mut self, owner: Faction) {
+        self.adjust(owner, -SEIZE_PENALTY);
+        if let Some(rival) = owner.rival() {
+            self.adjust(rival, RIVAL_BONUS);
+        }
     }
 
     /// Memory fades: drift every standing one `step` toward neutral (§10). This

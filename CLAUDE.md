@@ -173,6 +173,32 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Empire layer E4 + E5: the other two acquisition paths complete.**
+  With E1 (buy) the economic path, **E4 (diplomacy)** and **E5 (military)** finish the
+  trio — each a distinct cost *and* a distinct political price, so *how* you expand is a
+  real strategic choice. **E4 — diplomatic annexation:** a slow `influence` resource
+  accrues per tick (capped, accrual in `run_holdings` — pure, no RNG, so QA stays
+  byte-identical); `annex_colony` is gated on Independents-standing ≥ Cordial (200) +
+  `ANNEX_INFLUENCE_COST` (300) banked, spends **Influence not credits**, and pays the
+  gentler `on_player_annex` (−20 inners vs the buyout's −40) + a smaller alarm spike
+  (60 vs 120) — the reward for the patient, reputation-built path. **E5 — military
+  seizure:** `seize_colony(i, band)` assaults a `garrison_size`-scaled pack (Earth 8 /
+  Mars 6 / Belt 4 / Independents 2, quality 60), so it can take **any** colony incl. a
+  great power's (the only path that bypasses the Independents-only restriction), at the
+  harshest price — `on_player_seize` craters the owner (−200) + rival bonus + the
+  biggest alarm spike (220). So the three paths sit at alarm 120 / 60 / 220 and cost
+  credits / Influence+standing / ships+blood. Both persisted (`influence`); 5 bindings +
+  `⊕ ANNEX (DIPLO)` / `⚔ SEIZE COLONY` buttons + an `Influence n` readout. *Reflexes
+  that held:* every new mutating path raises coalition alarm via the shared
+  `raise_alarm`, and the seize/annex events reuse `ColonyAcquired` (no new Event variant
+  → no QA exhaustive-match churn). *Test lesson:* seize is reliable on a **light**
+  garrison — the provoke test seizes the 2-defender independent colony with 5 frigates;
+  taking Earth's 8-strong garrison genuinely needs a battlefleet (by design).
+  177 core + QA + 17 GUT green. **The whole expansion-by-acquisition loop (E1–E5) is in
+  — economy/diplomacy/military, capped by admin capacity + the faction coalition.**
+  Next: **E6** (expansion-as-spine + EMPIRE master-table view + an Expansionist QA
+  persona — the first rung that *legitimately* moves the QA review).
+
 - **2026-06-17 — Empire layer E2 + E3: the overextension teeth (`EMPIRE_LAYER_PLAN.md`).**
   The caps that make E1's expansion *careful*, both inert until the player holds
   colonies (so the §7c gate + QA body stay byte-identical). **E2 (administrative

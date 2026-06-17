@@ -111,6 +111,10 @@ pub struct SaveState {
     /// old saves. The coalition schedule is reconstructed from it on load.
     #[serde(default)]
     pub coalition_alarm: i64,
+    /// Influence — the statecraft resource for diplomatic annexation (E4); 0 for a
+    /// fresh game / old saves.
+    #[serde(default)]
+    pub influence: i64,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,

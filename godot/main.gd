@@ -658,6 +658,11 @@ func _build_systems_view() -> void:
 	# The empire layer (E1): buy out an independent frontier colony. Mobile-friendly
 	# one-press expansion — takes the cheapest acquirable colony.
 	fo.add_child(_make_op_button("⊕ ACQUIRE COLONY", _acquire_colony))
+	# The empire layer (E4): diplomatically annex an independent colony (Influence +
+	# good standing, a gentler political cost than a buyout).
+	fo.add_child(_make_op_button("⊕ ANNEX (DIPLO)", _annex_colony))
+	# The empire layer (E5): seize a colony by force — the aggressive path.
+	fo.add_child(_make_op_button("⚔ SEIZE COLONY", _seize_colony))
 	# The empire layer (E3): answer a great-power coalition strike on your holdings —
 	# lit only while the inners are moving on you.
 	_defend_holdings_btn = _make_op_button("⚔ DEFEND HOLDINGS", _defend_holdings)
@@ -874,6 +879,69 @@ func _acquire_colony() -> void:
 			status = "Not enough credits to acquire %s (needs %d cr)." % [name, best_cost]
 		_:
 			status = "%s can't be acquired." % name
+
+
+## Diplomatically annex an independent colony (the empire layer, E4) — spends
+## Influence and needs good standing with the Independents, but angers the inners less.
+func _annex_colony() -> void:
+	var target := -1
+	for i in sim.colony_count():
+		if sim.colony_annexable(i):
+			target = i
+			break
+	if target < 0:
+		# Tell the player why nothing is annexable (the common gates).
+		if sim.influence() < 300:
+			status = "Annexation needs Influence (have %d/300) and Independent goodwill." % sim.influence()
+		else:
+			status = "No colony to annex — raise standing with the Independents first."
+		return
+	var name := String(sim.colony_name(target))
+	var code: int = sim.annex_colony(target)
+	match code:
+		0:
+			ascend_flash = 1.0
+			status = "⊕ %s joins us by treaty — cleaner than coin." % name
+			_focus_body = sim.colony_body(target)
+		3:
+			status = "The Independents don't trust us enough to annex %s yet." % name
+		4:
+			status = "Not enough Influence to annex %s (need 300)." % name
+		_:
+			status = "%s can't be annexed." % name
+
+
+## Seize a colony by force (the empire layer, E5) — assault the weakest-garrisoned
+## target with the fleet. The harshest political price of the three paths.
+func _seize_colony() -> void:
+	# Pick the lightest-garrisoned colony we don't already hold.
+	var target := -1
+	var best_garrison := 1 << 30
+	for i in sim.colony_count():
+		if not sim.colony_controlled(i):
+			var g: int = sim.colony_garrison(i)
+			if g < best_garrison:
+				best_garrison = g
+				target = i
+	if target < 0:
+		status = "No colony left to seize."
+		return
+	var name := String(sim.colony_name(target))
+	var code: int = sim.seize_colony(target, combat_band)
+	match code:
+		1:
+			ascend_flash = 1.0
+			status = "⚔ %s taken by force — the owner will not forget this." % name
+			_focus_body = sim.colony_body(target)
+			_open_diorama()
+		0:
+			flash = 1.0
+			status = "⚔ The assault on %s failed — we lost ships for nothing." % name
+			_open_diorama()
+		-3:
+			status = "No fleet to mount an assault — commission warships first."
+		_:
+			status = "%s can't be seized." % name
 
 
 ## Defend the holdings against a great-power coalition strike (the empire layer, E3).
@@ -1741,6 +1809,8 @@ func _refresh_systems() -> void:
 	if sim.admin_strain() > 0:
 		# Overextended (E2): flag the strain + the income hit.
 		hold_txt = "⚠ Holdings %d/%d (strained · %d%%)" % [holdings, cap, sim.holdings_efficiency_pct()]
+	# Influence (E4): the statecraft resource for diplomatic annexation.
+	hold_txt += "   ·   Influence %d" % sim.influence()
 	# Coalition alarm (E3): warn as the great powers turn against your expansion.
 	if sim.coalition_active():
 		hold_txt += "   ·   ⚠ COALITION (alarm %d)" % sim.coalition_alarm()

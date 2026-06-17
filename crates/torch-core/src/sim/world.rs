@@ -198,6 +198,46 @@ const COALITION_STRENGTH_PER_SHIP: i64 = 100;
 /// Reparations debited when the coalition strikes but you hold no colony to seize.
 const COALITION_REPARATIONS: i64 = 15_000;
 
+// ---- diplomatic annexation (E4) ----
+/// Influence accrued per tick (a slow statecraft resource, capped) — the currency
+/// of the peaceful acquisition path.
+const INFLUENCE_PER_TICK: i64 = 1;
+/// Influence ceiling — you bank toward a diplomatic action, you don't hoard forever.
+const INFLUENCE_MAX: i64 = 1_000;
+/// Influence to annex an independent colony (E4).
+const ANNEX_INFLUENCE_COST: i64 = 300;
+/// Standing with the Independents required to annex one of their colonies (Cordial).
+const ANNEX_STANDING_REQ: i64 = 200;
+/// A diplomatic annexation spikes coalition alarm less than a hostile buyout (E4).
+const ALARM_PER_ANNEX: i64 = 60;
+
+// ---- military seizure (E5) ----
+/// A successful seizure is open aggression — the biggest coalition-alarm spike (E5).
+const ALARM_PER_SEIZE: i64 = 220;
+/// Crew quality of a colony's defending garrison (E5).
+const GARRISON_QUALITY: i64 = 60;
+
+/// Why a diplomatic annexation could not proceed (E4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnnexError {
+    /// Not an annexable target (not an independent colony, or already controlled).
+    NotAcquirable,
+    AlreadyControlled,
+    /// Standing with the Independents is below the diplomatic threshold.
+    StandingTooLow,
+    NotEnoughInfluence,
+}
+
+/// Why a military seizure could not proceed (E5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeizeError {
+    /// No such colony, or it's already yours.
+    InvalidTarget,
+    AlreadyControlled,
+    /// No warships to mount the assault.
+    NoFleet,
+}
+
 /// Why a far-side bridgehead op (found/upgrade) could not proceed (§17, G3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BridgeheadError {
@@ -355,6 +395,8 @@ pub struct Sim {
     /// A coalition strike bearing on the holdings, awaiting a defense (E3):
     /// `(strength, deadline tick)`. Transient — a reload re-opens a fresh window.
     pending_coalition: Option<(i64, u64)>,
+    /// Influence — the slow statecraft resource spent on diplomatic annexation (E4).
+    influence: i64,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -436,6 +478,7 @@ impl Sim {
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
             pending_coalition: None,
+            influence: 0,
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -1309,6 +1352,7 @@ impl Sim {
             endgame_outcome: self.endgame_outcome,
             controlled_colonies: self.controlled.clone(),
             coalition_alarm: self.coalition_alarm,
+            influence: self.influence,
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1421,6 +1465,7 @@ impl Sim {
         // E3: restore the coalition alarm; the strike schedule re-arms from it.
         self.coalition_alarm = s.coalition_alarm.clamp(0, ALARM_MAX);
         self.next_coalition_strike = 0;
+        self.influence = s.influence.clamp(0, INFLUENCE_MAX); // E4
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1672,6 +1717,126 @@ impl Sim {
         Ok(())
     }
 
+    /// The player's current Influence — the statecraft resource for diplomatic
+    /// annexation (E4).
+    pub fn influence(&self) -> i64 {
+        self.influence
+    }
+
+    /// Whether colony `i` can be **diplomatically annexed** right now (E4): an
+    /// acquirable independent, with the Independents at the required standing and
+    /// enough Influence banked.
+    pub fn can_annex(&self, i: usize) -> bool {
+        self.is_acquirable(i)
+            && self.relations.standing(Faction::Independents) >= ANNEX_STANDING_REQ
+            && self.influence >= ANNEX_INFLUENCE_COST
+    }
+
+    /// **Diplomatically annex an independent colony** (E4) — the peaceful path: spend
+    /// Influence (not credits), gated on good standing with the Independents, and pay
+    /// a *reduced* political cost (`on_player_annex` + a smaller alarm spike) than a
+    /// hostile buyout. The reward for patient, reputation-built statecraft.
+    pub fn annex_colony(&mut self, i: usize) -> Result<(), AnnexError> {
+        if self.colony_controlled(i) {
+            return Err(AnnexError::AlreadyControlled);
+        }
+        if !self.is_acquirable(i) {
+            return Err(AnnexError::NotAcquirable);
+        }
+        if self.relations.standing(Faction::Independents) < ANNEX_STANDING_REQ {
+            return Err(AnnexError::StandingTooLow);
+        }
+        if self.influence < ANNEX_INFLUENCE_COST {
+            return Err(AnnexError::NotEnoughInfluence);
+        }
+        self.influence -= ANNEX_INFLUENCE_COST;
+        self.controlled[i] = true;
+        self.relations.on_player_annex();
+        self.raise_alarm(ALARM_PER_ANNEX);
+        self.events.push(Event::ColonyAcquired { colony: i });
+        self.complete_op();
+        Ok(())
+    }
+
+    /// The defending garrison size for colony `i` (E5) — scaled by its owner: the
+    /// inner powers garrison hard, the Independents barely at all, so taking Earth's
+    /// ground by force needs a real battlefleet while an outpost falls to a frigate or two.
+    pub fn garrison_size(&self, i: usize) -> usize {
+        match self.colonies.get(i).map(|c| c.faction) {
+            Some(Faction::Earth) => 8,
+            Some(Faction::Mars) => 6,
+            Some(Faction::Belt) => 4,
+            _ => 2,
+        }
+    }
+
+    /// **Seize a colony by force** (E5) — the aggressive path: muster the fleet and
+    /// assault the colony's garrison (any colony, not just independents). A won siege
+    /// takes control but at the harshest political price (`on_player_seize` craters
+    /// the owner's standing + the biggest alarm spike); a lost one just costs ships.
+    /// Returns the battle outcome on a resolved assault.
+    pub fn seize_colony(&mut self, i: usize, band: Band) -> Result<BattleOutcome, SeizeError> {
+        if i >= self.colonies.len() {
+            return Err(SeizeError::InvalidTarget);
+        }
+        if self.colony_controlled(i) {
+            return Err(SeizeError::AlreadyControlled);
+        }
+        let player_ships: Vec<Loadout> = self
+            .corp
+            .fleet()
+            .iter()
+            .map(|s| s.loadout.clone())
+            .collect();
+        if player_ships.is_empty() {
+            return Err(SeizeError::NoFleet);
+        }
+        let owner = self.colonies[i].faction;
+        let garrison: Vec<Loadout> = (0..self.garrison_size(i))
+            .map(|_| {
+                ships::reference_loadout_quality(
+                    ShipClass::Frigate,
+                    GARRISON_QUALITY,
+                    &mut self.rng,
+                )
+            })
+            .collect();
+        let player_doctrine = Doctrine {
+            band,
+            ..self.combat_doctrine
+        };
+        let garrison_doctrine = Doctrine {
+            band,
+            ..Doctrine::default()
+        };
+        let outcome = combat::resolve(
+            &Fleet {
+                ships: &player_ships,
+                doctrine: player_doctrine,
+            },
+            &Fleet {
+                ships: &garrison,
+                doctrine: garrison_doctrine,
+            },
+            &mut self.rng,
+        );
+        let survivors = outcome.survivors[0];
+        let losses = player_ships.len() - survivors;
+        let won = outcome.winner == Some(0);
+        let all: Vec<usize> = (0..player_ships.len()).collect();
+        self.corp.resolve_engagement_for(all, survivors, won);
+        if won {
+            self.controlled[i] = true;
+            self.relations.on_player_seize(owner);
+            self.raise_alarm(ALARM_PER_SEIZE);
+            self.events.push(Event::ColonyAcquired { colony: i });
+            self.complete_op();
+        }
+        self.events.push(Event::BattleResolved { won, losses });
+        self.last_battle = Some((band, [player_ships.len(), garrison.len()], outcome.clone()));
+        Ok(outcome)
+    }
+
     /// How many holdings the player can govern efficiently (E2) — a base plus a
     /// slice earned through the CEO track. Beyond this, holdings strain (§ Stellaris
     /// admin cap): a seasoned operator runs a wider empire than a green one.
@@ -1704,6 +1869,9 @@ impl Sim {
     /// holdings go net-negative. A pure credit flow — no market RNG — so a fresh sim
     /// (which controls nothing) is byte-identical and the §7c gate holds.
     fn run_holdings(&mut self) {
+        // Influence accrues slowly toward its cap (E4) — the statecraft resource for
+        // diplomatic annexation. Pure (no RNG), so a fresh sim stays byte-identical.
+        self.influence = (self.influence + INFLUENCE_PER_TICK).min(INFLUENCE_MAX);
         let gross: i64 = self
             .controlled
             .iter()
@@ -2954,6 +3122,76 @@ mod tests {
         assert!(
             sim.holdings_efficiency_bp() < 10_000,
             "overextension cuts efficiency"
+        );
+    }
+
+    #[test]
+    fn diplomatic_annexation_costs_influence_and_good_standing_not_credits() {
+        // E4: the peaceful path — annex an independent colony with banked Influence
+        // and Cordial standing, paying a gentler political cost than a buyout.
+        use crate::sim::faction::Faction;
+        let mut sim = Sim::new(4);
+        let i = sim.acquirable_colonies()[0];
+        // Without standing or influence, you can't annex.
+        assert_eq!(sim.annex_colony(i), Err(AnnexError::StandingTooLow));
+        sim.relations_mut().adjust(Faction::Independents, 400); // Cordial
+        assert_eq!(
+            sim.annex_colony(i),
+            Err(AnnexError::NotEnoughInfluence),
+            "still need Influence banked"
+        );
+        // Bank influence over time (it accrues each tick).
+        for _ in 0..ANNEX_INFLUENCE_COST {
+            sim.step();
+        }
+        assert!(sim.influence() >= ANNEX_INFLUENCE_COST);
+        let credits_before = sim.corp().credits();
+        let earth_before = sim.relations().standing(Faction::Earth);
+        assert!(sim.can_annex(i));
+        assert_eq!(sim.annex_colony(i), Ok(()));
+        assert!(sim.colony_controlled(i));
+        assert_eq!(
+            sim.corp().credits(),
+            credits_before,
+            "annexation costs no credits"
+        );
+        assert!(sim.influence() < ANNEX_INFLUENCE_COST, "it spent Influence");
+        // A gentler ding than a buyout (−20 vs −40), but still some inner wariness.
+        assert!(sim.relations().standing(Faction::Earth) < earth_before);
+        assert!(sim.relations().standing(Faction::Earth) >= earth_before - 25);
+    }
+
+    #[test]
+    fn military_seizure_takes_a_colony_by_force_at_the_harshest_political_price() {
+        // E5: the aggressive path — assault a colony's garrison and, on a win, take
+        // it (even a great power's), enraging the owner.
+        let mut sim = Sim::new(7);
+        sim.corp_mut().credit(5_000_000);
+        // Need a fleet to mount an assault.
+        let indie = sim.acquirable_colonies()[0];
+        assert_eq!(
+            sim.seize_colony(indie, Band::Close),
+            Err(SeizeError::NoFleet)
+        );
+        for _ in 0..5 {
+            let _ = sim.commission_ship(ShipClass::Frigate);
+        }
+        // Seize a lightly-garrisoned independent colony (2 defenders) — 5 frigates win.
+        let owner = sim.colonies()[indie].faction;
+        let alarm_before = sim.coalition_alarm();
+        let owner_before = sim.relations().standing(owner);
+        let outcome = sim
+            .seize_colony(indie, Band::Close)
+            .expect("a resolved assault");
+        assert_eq!(outcome.winner, Some(0), "the squadron takes the colony");
+        assert!(sim.colony_controlled(indie));
+        // Open aggression: the biggest alarm spike + the owner is enraged.
+        assert!(sim.coalition_alarm() > alarm_before);
+        assert!(sim.relations().standing(owner) < owner_before);
+        // Can't seize what you already hold.
+        assert_eq!(
+            sim.seize_colony(indie, Band::Close),
+            Err(SeizeError::AlreadyControlled)
         );
     }
 
