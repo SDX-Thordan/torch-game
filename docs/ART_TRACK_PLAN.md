@@ -38,11 +38,21 @@ fit through the sim's `ships::Loadout` fitting (slots/power/tankage/crew), and
 **re-forge** the ship live so the chosen weapons appear on the sockets. The sim already
 has the fitting model + `FitError`; expose mutable-loadout bindings.
 
-### A3 — Faction-distinct hull shapes 🛰️
+### A3 — Faction-distinct hull shapes 🛰️ ✅ DONE
 **Goal:** deepen the §4 visual signatures from palette-only into *shape* (Earth boxy &
 bilateral; Mars elongated, angular, weapon-forward; Belt asymmetric, welded, salvaged).
 Different section grammars + greeble styles + weapon placement per faction. Raider hulls
 read as scavenged.
+- **Built:** a per-faction `SHAPE` profile in `ship_forge.gd` driving the hull grammar
+  (len/width/height multipliers, taper, drums, sponsons, lateral asymmetry, deck bevel,
+  bolt-ons, prow kind). **Earth (UNN):** wide, boxy, low, gentle taper, symmetric
+  **sponson pods** on the flanks, a **blunt squared nose** — institutional/bilateral.
+  **Mars (MCRN):** long, narrow, **faceted/beveled decks**, a hard taper to a pointed
+  **forward spear-lance** — sleek, weapon-forward. **Belt/OPA:** chunky, mixed
+  **drums + boxes welded off-centre** (lateral asymmetry), **salvaged bolt-on tanks**
+  strutted to one flank, a **ragged off-centre prow** — scavenged. **Independent:** the
+  modular stepped baseline. Render-verified all four at a common fixed scale (broadside
+  + top-down). Pure shell → §7c gate + QA body byte-identical.
 
 ### A4 — Stations & the civilian fleet 🏭 ✅ DONE (models; orrery wiring in A5)
 **Goal:** a **station** kit (modular hab drums + solar/radiator + docking arms, by the

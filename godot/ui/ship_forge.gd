@@ -23,6 +23,21 @@ const PALETTE := {
 const TRIM := Color(0.11, 0.11, 0.13)
 const DARK := Color(0.06, 0.06, 0.07)
 
+# Faction hull-shape profiles (A3): each power builds to a different *grammar*, not
+# just a different palette. Earth (UNN) = boxy, wide, bilateral, institutional; Mars
+# (MCRN) = lean, narrow, angular, weapon-forward; Belt/OPA = welded, asymmetric,
+# salvaged drums + bolt-ons; Independent = modular practical (the baseline).
+const SHAPE := {
+	0: {"len": 0.92, "width": 1.24, "height": 0.80, "taper": 0.84,
+		"drums": false, "sponsons": true, "asym": 0.0, "bevel": 0.0, "boltons": false, "prow": "blunt"},
+	1: {"len": 1.30, "width": 0.74, "height": 1.05, "taper": 0.40,
+		"drums": false, "sponsons": false, "asym": 0.0, "bevel": 6.0, "boltons": false, "prow": "spear"},
+	2: {"len": 0.98, "width": 1.16, "height": 1.06, "taper": 0.90,
+		"drums": true, "sponsons": false, "asym": 0.17, "bevel": 0.0, "boltons": true, "prow": "ragged"},
+	3: {"len": 1.00, "width": 1.00, "height": 0.95, "taper": 0.66,
+		"drums": true, "sponsons": false, "asym": 0.05, "bevel": 0.0, "boltons": false, "prow": "step"},
+}
+
 
 static func _mat(col: Color, rough := 0.65, metal := 0.45) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -279,46 +294,66 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	# hulls are **tower-like** (built around thrust gravity) — slim for their length,
 	# the engine the wide base, the bow the narrow top.
 	var t: float = float(class_idx) / 3.0
-	# Wide size spread so class reads at a glance: a Corvette is a small patrol boat,
-	# a Battleship a vast slab — ~2.7x longer and ~3x beamier across the line.
-	var total_len: float = lerpf(2.8, 7.6, t)
-	var width: float = lerpf(0.44, 1.30, t)
+	var sp: Dictionary = SHAPE.get(faction, SHAPE[3])
+	# Wide size spread so class reads at a glance (Corvette patrol boat → Battleship
+	# slab), then the faction profile reshapes the proportions & grammar.
+	var total_len: float = lerpf(2.8, 7.6, t) * float(sp["len"])
+	var width: float = lerpf(0.44, 1.30, t) * float(sp["width"])
+	var height_mul: float = float(sp["height"])
+	var taper: float = float(sp["taper"])
+	var asym: float = float(sp["asym"])
+	var bevel: float = float(sp["bevel"])
+	var use_drums: bool = sp["drums"]
+	var use_sponsons: bool = sp["sponsons"]
+	var use_boltons: bool = sp["boltons"]
+	var prow_kind: String = sp["prow"]
 	var sections: int = 4 + class_idx                 # 4 (corvette) .. 7 (battleship)
-	if faction == 1:    # Mars — longer, leaner
-		total_len *= 1.12
-		width *= 0.9
-	elif faction == 2:  # Belt — chunkier
-		width *= 1.1
 
 	# Lower keel hull (the wide armored base the modules ride on).
 	_box(root, Vector3(0, -width * 0.22, 0), Vector3(width * 0.62, width * 0.34, total_len * 0.9), trim_mat)
 
-	# Stacked hull modules from aft (-Z) to fore (+Z), layered (lower body + upper deck).
+	# Stacked hull modules from aft (-Z) to fore (+Z), reshaped by the faction grammar.
 	var seg: float = total_len / float(sections)
 	var z: float = -total_len * 0.5 + seg * 0.55
 	var top_y: Array[float] = []
 	var seg_z: Array[float] = []
 	for i in sections:
 		var frac: float = float(i) / float(sections - 1)        # 0 aft .. 1 fore
-		var w: float = width * lerpf(1.0, 0.66, frac) * rng.randf_range(0.94, 1.04)
-		var h: float = width * lerpf(0.92, 0.58, frac) * rng.randf_range(0.95, 1.04)
-		var is_drum: bool = (i % 3 == 1) and frac < 0.7          # ribbed reactor drums (mid/aft)
+		var w: float = width * lerpf(1.0, taper, frac) * rng.randf_range(0.94, 1.04)
+		var h: float = width * height_mul * lerpf(0.92, 0.58, frac) * rng.randf_range(0.95, 1.04)
+		# Belt welds its sections on off-centre — an asymmetric, salvaged spine.
+		var ox: float = rng.randf_range(-asym, asym) * width if asym > 0.0 else 0.0
+		var is_drum: bool = use_drums and (i % 3 == 1) and frac < 0.7   # ribbed reactor drums
 		if is_drum:
 			var dr: float = maxf(w, h) * 0.52
-			_cyl(root, Vector3(0, 0, z), dr, seg * 0.92, hull_mat, "z")
+			_cyl(root, Vector3(ox, 0, z), dr, seg * 0.92, hull_mat, "z")
 			for k in 3:                                          # rib rings
-				_ring(root, Vector3(0, 0, z + lerpf(-seg * 0.3, seg * 0.3, float(k) / 2.0)), dr + 0.01, trim_mat)
+				_ring(root, Vector3(ox, 0, z + lerpf(-seg * 0.3, seg * 0.3, float(k) / 2.0)), dr + 0.01, trim_mat)
 		else:
-			_box(root, Vector3(0, -h * 0.08, z), Vector3(w, h * 0.7, seg * 0.94), hull_mat)   # lower body
-			_box(root, Vector3(0, h * 0.4, z), Vector3(w * 0.74, h * 0.36, seg * 0.78), plate_mat)  # upper deck
+			var body := _box(root, Vector3(ox, -h * 0.08, z), Vector3(w, h * 0.7, seg * 0.94), hull_mat)
+			var deck := _box(root, Vector3(ox, h * 0.4, z), Vector3(w * 0.74, h * 0.36, seg * 0.78), plate_mat)
+			# Mars facets its decks — a slight roll gives the angular, hard-edged look.
+			if bevel > 0.0:
+				var br: float = rng.randf_range(-bevel, bevel)
+				body.rotation_degrees = Vector3(0, 0, br)
+				deck.rotation_degrees = Vector3(0, 0, br * 1.4)
+		# Earth bolts symmetric sponson pods on the flanks (bilateral, institutional).
+		if use_sponsons and frac < 0.78 and i % 2 == 1:
+			for sxp in [-1.0, 1.0]:
+				_box(root, Vector3(sxp * (w * 0.5 + 0.07), -h * 0.04, z), Vector3(0.16, h * 0.52, seg * 0.72), plate_mat)
+		# Belt hangs a salvaged tank/module off one flank, tied on by a strut.
+		if use_boltons and i % 2 == 0:
+			var bx: float = (1.0 if rng.randf() > 0.5 else -1.0) * (w * 0.5 + 0.12)
+			_cyl(root, Vector3(bx + ox, h * 0.12, z), maxf(w, h) * 0.24, seg * 0.66, trim_mat, "z")
+			_box(root, Vector3((bx + ox) * 0.55, h * 0.12, z), Vector3(0.2, 0.035, 0.035), panel_mat)
 		# Rust-orange accent stripe down each flank + a hazard band on alternate decks.
 		for sx in [-1.0, 1.0]:
-			_box(root, Vector3(sx * w * 0.5, 0, z), Vector3(0.025, h * 0.5, seg * 0.66), accent_mat)
+			_box(root, Vector3(ox + sx * w * 0.5, 0, z), Vector3(0.025, h * 0.5, seg * 0.66), accent_mat)
 		if i % 2 == 0 and not is_drum:
-			_box(root, Vector3(0, h * 0.58 + 0.004, z), Vector3(w * 0.5, 0.012, seg * 0.34), hazard)
+			_box(root, Vector3(ox, h * 0.58 + 0.004, z), Vector3(w * 0.5, 0.012, seg * 0.34), hazard)
 		# Plating greebles (panel detail) on the decks and flanks.
 		for _g in range(3 + class_idx):
-			var gx: float = rng.randf_range(-w * 0.46, w * 0.46)
+			var gx: float = ox + rng.randf_range(-w * 0.46, w * 0.46)
 			var gy: float = (h * 0.58) * (1.0 if rng.randf() > 0.45 else -0.5)
 			var gz: float = z + rng.randf_range(-seg * 0.38, seg * 0.38)
 			var gs: float = rng.randf_range(0.035, 0.09)
@@ -327,13 +362,26 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 		seg_z.append(z)
 		z += seg
 
-	# Pointed prow: a stepped taper to a nose cap + a thin forward sensor mast.
+	# Prow varies by faction grammar (boxy / spear / ragged / stepped).
 	var fz: float = seg_z[sections - 1]
-	var fy: float = top_y[sections - 1]
-	_box(root, Vector3(0, -width * 0.04, fz + seg * 0.55), Vector3(width * 0.34, width * 0.28, seg * 0.5), hull_mat)
-	_box(root, Vector3(0, -width * 0.02, fz + seg * 0.86), Vector3(width * 0.16, width * 0.16, seg * 0.34), plate_mat)
-	_cyl(root, Vector3(0, 0, fz + seg * 1.15), 0.012, seg * 0.6, trim_mat, "z")    # forward mast
-	_dome(root, Vector3(0, 0, fz + seg * 1.42), 0.03, dome_mat)                    # sensor tip
+	match prow_kind:
+		"blunt":      # Earth — a wide, squared-off institutional nose
+			_box(root, Vector3(0, -width * 0.02, fz + seg * 0.5), Vector3(width * 0.52, width * 0.42, seg * 0.55), hull_mat)
+			_box(root, Vector3(0, width * 0.12, fz + seg * 0.5), Vector3(width * 0.36, width * 0.2, seg * 0.42), plate_mat)
+		"spear":      # Mars — a long pointed weapon prow + a forward chin lance
+			_box(root, Vector3(0, -width * 0.05, fz + seg * 0.55), Vector3(width * 0.3, width * 0.26, seg * 0.6), hull_mat)
+			_box(root, Vector3(0, -width * 0.08, fz + seg * 0.98), Vector3(width * 0.14, width * 0.14, seg * 0.62), plate_mat)
+			_cyl(root, Vector3(0, -width * 0.06, fz + seg * 1.45), 0.022, seg * 0.95, trim_mat, "z")
+		"ragged":     # Belt — an irregular, off-centre welded cap
+			var rx: float = (1.0 if rng.randf() > 0.5 else -1.0) * width * 0.09
+			_box(root, Vector3(rx, 0, fz + seg * 0.5), Vector3(width * 0.36, width * 0.32, seg * 0.5), hull_mat)
+			_cyl(root, Vector3(0, 0, fz + seg * 0.86), maxf(width * 0.13, 0.06), seg * 0.42, trim_mat, "z")
+		_:            # Independent — the stepped taper baseline
+			_box(root, Vector3(0, -width * 0.04, fz + seg * 0.55), Vector3(width * 0.34, width * 0.28, seg * 0.5), hull_mat)
+			_box(root, Vector3(0, -width * 0.02, fz + seg * 0.86), Vector3(width * 0.16, width * 0.16, seg * 0.34), plate_mat)
+	# Shared forward sensor mast + tip.
+	_cyl(root, Vector3(0, 0, fz + seg * 1.15), 0.012, seg * 0.6, trim_mat, "z")
+	_dome(root, Vector3(0, 0, fz + seg * 1.42), 0.03, dome_mat)
 
 	# Command tower amidships-aft: a stepped superstructure with sensor domes + a dish.
 	var tz: float = lerpf(seg_z[0], fz, 0.62)
@@ -363,11 +411,11 @@ static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun:
 	for k in 3:
 		_ring(root, Vector3(0, 0, az + lerpf(-0.12, 0.12, float(k) / 2.0)), eb + 0.012, panel_mat)
 	var bell_pos: Array = []
-	var s: float = width * 0.33
+	var s: float = width * 0.42
 	var bsize: float = width * 0.34
 	if class_idx >= 2:                                   # Cruiser/Battleship: 4 drives (2×2)
 		bell_pos = [Vector2(-s, -s), Vector2(s, -s), Vector2(-s, s), Vector2(s, s)]
-		bsize = width * 0.22
+		bsize = width * 0.2
 	else:                                                # Corvette/Destroyer: 1 big central drive
 		bell_pos = [Vector2(0, 0)]
 	for bp in bell_pos:

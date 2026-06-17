@@ -179,6 +179,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art A3: faction-distinct hull *shapes* + the render-normalization trap (§24).**
+  Two parts. **(1) Classes read distinctly now.** A player render review caught that the four
+  classes "look exactly the same" — root cause was a **render-harness lie**: the per-ship
+  capture scaled each hull to the same on-screen length (`scale = 5.6/len`), *cancelling the
+  size difference*, so four different hulls all read as one tower. Fixed by rendering at a
+  **common fixed scale** (broadside + rear-quarter), and widened the actual spread (length
+  2.8→7.6, beam 0.44→1.30 across the line — Battleship ~2.7× longer / ~3× beamier), enlarged
+  the drive bells, and bolded the railgun tells (Destroyer spinal juts past the prow,
+  capital turrets scaled up). *Lesson: a per-subject normalized render hides exactly the
+  axis (size) you're trying to show — compare at a common scale.* **(2) A3 — faction
+  grammars.** Added a `SHAPE` profile dict in `ship_forge.gd` (len/width/height/taper +
+  drums/sponsons/asym/bevel/boltons/prow flags) so each power builds a *different hull*, not
+  just a recolor: **Earth** wide/boxy/low + bilateral **sponson pods** + blunt nose;
+  **Mars** long/narrow + **beveled (faceted) decks** + a forward **spear-lance** prow;
+  **Belt/OPA** chunky + **off-centre welded sections** (lateral asym) + **salvaged bolt-on
+  tanks** + a ragged prow; **Independent** the modular baseline. Render-verified all four
+  factions at one class (Cruiser) so only the grammar differs. **Pure shell** (no sim/RNG) →
+  §7c gate + QA review byte-identical. *GDScript:* a ternary `x if cond else y` only
+  evaluates the taken branch, so the `asym==0` factions draw no extra rng — kept the per-
+  faction greeble layout stable. **Remaining art:** A6 (bake/optimize, deferred). Player
+  noted the 4-drive cluster still reads as ~1 from most angles (bells overlap) — widened the
+  cluster spacing a touch but accepted as "okay for now."
+
 - **2026-06-17 — Art: Expanse-direction warship forge — tower-like + class signatures (§24).**
   Player direction on the reference fleet: an Expanse ship is **utilitarian and tower-like,
   built around thrust gravity** (drive at the base, prow up top — you stand "down" toward
