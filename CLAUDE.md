@@ -179,6 +179,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art track A5: forge the orrery fleet (§21/§24).** Replaced the
+  orrery's cyan-sphere / orange-dot ship markers with **directional hull markers** and
+  the colony spheres with **station glyphs** — ships read as ships, not dots. *Key
+  realization on scale:* at the orrery's compressed scale (1 AU = 1 unit) and typical
+  zoom (10–140), a full forged hull is invisible *and* expensive ×16+ markers — so the
+  right call is a **single-mesh** lightweight marker, not the BUILD-bench forge. Each
+  ship marker is one stretched `BoxMesh` (0.05×0.04×0.18 — a long thin hull) **oriented
+  down its lane** by adding a guarded `look_at(target)` to the shared `_smooth_to`
+  (negligible when near-stationary; the ecliptic-plane heading never parallels UP, so
+  no NaN). Keeping markers a **single MeshInstance3D** means picking
+  (`_hauler_pool[i].position`) and selection (`material_override` + `scale`) are
+  **completely unchanged** — the lowest-risk way to upgrade the most-viewed, tap-
+  critical screen. Colonies got a `_station_glyph` (a hab drum + cross arms, faction-
+  tinted) parented to the static body node (multi-part is fine there). Role colour
+  still conveys hauler/warship/freighter; the hull *shape* conveys "ship." Pure shell,
+  **no sim bindings added** → §7c gate + QA review **fully byte-identical** (zero diff).
+  Render-verified (orange haulers + a green freighter on the Earth↔Ceres lane, station
+  glyphs on Saturn's moons). 187 core + QA + 17 GUT green. *Note on the forge ceiling:*
+  the detailed `ShipForge`/`build_civilian`/`build_station` live in the BUILD bench
+  (and future inspect views) where a ship fills the frame; the orrery uses these light
+  markers. **Remaining art:** A3 (faction-distinct warship *shapes*) + A6 (bake) — both
+  optional polish.
+
 - **2026-06-17 — Art track A4: the civilian fleet + station kit (§8e/§24).** Extended
   the forge (`ship_forge.gd`, pure shell) with two new builders: `build_civilian(kind,
   faction, seed)` — **freighter** (a spine of mixed-colour cargo-container boxes + a

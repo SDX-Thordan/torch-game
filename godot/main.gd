@@ -339,7 +339,7 @@ func _build_world() -> void:
 		if cb < 0 or cb >= _body_nodes.size():
 			continue
 		var fcol: Color = FACTION_COL[clampi(sim.colony_faction(ci), 0, 3)]
-		var marker := _sphere(0.03, _emissive_mat(fcol))
+		var marker := _station_glyph(fcol)
 		marker.position = Vector3(BODY_RADIUS[sim.body_kind(cb)] + 0.03, 0.0, 0.0)
 		_body_nodes[cb].add_child(marker)
 		var clbl := Label3D.new()
@@ -1775,6 +1775,11 @@ func _smooth_to(node: Node3D, target: Vector3, delta: float, fresh: bool) -> voi
 		node.position = target
 	else:
 		node.position = node.position.lerp(target, clampf(delta * VIEW_LERP, 0.0, 1.0))
+	# Orient the hull marker along its heading (toward the target), so it points down
+	# its lane instead of facing a fixed way (A5). Negligible when nearly stationary.
+	var d := target - node.position
+	if d.length() > 0.015:
+		node.look_at(node.position + d.normalized(), Vector3.UP)
 
 
 func _update_world(delta: float) -> void:
@@ -1788,7 +1793,7 @@ func _update_world(delta: float) -> void:
 				_body_nodes[b].visible = beyond
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
-		var mi := _sphere(0.06, _hauler_mat)
+		var mi := _hull_marker(_hauler_mat)
 		_orrery_root.add_child(mi)
 		_hauler_pool.append(mi)
 	for i in _hauler_pool.size():
@@ -1805,7 +1810,7 @@ func _update_world(delta: float) -> void:
 	# Player warships — positional now (§6); a moving one swells slightly.
 	var sn := sim.fleet_size()
 	while _ship_pool.size() < sn:
-		var sm := _sphere(0.08, _ship_mat)
+		var sm := _hull_marker(_ship_mat)
 		_orrery_root.add_child(sm)
 		_ship_pool.append(sm)
 	for si in _ship_pool.size():
@@ -1820,7 +1825,7 @@ func _update_world(delta: float) -> void:
 	# Player freighters — positional on their standing-route lanes now (§6).
 	var fn_ := sim.freighter_count()
 	while _freighter_pool.size() < fn_:
-		var fm := _sphere(0.07, _freighter_mat)
+		var fm := _hull_marker(_freighter_mat)
 		_orrery_root.add_child(fm)
 		_freighter_pool.append(fm)
 	for fi in _freighter_pool.size():
@@ -2621,6 +2626,43 @@ func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
 	mi.mesh = sm
 	mi.material_override = mat
 	return mi
+
+
+## A small directional **hull** marker for the orrery (A5) — a long thin body that
+## points down its lane (oriented in _smooth_to), so ships read as ships, not dots.
+## Single mesh so picking/selection (material_override + scale) stay unchanged.
+func _hull_marker(mat: StandardMaterial3D) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.05, 0.04, 0.18)   # long, thin — a hull along its heading (+Z/-Z)
+	mi.mesh = bm
+	mi.material_override = mat
+	return mi
+
+
+## A tiny station glyph for a colony/holding on the orrery (A5) — a hab drum + cross
+## arms, faction-tinted. Parented to a (static) body node, so a multi-part node is fine.
+func _station_glyph(fcol: Color) -> Node3D:
+	var root := Node3D.new()
+	var mat := _emissive_mat(fcol)
+	var drum := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.02
+	cm.bottom_radius = 0.02
+	cm.height = 0.05
+	cm.radial_segments = 8
+	drum.mesh = cm
+	drum.material_override = mat
+	root.add_child(drum)
+	for ang in [0.0, 90.0]:
+		var arm := MeshInstance3D.new()
+		var b := BoxMesh.new()
+		b.size = Vector3(0.08, 0.006, 0.006)
+		arm.mesh = b
+		arm.rotation_degrees = Vector3(0, ang, 0)
+		arm.material_override = mat
+		root.add_child(arm)
+	return root
 
 
 func _ring(radius: float, col: Color) -> MeshInstance3D:

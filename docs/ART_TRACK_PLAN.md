@@ -49,7 +49,7 @@ read as scavenged.
 same forge) for holdings/markets on the orrery, and **civilian classes** (freighter,
 miner, tanker, Q-ship) — the trade backbone and prime interdiction targets.
 
-### A5 — Forge the orrery fleet 🚀
+### A5 — Forge the orrery fleet 🚀 ✅ DONE
 **Goal:** replace the orrery's placeholder markers (cyan spheres / orange dots) with
 small forged hulls (LOD'd/instanced) so the live map shows real ships — your fleet,
 NPC haulers, raiders — colored by livery/faction.
