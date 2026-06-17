@@ -229,6 +229,53 @@ impl TorchSim {
         )
     }
 
+    // ---- the empire layer: holdings & acquisition (E1) ----------------------
+
+    /// Total holdings the player runs — built stations + controlled colonies.
+    #[func]
+    fn holding_count(&self) -> i64 {
+        self.sim.holding_count() as i64
+    }
+
+    /// How many frontier colonies the player controls — the empire's size.
+    #[func]
+    fn controlled_colony_count(&self) -> i64 {
+        self.sim.controlled_colony_count() as i64
+    }
+
+    /// Whether the player controls colony `i`.
+    #[func]
+    fn colony_controlled(&self, i: i64) -> bool {
+        self.sim.colony_controlled(i as usize)
+    }
+
+    /// Whether colony `i` can be **bought** right now (an independent, not already
+    /// yours) — the economic acquisition target.
+    #[func]
+    fn colony_acquirable(&self, i: i64) -> bool {
+        let i = i as usize;
+        self.sim.colony_acquire_cost(i).is_some() && !self.sim.colony_controlled(i)
+    }
+
+    /// The credit price to buy colony `i`, or −1 if it isn't an acquirable target.
+    #[func]
+    fn colony_acquire_cost(&self, i: i64) -> i64 {
+        self.sim.colony_acquire_cost(i as usize).unwrap_or(-1)
+    }
+
+    /// Buy out independent colony `i` (the empire layer's economic path). Returns:
+    /// 0 ok, 1 not acquirable, 2 already controlled, 3 can't afford.
+    #[func]
+    fn acquire_colony(&mut self, i: i64) -> i64 {
+        use sim::world::AcquireError as E;
+        match self.sim.acquire_colony(i as usize) {
+            Ok(()) => 0,
+            Err(E::NotAcquirable) => 1,
+            Err(E::AlreadyControlled) => 2,
+            Err(E::CantAfford) => 3,
+        }
+    }
+
     #[func]
     fn body_x(&self, index: i64) -> i64 {
         self.sim

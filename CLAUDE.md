@@ -173,6 +173,41 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Vision re-aim: the empire layer (`docs/EMPIRE_LAYER_PLAN.md`) + E1.**
+  A player vision-check found a genuine genre divergence: TORCH had been built
+  *faithfully to the GDD* — an **X4-style corporate sandbox** (you're a CEO who
+  *perturbs* an economy and climbs to a gate) — but the actual north star is a
+  **Distant Worlds / Stellaris empire sim** (you *are* a colonizing state) in the
+  Expanse's Sol. The setting matched; the **genre/player-identity** didn't. Chosen
+  reconciliation (player's call): **grow the empire layer** so acquiring assets
+  (stations + independent colonies) **via economy / diplomacy / military** is the
+  **core loop**, governed by an **overextension + faction-alarm** cost (don't anger
+  the great powers). Wrote the sequenced plan (E1 holdings+economic-buy → E2 admin
+  capacity → E3 faction alarm/coalition → E4 diplomatic annex → E5 military seizure →
+  E6 expansion-as-spine + EMPIRE view + an Expansionist QA persona). **E1 shipped:** a
+  unified **holdings** view (`holding_count` = stations + controlled colonies);
+  `frontier::Colony`s gain player control (`controlled: Vec<bool>` on `Sim`);
+  `acquire_colony(i)` buys an **Independents** colony for credits, flips control, and
+  pays the political cost via a new `Relations::on_player_expand` (Earth & Mars grow
+  wary, the home Belt approves). Controlled colonies pay a flat per-tick **tribute**
+  (`run_holdings`) — a pure credit drip that never touches market RNG, *so the §7c
+  gate is provably unaffected and a fresh sim is byte-identical* (personas don't
+  acquire; the QA review body is unchanged, only the UI-wiring count moved +6
+  bindings). Persisted (`controlled_colonies`, `#[serde(default)]`). Shell: an
+  `⊕ ACQUIRE COLONY` op-button (one-press, buys the cheapest acquirable colony,
+  mobile-friendly) + a `Holdings N` status readout. `AcquireError`; `Event::
+  ColonyAcquired` voiced. Tests: `buying_a_frontier_colony_grows_the_empire_and_
+  alarms_the_inners`, `a_fresh_world_controls_no_colonies`,
+  `expanding_alarms_the_inners_and_pleases_the_home_belt`. *Design note:* E1
+  deliberately ships with a built-in political cost (the rep ding) so expansion is
+  never free even before the hard caps land — but it's only **soft-capped** until E2
+  (admin capacity) + E3 (faction coalition) add the real overextension teeth; those
+  are the critical-path next rungs. 172 core + QA + 17 GUT green. **Unlike the
+  post-gate sandbox, this changes the *core loop*** — future rungs (E2+) will move the
+  QA review legitimately (and E6 adds an Expansionist persona); we regenerate it
+  honestly rather than chasing byte-identity. **Next: E2** (administrative capacity).
+
+
 - **2026-06-16 — G5: the endgame resolves + the post-gate sandbox is complete
   (§17).** The culminating win/loss that finally *completes* the §0 destination pull.
   `EndgameOutcome` (Undecided/Triumph/Fallen, serde). **Win** = the bridgehead reaches

@@ -66,6 +66,11 @@ pub enum RepTier {
 const INTERDICT_PENALTY: i64 = 50;
 /// …and how much it pleases their rival.
 const RIVAL_BONUS: i64 = 20;
+/// How much taking a frontier asset alarms each inner power (Earth & Mars distrust
+/// a rising outer corporation, §4 cold war) — the political cost of expansion.
+const EXPAND_INNER_ALARM: i64 = 40;
+/// …and how much it pleases the Belt, your home power (Belter ground gained).
+const EXPAND_HOME_APPROVAL: i64 = 25;
 /// Standing is clamped to this magnitude.
 const STANDING_CAP: i64 = 1_000;
 
@@ -115,6 +120,16 @@ impl Relations {
         if let Some(rival) = victim.rival() {
             self.adjust(rival, RIVAL_BONUS);
         }
+    }
+
+    /// The player took control of a frontier asset (the empire layer): the inner
+    /// powers (Earth & Mars) grow wary of a rising outer corporation, while the Belt
+    /// — your home — is pleased to see Belter ground gained. This is the political
+    /// cost that keeps expansion from being free (be careful not to overextend).
+    pub fn on_player_expand(&mut self) {
+        self.adjust(Faction::Earth, -EXPAND_INNER_ALARM);
+        self.adjust(Faction::Mars, -EXPAND_INNER_ALARM);
+        self.adjust(Faction::Belt, EXPAND_HOME_APPROVAL);
     }
 
     /// Memory fades: drift every standing one `step` toward neutral (§10). This
@@ -171,6 +186,20 @@ mod tests {
         assert_eq!(r.standing(Faction::Earth), -INTERDICT_PENALTY);
         assert_eq!(r.standing(Faction::Mars), RIVAL_BONUS); // Earth's rival approves
         assert_eq!(r.standing(Faction::Belt), 0); // bystander unmoved
+    }
+
+    #[test]
+    fn expanding_alarms_the_inners_and_pleases_the_home_belt() {
+        let mut r = Relations::new();
+        r.on_player_expand();
+        assert!(r.standing(Faction::Earth) < 0, "Earth grows wary");
+        assert!(r.standing(Faction::Mars) < 0, "Mars grows wary");
+        assert!(r.standing(Faction::Belt) > 0, "the Belt approves");
+        // Keep expanding and the inners harden toward hostility — overextension bites.
+        for _ in 0..20 {
+            r.on_player_expand();
+        }
+        assert_eq!(r.tier(Faction::Earth), RepTier::Hostile);
     }
 
     #[test]

@@ -14,7 +14,8 @@ use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
 use super::economy::{default_markets, Market};
 use super::event::Event;
-use super::faction::Relations;
+use super::faction::{Faction, Relations};
+use super::frontier::{default_colonies, Colony};
 use super::industry::Station;
 use super::interdiction::{resolve, Interceptor, Interdiction};
 use super::logistics::TradeRoute;
@@ -132,6 +133,28 @@ pub enum FoundError {
     NotProcessable,
     TooManyStations,
 }
+
+/// Why a colony acquisition could not proceed (the empire layer).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AcquireError {
+    /// Not an acquirable target (out of range, or not an independent colony — you
+    /// can't simply *buy* a great power's territory).
+    NotAcquirable,
+    /// You already control it.
+    AlreadyControlled,
+    CantAfford,
+}
+
+/// Price to buy out an independent **market** colony (a producing frontier hub).
+const COLONY_PRICE_MARKET: i64 = 45_000;
+/// Price to buy out an independent **outpost** colony (a lesser settlement).
+const COLONY_PRICE_OUTPOST: i64 = 25_000;
+/// Per-tick tribute a controlled market colony pays the treasury (you run its
+/// economy now). A flat credit drip — it never touches market RNG, so the §7c gate
+/// is provably unaffected by who owns what.
+const COLONY_TRIBUTE_MARKET: i64 = 40;
+/// …and a controlled outpost colony's smaller tribute.
+const COLONY_TRIBUTE_OUTPOST: i64 = 16;
 
 /// Why a far-side bridgehead op (found/upgrade) could not proceed (§17, G3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +297,11 @@ pub struct Sim {
     incursions_survived: u64,
     /// How the far-side endgame resolved (§17, G5) — `Undecided` until a win or loss.
     endgame_outcome: EndgameOutcome,
+    /// The frontier colonies (the empire layer): static identity from
+    /// `frontier::default_colonies`, with `controlled[i]` flagging the ones the
+    /// player has taken. A fresh sim controls none, so this is inert by default.
+    colonies: Vec<Colony>,
+    controlled: Vec<bool>,
     missions: super::missions::Missions,
     /// The player's tactical doctrine for fleet engagements (§9): target priority
     /// + retreat threshold (band is chosen per engagement).
@@ -349,6 +377,8 @@ impl Sim {
             pending_incursion: None,
             incursions_survived: 0,
             endgame_outcome: EndgameOutcome::Undecided,
+            colonies: default_colonies(),
+            controlled: vec![false; default_colonies().len()],
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
@@ -1220,6 +1250,7 @@ impl Sim {
             endgame_since: self.endgame_since,
             incursions_survived: self.incursions_survived,
             endgame_outcome: self.endgame_outcome,
+            controlled_colonies: self.controlled.clone(),
             routes: self.routes.clone(),
             stations: self.stations.clone(),
             policy: self.policy,
@@ -1324,6 +1355,11 @@ impl Sim {
         }
         self.incursions_survived = s.incursions_survived;
         self.endgame_outcome = s.endgame_outcome;
+        // The empire layer (E1): restore controlled colonies if the save carries them
+        // (old saves / fresh games control none → keep the all-false default).
+        if s.controlled_colonies.len() == self.controlled.len() {
+            self.controlled = s.controlled_colonies.clone();
+        }
         self.routes = s.routes.clone();
         self.stations = s.stations.clone();
         self.policy = s.policy;
@@ -1360,6 +1396,7 @@ impl Sim {
         self.run_industry();
         self.run_fleet_nav();
         self.run_contracts();
+        self.run_holdings();
         // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
         // keeps the economy bit-identical whether or not anyone salvages.
         if let Some(id) = self.salvage.maybe_sight(self.tick) {
@@ -1493,6 +1530,100 @@ impl Sim {
     /// `(target bridgehead level, target incursions survived)`.
     pub fn endgame_targets(&self) -> (u32, u64) {
         (WIN_BRIDGEHEAD_LEVEL, WIN_INCURSIONS_SURVIVED)
+    }
+
+    // ---- the empire layer: holdings & acquisition (E1) ----------------------
+
+    /// The frontier colonies (the empire layer) — static identity + faction.
+    pub fn colonies(&self) -> &[Colony] {
+        &self.colonies
+    }
+
+    /// Whether the player controls colony `i`.
+    pub fn colony_controlled(&self, i: usize) -> bool {
+        self.controlled.get(i).copied().unwrap_or(false)
+    }
+
+    /// How many frontier colonies the player controls — the empire's size.
+    pub fn controlled_colony_count(&self) -> usize {
+        self.controlled.iter().filter(|&&c| c).count()
+    }
+
+    /// Total holdings the player runs: the stations they built + the colonies they
+    /// control (the unified empire view the EMPIRE panel reads).
+    pub fn holding_count(&self) -> usize {
+        self.stations.len() + self.controlled_colony_count()
+    }
+
+    /// Independent colonies the player could **buy** right now (not a great power's
+    /// territory, not already controlled) — the economic acquisition targets.
+    pub fn acquirable_colonies(&self) -> Vec<usize> {
+        (0..self.colonies.len())
+            .filter(|&i| self.is_acquirable(i))
+            .collect()
+    }
+
+    fn is_acquirable(&self, i: usize) -> bool {
+        matches!(self.colonies.get(i), Some(c) if c.faction == Faction::Independents)
+            && !self.colony_controlled(i)
+    }
+
+    /// The credit price to buy colony `i` (markets cost more than outposts), or
+    /// `None` if it isn't an acquirable target.
+    pub fn colony_acquire_cost(&self, i: usize) -> Option<i64> {
+        let c = self.colonies.get(i)?;
+        if c.faction != Faction::Independents {
+            return None;
+        }
+        Some(if c.is_market {
+            COLONY_PRICE_MARKET
+        } else {
+            COLONY_PRICE_OUTPOST
+        })
+    }
+
+    /// **Buy out an independent frontier colony** (the empire layer's economic
+    /// acquisition path): pay its price, take control, and pay the political cost —
+    /// the inner powers grow wary of a rising outer corporation while the Belt
+    /// approves (`Relations::on_player_expand`). Taking ground is a spine op (§0).
+    pub fn acquire_colony(&mut self, i: usize) -> Result<(), AcquireError> {
+        if self.colony_controlled(i) {
+            return Err(AcquireError::AlreadyControlled);
+        }
+        if !self.is_acquirable(i) {
+            return Err(AcquireError::NotAcquirable);
+        }
+        let cost = self
+            .colony_acquire_cost(i)
+            .ok_or(AcquireError::NotAcquirable)?;
+        if self.corp.credits() < cost {
+            return Err(AcquireError::CantAfford);
+        }
+        self.corp.debit(cost);
+        self.controlled[i] = true;
+        // The political cost: expansion is never free (be careful not to overextend).
+        self.relations.on_player_expand();
+        self.events.push(Event::ColonyAcquired { colony: i });
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Per-tick empire upkeep/income (the empire layer): each controlled colony pays
+    /// a flat tribute into the treasury. A pure credit drip — no market RNG — so a
+    /// fresh sim (which controls nothing) is byte-identical and the §7c gate holds.
+    fn run_holdings(&mut self) {
+        let mut tribute = 0;
+        for (i, &held) in self.controlled.iter().enumerate() {
+            if held {
+                tribute += match self.colonies[i].is_market {
+                    true => COLONY_TRIBUTE_MARKET,
+                    false => COLONY_TRIBUTE_OUTPOST,
+                };
+            }
+        }
+        if tribute > 0 {
+            self.corp.credit(tribute);
+        }
     }
 
     /// Whether an incursion is currently bearing on the bridgehead (§17, G4) — the
@@ -2480,6 +2611,61 @@ mod tests {
         let events = sim.step().to_vec();
         // (The event was pushed before this step; the feed voices the answer.)
         let _ = events;
+    }
+
+    #[test]
+    fn buying_a_frontier_colony_grows_the_empire_and_alarms_the_inners() {
+        // The empire layer (E1): an independent colony can be bought; it joins the
+        // player's holdings, pays tribute, and the political cost lands on the inners.
+        use crate::sim::faction::Faction;
+        let mut sim = Sim::new(1);
+        assert_eq!(sim.controlled_colony_count(), 0);
+        let targets = sim.acquirable_colonies();
+        assert!(
+            !targets.is_empty(),
+            "there are independent colonies to take"
+        );
+        let i = targets[0];
+        // You can't buy a great power's territory — only independents.
+        let earth_owned =
+            (0..sim.colonies().len()).find(|&j| sim.colonies()[j].faction != Faction::Independents);
+        if let Some(j) = earth_owned {
+            assert_eq!(sim.acquire_colony(j), Err(AcquireError::NotAcquirable));
+        }
+        sim.corp_mut().credit(100_000);
+        let before = sim.corp().credits();
+        let earth0 = sim.relations().standing(Faction::Earth);
+        let belt0 = sim.relations().standing(Faction::Belt);
+        assert_eq!(sim.acquire_colony(i), Ok(()));
+        assert!(sim.colony_controlled(i));
+        assert_eq!(sim.controlled_colony_count(), 1);
+        assert!(sim.corp().credits() < before, "buying costs credits");
+        // The inners grew wary; the home Belt approved (the overextension pressure).
+        assert!(sim.relations().standing(Faction::Earth) < earth0);
+        assert!(sim.relations().standing(Faction::Belt) > belt0);
+        // No double purchase.
+        assert_eq!(sim.acquire_colony(i), Err(AcquireError::AlreadyControlled));
+        // A controlled colony pays tribute — the treasury grows hands-off.
+        let held = sim.corp().credits();
+        for _ in 0..50 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().credits() > held,
+            "holdings pay tribute over time"
+        );
+    }
+
+    #[test]
+    fn a_fresh_world_controls_no_colonies() {
+        // The empire layer is inert by default — a fresh sim owns nothing, so the
+        // §7c gate + existing economy are unaffected (no tribute, no rep shift).
+        let mut sim = Sim::new(0);
+        for _ in 0..200 {
+            sim.step();
+        }
+        assert_eq!(sim.controlled_colony_count(), 0);
+        assert_eq!(sim.holding_count(), 0);
     }
 
     #[test]

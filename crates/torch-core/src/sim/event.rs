@@ -59,4 +59,7 @@ pub enum Event {
     EndgameWon,
     /// The endgame resolved in **defeat** (§17, G5) — the far side is lost.
     EndgameLost,
+    /// The player took control of a frontier colony (the empire layer) — `colony`
+    /// indexes `frontier::default_colonies`.
+    ColonyAcquired { colony: usize },
 }

@@ -102,6 +102,12 @@ pub struct SaveState {
     #[serde(default)]
     pub endgame_outcome: EndgameOutcome,
 
+    // ---- the empire layer (E1) ----
+    /// Which frontier colonies the player controls (the empire layer); empty for a
+    /// fresh game / old saves.
+    #[serde(default)]
+    pub controlled_colonies: Vec<bool>,
+
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,
     pub stations: Vec<Station>,

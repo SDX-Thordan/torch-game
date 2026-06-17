@@ -179,6 +179,7 @@ impl AlertFeed {
             Event::BridgeheadFell => Some(Self::bridgehead_fell(tick)),
             Event::EndgameWon => Some(Self::endgame_won(tick)),
             Event::EndgameLost => Some(Self::endgame_lost(tick)),
+            Event::ColonyAcquired { .. } => Some(self.colony_acquired(tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
@@ -228,6 +229,23 @@ impl AlertFeed {
             voice: mgr.name.clone(),
             message,
             verb: Some(Verb::ExploitShortage { market, commodity }),
+        }
+    }
+
+    /// The player annexed a frontier colony (the empire layer) — a milestone, and a
+    /// reminder that the inners are watching.
+    fn colony_acquired(&self, tick: u64) -> Alert {
+        let mgr = &self.markets_mgr;
+        Alert {
+            tick,
+            priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: A frontier colony flies our flag now. The inners will have noticed.",
+                mgr.name
+            ),
+            verb: None,
         }
     }
 

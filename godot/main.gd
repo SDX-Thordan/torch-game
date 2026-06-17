@@ -654,6 +654,9 @@ func _build_systems_view() -> void:
 	root.add_child(fo)
 	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
 	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
+	# The empire layer (E1): buy out an independent frontier colony. Mobile-friendly
+	# one-press expansion — takes the cheapest acquirable colony.
+	fo.add_child(_make_op_button("⊕ ACQUIRE COLONY", _acquire_colony))
 	# The climactic endgame verb (§0.1/§17) — only lit when standing at the open gate.
 	_transit_btn = _make_op_button("⟁ TRANSIT GATE", _transit_gate)
 	_transit_btn.visible = false
@@ -838,6 +841,33 @@ func _transit_gate() -> void:
 				_focus_body = b
 				_zoom = 8.0
 				break
+
+
+## Buy out the cheapest independent frontier colony (the empire layer, E1). One-press
+## expansion — but each acquisition angers the inner powers, so grow with care.
+func _acquire_colony() -> void:
+	var best := -1
+	var best_cost := 1 << 30
+	for i in sim.colony_count():
+		if sim.colony_acquirable(i):
+			var cost: int = sim.colony_acquire_cost(i)
+			if cost >= 0 and cost < best_cost:
+				best_cost = cost
+				best = i
+	if best < 0:
+		status = "No independent colonies left to acquire."
+		return
+	var name := String(sim.colony_name(best))
+	var code: int = sim.acquire_colony(best)
+	match code:
+		0:
+			ascend_flash = 1.0
+			status = "⊕ %s joins the company — the inners are watching." % name
+			_focus_body = sim.colony_body(best)
+		3:
+			status = "Not enough credits to acquire %s (needs %d cr)." % [name, best_cost]
+		_:
+			status = "%s can't be acquired." % name
 
 
 ## Found the far-side bridgehead (§17, G3) — the first foothold beyond the ring.
@@ -1683,7 +1713,8 @@ func _refresh_systems() -> void:
 	# Title = the focused body if it's a market, else the trade-cursor market.
 	_sys_title.text = String(sim.market_name(sel_market))
 	_sys_sub.text = "Trading Node  ·  Sol System"
-	_sys_status.text = "Status: Online   ·   %s   ·   Gate %d%%" % [sim.tier_name(), sim.gate_progress_pct()]
+	var holdings: int = sim.holding_count()
+	_sys_status.text = "Status: Online   ·   %s   ·   Holdings %d   ·   Gate %d%%" % [sim.tier_name(), holdings, sim.gate_progress_pct()]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
 		c.queue_free()
