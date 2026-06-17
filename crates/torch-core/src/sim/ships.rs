@@ -548,6 +548,38 @@ impl ShipCatalog {
         let remass = h.remass_capacity;
         Loadout::fit(h, weapons, remass, crew).expect("reference loadout must fit")
     }
+
+    /// Fit a **custom** loadout for the ship designer (§8/A2): `pdc`/`torp`/`rail`
+    /// weapons of each kind (clamped to the hull's mounts) and a `remass_load`,
+    /// crewed at `quality`. Returns the validated fit or the [`FitError`] (e.g.
+    /// `OverPower`). Fewer weapons / less remass = lighter = more delta-v + mobility;
+    /// more = more firepower but slower — the designer's tradeoff.
+    #[allow(clippy::too_many_arguments)]
+    pub fn custom_loadout(
+        &self,
+        class: ShipClass,
+        pdc: u32,
+        torp: u32,
+        rail: u32,
+        remass_load: i64,
+        quality: i64,
+        rng: &mut Pcg32,
+    ) -> Result<Loadout, FitError> {
+        let h = self.hull(class);
+        let mut weapons = Vec::new();
+        for _ in 0..pdc.min(h.pdc_mounts) {
+            weapons.push(self.weapon(WeaponKind::Pdc));
+        }
+        for _ in 0..torp.min(h.torpedo_mounts) {
+            weapons.push(self.weapon(WeaponKind::Torpedo));
+        }
+        for _ in 0..rail.min(h.railgun_mounts) {
+            weapons.push(self.weapon(WeaponKind::Railgun));
+        }
+        let crew = Crew::recruit(rng, h.crew_required, quality);
+        let remass = remass_load.clamp(0, h.remass_capacity);
+        Loadout::fit(h, weapons, remass, crew)
+    }
 }
 
 /// Per-hull numeric overlay (§31), matched to a compiled hull by `name`. Identity

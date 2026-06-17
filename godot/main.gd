@@ -171,6 +171,13 @@ var _build_cost: Label
 var _bom_lbl: Label
 var _build_queue: VBoxContainer
 var _ship_pivot: Node3D
+# Ship designer (A2): the player's draft loadout for the selected class.
+var _des_pdc := 0
+var _des_torp := 0
+var _des_rail := 0
+var _des_burn := 100        # remass load, percent of tankage
+var _des_vals := {}         # kind -> value Label (updated each refresh)
+var _design_lbl: Label
 
 # Market view.
 var _flow: Control
@@ -1446,9 +1453,25 @@ func _build_build_view() -> void:
 	sv.add_child(fill)
 	_ship_pivot = Node3D.new()
 	sv.add_child(_ship_pivot)
-	_forge_ship()
 	_build_caption = UiKit.label("", 15, UiKit.TEXT_HI)
 	centre.add_child(_build_caption)
+	# Ship designer (A2): arm weapons on the hull's slots + set the burn profile;
+	# the stats + the 3D hull update live, and COMMISSION builds your design.
+	centre.add_child(UiKit.kicker("Loadout — arm the slots"))
+	var drow1 := HBoxContainer.new()
+	drow1.add_theme_constant_override("separation", 16)
+	centre.add_child(drow1)
+	drow1.add_child(_make_stepper("pdc", "PDC"))
+	drow1.add_child(_make_stepper("torp", "TORP"))
+	var drow2 := HBoxContainer.new()
+	drow2.add_theme_constant_override("separation", 16)
+	centre.add_child(drow2)
+	drow2.add_child(_make_stepper("rail", "RAIL"))
+	drow2.add_child(_make_stepper("burn", "BURN%"))
+	_design_lbl = UiKit.label("", 12, UiKit.TEXT)
+	centre.add_child(_design_lbl)
+	_reset_design()
+	_forge_ship()
 	_build_stats = UiKit.label("", 12, UiKit.TEXT_DIM)
 	centre.add_child(_build_stats)
 	_build_cost = UiKit.label("", 12, UiKit.TEXT)
@@ -1480,27 +1503,62 @@ func _forge_ship() -> void:
 		return
 	for c in _ship_pivot.get_children():
 		c.queue_free()
-	var pdc: int = shipyard.pdc_mounts(build_pick)
-	var torp: int = shipyard.torpedo_mounts(build_pick)
-	var rail: int = shipyard.railgun_mounts(build_pick)
-	# The player flies the Belt livery by default (home turf); a stable per-class seed.
+	# The player flies the Belt livery by default (home turf); the forge shows the
+	# player's chosen loadout (A2), so weapon models track the steppers.
 	var fac := 3
-	var ship := ShipForge.build(build_pick, fac, pdc, torp, rail, 1000 + build_pick)
+	var ship := ShipForge.build(build_pick, fac, _des_pdc, _des_torp, _des_rail, 1000 + build_pick)
 	_ship_pivot.add_child(ship)
+
+
+## A weapon/burn stepper for the designer (A2): [label] [−] value [+].
+func _make_stepper(kind: String, label: String) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hb.add_child(UiKit.label(label, 11, UiKit.TEXT_DIM))
+	hb.add_child(_make_op_button("−", func() -> void: _adjust_design(kind, -1)))
+	var val := UiKit.label("0", 13, UiKit.TEXT_HI)
+	val.custom_minimum_size = Vector2(40, 0)
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(val)
+	_des_vals[kind] = val
+	hb.add_child(_make_op_button("+", func() -> void: _adjust_design(kind, 1)))
+	return hb
+
+
+## Reset the draft loadout to the hull's full reference fit (every slot armed).
+func _reset_design() -> void:
+	_des_pdc = shipyard.pdc_mounts(build_pick)
+	_des_torp = shipyard.torpedo_mounts(build_pick)
+	_des_rail = shipyard.railgun_mounts(build_pick)
+	_des_burn = 100
+
+
+## Change a designer value (clamped to the hull's slots / burn range), then re-forge.
+func _adjust_design(kind: String, delta: int) -> void:
+	match kind:
+		"pdc": _des_pdc = clampi(_des_pdc + delta, 0, shipyard.pdc_mounts(build_pick))
+		"torp": _des_torp = clampi(_des_torp + delta, 0, shipyard.torpedo_mounts(build_pick))
+		"rail": _des_rail = clampi(_des_rail + delta, 0, shipyard.railgun_mounts(build_pick))
+		"burn": _des_burn = clampi(_des_burn + delta * 10, 10, 100)
+	_forge_ship()
 
 
 func _pick_build(i: int) -> void:
 	build_pick = i
 	for c in _build_list.get_child_count():
 		(_build_list.get_child(c) as Button).set_pressed_no_signal(c == i)
+	_reset_design()
 	_forge_ship()
 
 
 func _commission_selected() -> void:
-	if sim.commission_ship(build_pick):
-		status = "%s commissioned into the fleet." % String(shipyard.class_name(build_pick))
-	else:
-		status = "Can't build — short on crew or credits."
+	# Build the player's custom design (A2), not the reference fit.
+	var code: int = sim.commission_designed(build_pick, _des_pdc, _des_torp, _des_rail, _des_burn)
+	match code:
+		0: status = "%s commissioned to your design." % String(shipyard.class_name(build_pick))
+		1: status = "Can't build — short on credits."
+		2: status = "Can't build — not enough trained crew."
+		_: status = "That design won't fit the hull."
 
 
 ## Assemble the selected hull from the player's own component stock (§7d payoff).
@@ -2207,6 +2265,19 @@ func _refresh_build() -> void:
 	# Slow turntable so the procedural hull shows off (§24).
 	if _ship_pivot:
 		_ship_pivot.rotate_y(get_process_delta_time() * 0.5)
+	# Designer (A2): step values + live fit stats.
+	if _des_vals.has("pdc"):
+		(_des_vals["pdc"] as Label).text = "%d/%d" % [_des_pdc, shipyard.pdc_mounts(build_pick)]
+		(_des_vals["torp"] as Label).text = "%d/%d" % [_des_torp, shipyard.torpedo_mounts(build_pick)]
+		(_des_vals["rail"] as Label).text = "%d/%d" % [_des_rail, shipyard.railgun_mounts(build_pick)]
+		(_des_vals["burn"] as Label).text = "%d" % _des_burn
+	if _design_lbl:
+		var fit := shipyard.evaluate_fit(build_pick, _des_pdc, _des_torp, _des_rail, _des_burn)
+		var ok: bool = fit.get("ok", true)
+		_design_lbl.text = "Design:  alpha %d   ·   Δv %d   ·   mobility %d   ·   power %d/%d" % [
+			int(fit.get("alpha", 0)), int(fit.get("delta_v", 0)), int(fit.get("mobility", 0)),
+			int(fit.get("power_used", 0)), int(fit.get("power_cap", 0))]
+		_design_lbl.add_theme_color_override("font_color", UiKit.TEXT if ok else UiKit.BAD)
 	var nm := String(shipyard.class_name(build_pick))
 	_build_caption.text = nm
 	_build_stats.text = "railguns %d   ·   alpha %d   ·   Δv %d   ·   mobility %d" % [

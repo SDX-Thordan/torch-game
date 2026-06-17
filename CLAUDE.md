@@ -179,6 +179,31 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-17 — Art track A2: the interactive ship designer (§8/§24, `ART_TRACK_PLAN`).**
+  The BUILD bench is now a real fitting designer. The sim's fitting model
+  (`Loadout::fit` → slots/power/tankage/crew, `FitError`) already supported it, so the
+  core add is small: `ShipCatalog::custom_loadout(class, pdc, torp, rail, remass, …)`
+  (clamps to mounts, validates) + `Sim::commission_designed(...)` (builds the *player's*
+  fit, not the reference) — refactored `stand_up_hull` into a shared `stand_up_loadout`
+  so the RNG order is preserved (commission tests + same-seed determinism unchanged).
+  `CommissionError::BadFit` for an invalid design. Two bindings: `TorchSim::
+  commission_designed` + a read-only `TorchShipyard::evaluate_fit(...) -> Dictionary`
+  (`ok`/`alpha`/`delta_v`/`mobility`/`power_used`/`power_cap`/`crew`) for the **live**
+  bench stats. Shell: weapon **steppers** (PDC/TORP/RAIL ±, clamped to slots) + a BURN%
+  (remass) stepper, a live `Design: alpha … Δv … mobility … power U/C` line (red on a
+  bad fit), and `_forge_ship` now renders the *chosen* counts — so stripping torpedoes/
+  railgun removes their **models from the hull** *and* drops alpha while raising
+  mobility (less mass), and cutting BURN% drops Δv (less fuel). The real designer
+  tradeoff (firepower ↔ mobility ↔ range), render-verified (full Cruiser alpha 556 →
+  stripped 16, mobility 393 → 525). **Gameplay-neutral:** personas use the reference
+  `commission_ship`, so §7c + the QA body are byte-identical (only UI-wiring moved).
+  *Catches:* (1) `custom_loadout` hit `clippy::too_many_arguments` (8/7) → `#[allow]`.
+  (2) a Cruiser needs 60+ crew vs the 60 pool, so the design test commissions
+  **Frigates** (the BUILD cost line's "Crew 36" is a *synthesized* readout, not the real
+  `crew_required`). (3) the 4-stepper row overflowed the centre column → split to two
+  rows. Test `a_custom_design_commissions_a_lighter_faster_hull_when_stripped`. 187 core
+  + QA + 17 GUT green. **Next: A3** (faction-distinct hull *shapes*, not just palettes).
+
 - **2026-06-17 — Art track A1: the procedural ship forge + the BUILD bench (§24/§25,
   `docs/ART_TRACK_PLAN.md`).** Player wants Expanse-style procedural ships + a designer.
   Realized as a **pure-shell forge** (no sim/determinism dependency): `godot/ui/

@@ -104,6 +104,8 @@ pub enum CommissionError {
     NotEnoughCrew,
     /// Assembling from parts (§7d), but the warehouse lacks the required goods.
     MissingParts,
+    /// A custom design (A2) that fails the fitting (e.g. over the power budget).
+    BadFit,
 }
 
 /// Why a warship could not be ordered to move (§6).
@@ -850,17 +852,53 @@ impl Sim {
         }
     }
 
+    /// Commission a warship of `class` to the **player's custom design** (A2): the
+    /// chosen weapon counts + remass (as a percent of tankage), validated through the
+    /// fitting (`FitError` → `BadFit`). Same hull price + crew draw as the reference
+    /// commission; the design only changes what's bolted on (and thus the stats).
+    pub fn commission_designed(
+        &mut self,
+        class: ShipClass,
+        pdc: u32,
+        torp: u32,
+        rail: u32,
+        remass_bp: i64,
+    ) -> Result<(), CommissionError> {
+        let hull = self.catalog.hull(class);
+        let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
+        if self.corp.credits() < price {
+            return Err(CommissionError::CantAfford);
+        }
+        if self.corp.trained_crew() < hull.crew_required {
+            return Err(CommissionError::NotEnoughCrew);
+        }
+        let remass = hull.remass_capacity * remass_bp.clamp(0, 100) / 100;
+        let loadout = self
+            .catalog
+            .custom_loadout(class, pdc, torp, rail, remass, 50, &mut self.rng)
+            .map_err(|_| CommissionError::BadFit)?;
+        self.corp.debit(price);
+        self.stand_up_loadout(loadout);
+        Ok(())
+    }
+
     /// Shared tail of commission/assemble: fit the hull off the catalog, draw its
     /// crew, christen it (§14), dock it at the yard (§6), and count the op (§0/§16).
     fn stand_up_hull(&mut self, class: ShipClass) {
-        let hull = self.catalog.hull(class);
         let loadout = self
             .catalog
             .reference_loadout_quality(class, 50, &mut self.rng);
-        self.corp.assign_crew(hull.crew_required);
+        self.stand_up_loadout(loadout);
+    }
+
+    /// Stand a fitted hull up into the fleet (shared by reference + custom builds).
+    fn stand_up_loadout(&mut self, loadout: Loadout) {
+        let crew_required = loadout.hull().crew_required;
+        let hull_name = loadout.hull().name;
+        self.corp.assign_crew(crew_required);
         // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14). It rolls
         // off the line docked at Ceres Yards (the shipyard) with a full tank (§6).
-        let name = format!("{} ({})", ships::christen_ship(&mut self.rng), hull.name);
+        let name = format!("{} ({})", ships::christen_ship(&mut self.rng), hull_name);
         let home = self.markets[0].body();
         self.corp
             .add_ship(OwnedShip::new(name, loadout, self.tick, home));
@@ -3005,6 +3043,35 @@ mod tests {
     use super::*;
     use crate::sim::pressure::Intensity;
     use crate::sim::ships::ShipClass;
+
+    #[test]
+    fn a_custom_design_commissions_a_lighter_faster_hull_when_stripped() {
+        // A2: commissioning a stripped design (no torpedoes/railgun, less remass) builds
+        // a real ship that fits, and a fully-armed one out-guns it — the designer matters.
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(2_000_000);
+        // A lean frigate: PDC only, no torpedoes, half tanks (the 60-crew pool affords it).
+        assert_eq!(
+            sim.commission_designed(ShipClass::Frigate, 2, 0, 0, 50),
+            Ok(())
+        );
+        assert_eq!(sim.corp().fleet().len(), 1);
+        let lean = sim.corp().fleet()[0].loadout.stats();
+        // A fully-armed frigate (torpedoes added).
+        assert_eq!(
+            sim.commission_designed(ShipClass::Frigate, 2, 2, 0, 100),
+            Ok(())
+        );
+        let armed = sim.corp().fleet()[1].loadout.stats();
+        assert!(
+            armed.raw_alpha > lean.raw_alpha,
+            "more weapons = more firepower"
+        );
+        assert!(
+            lean.thrust_to_mass > armed.thrust_to_mass,
+            "the stripped hull is more mobile"
+        );
+    }
 
     #[test]
     fn a_warship_flies_a_committed_trajectory_and_refuels() {

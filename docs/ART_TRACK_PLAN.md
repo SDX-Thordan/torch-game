@@ -31,7 +31,7 @@ shown solid (not wireframe) in the BUILD designer.
   turntable, rebuilding on class change. Render-verified across all four classes.
 - *Gameplay-neutral:* pure shell + read-only bindings → §7c gate + QA body unchanged.
 
-### A2 — The interactive ship designer 🔧
+### A2 — The interactive ship designer 🔧 ✅ DONE
 **Goal:** the fitting bench is *interactive*. Per-slot weapon pickers (swap a PDC ↔
 torpedo ↔ railgun where the hull allows), plus drive/reactor choices; re-validate the
 fit through the sim's `ships::Loadout` fitting (slots/power/tankage/crew), and

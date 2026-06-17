@@ -1520,6 +1520,34 @@ impl TorchSim {
             Err(sim::CommissionError::MissingParts) => 1,
             Err(sim::CommissionError::CantAfford) => 2,
             Err(sim::CommissionError::NotEnoughCrew) => 3,
+            Err(sim::CommissionError::BadFit) => 1,
+        }
+    }
+
+    /// Commission a warship to the player's **custom design** (A2): `class` 0..3, the
+    /// armed `pdc`/`torp`/`rail` counts, and `remass_bp` (0..100% of tankage). Returns
+    /// 0 ok, 1 can't afford, 2 not enough crew, 3 bad fit.
+    #[func]
+    fn commission_designed(
+        &mut self,
+        class: i64,
+        pdc: i64,
+        torp: i64,
+        rail: i64,
+        remass_bp: i64,
+    ) -> i64 {
+        let r = self.sim.commission_designed(
+            warship_class(class),
+            pdc.max(0) as u32,
+            torp.max(0) as u32,
+            rail.max(0) as u32,
+            remass_bp,
+        );
+        match r {
+            Ok(()) => 0,
+            Err(sim::CommissionError::CantAfford) => 1,
+            Err(sim::CommissionError::NotEnoughCrew) => 2,
+            _ => 3,
         }
     }
 
@@ -2239,6 +2267,59 @@ impl TorchShipyard {
             .get(index as usize)
             .map(|m| m[3] as i64)
             .unwrap_or(0)
+    }
+
+    /// Evaluate a draft fit for the ship designer (A2): given `class` 0..3 and the
+    /// armed `pdc`/`torp`/`rail` counts + `remass_bp` (0..100% of tankage), return the
+    /// derived stats so the bench updates live. Keys: `ok`, `alpha`, `delta_v`,
+    /// `mobility`, `power_used`, `power_cap`, `crew`.
+    #[func]
+    fn evaluate_fit(
+        &self,
+        class: i64,
+        pdc: i64,
+        torp: i64,
+        rail: i64,
+        remass_bp: i64,
+    ) -> Dictionary {
+        use sim::ships::{ShipCatalog, ShipClass, WeaponKind};
+        let cls = match class {
+            1 => ShipClass::Destroyer,
+            2 => ShipClass::Cruiser,
+            3 => ShipClass::Battleship,
+            _ => ShipClass::Frigate,
+        };
+        let cat = ShipCatalog::default();
+        let hull = cat.hull(cls);
+        let p = pdc.clamp(0, hull.pdc_mounts as i64);
+        let t = torp.clamp(0, hull.torpedo_mounts as i64);
+        let r = rail.clamp(0, hull.railgun_mounts as i64);
+        let power_used = p * cat.weapon(WeaponKind::Pdc).power
+            + t * cat.weapon(WeaponKind::Torpedo).power
+            + r * cat.weapon(WeaponKind::Railgun).power;
+        let remass = hull.remass_capacity * remass_bp.clamp(0, 100) / 100;
+        let mut rng =
+            sim::rng::Pcg32::new((class * 131 + pdc * 17 + torp * 7 + rail * 3 + remass_bp) as u64);
+        let mut d = Dictionary::new();
+        d.set("power_used", power_used);
+        d.set("power_cap", hull.power_capacity);
+        d.set("crew", hull.crew_required);
+        match cat.custom_loadout(cls, p as u32, t as u32, r as u32, remass, 50, &mut rng) {
+            Ok(lo) => {
+                let s = lo.stats();
+                d.set("ok", true);
+                d.set("alpha", s.effective_alpha());
+                d.set("delta_v", s.delta_v);
+                d.set("mobility", s.thrust_to_mass);
+            }
+            Err(_) => {
+                d.set("ok", false);
+                d.set("alpha", 0);
+                d.set("delta_v", 0);
+                d.set("mobility", 0);
+            }
+        }
+        d
     }
 
     /// Resolve a demo duel: `n` torpedo frigates vs one battleship at `band`
