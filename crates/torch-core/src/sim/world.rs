@@ -12,6 +12,9 @@ use super::campaign::{Campaign, EndgameOutcome, Tier};
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
+use super::decisions::{
+    Decision, DecisionKind, DecisionOption, DecisionOutcome, DEAL_QTY, DECISION_TTL, MAX_DECISIONS,
+};
 use super::diplomacy::{Diplomacy, Stance};
 use super::economy::{default_markets, Market};
 use super::event::Event;
@@ -161,6 +164,12 @@ const COLONY_TRIBUTE_OUTPOST: i64 = 16;
 /// Raw units a controlled colony produces into your warehouse each tick (EP1) — the
 /// supply that integrates holdings into your production/logistics chain.
 const COLONY_OUTPUT_PER_TICK: i64 = 3;
+/// Phase A dilemma tuning: the profiteer's panic premium (bp of the sale), the relief
+/// run's sell margin over cost (bp), and the reputation swing for gouging vs. relieving.
+const GOUGE_BONUS_BP: i64 = 4000; // +40% of the sale, wrung from desperate buyers
+const GOUGE_REP: i64 = 40;
+const RELIEF_MARGIN_BP: i64 = 10_500; // sell at ~105% of cost (near break-even)
+const RELIEF_REP: i64 = 50;
 /// Brokerage fee in basis points at a market you **own** (EP2) — you run the broker,
 /// so trade is cheaper than the standard `TRADE_FEE_BP`, but not free (a sink stays).
 const OWNED_TRADE_FEE_BP: i64 = 100;
@@ -421,6 +430,10 @@ pub struct Sim {
     routes: Vec<TradeRoute>,
     stations: Vec<Station>,
     board: ContractBoard,
+    /// Pending player dilemmas (Phase A): act-now exceptions surfaced as a small menu
+    /// of trade-off options. Transient (not persisted) — re-derived from the world.
+    decisions: Vec<Decision>,
+    next_decision_id: u64,
     salvage: SalvageField,
     /// The player's far-side foothold (§17 endgame, G3). Unfounded until the player
     /// transits the gate and founds it; inert pre-transit.
@@ -530,6 +543,8 @@ impl Sim {
             routes: Vec::new(),
             stations: Vec::new(),
             board: ContractBoard::new(seed),
+            decisions: Vec::new(),
+            next_decision_id: 1,
             salvage: SalvageField::new(seed, blueprint_count, body_count),
             bridgehead: Bridgehead::new(),
             endgame_since: None,
@@ -792,6 +807,207 @@ impl Sim {
         match target {
             Some((m, c)) => self.exploit_shortage(m, c, qty).is_ok(),
             None => false,
+        }
+    }
+
+    // ---- Phase A: player dilemmas (act-now decisions with trade-offs) ----------
+
+    /// Raise a dilemma for a fresh act-now exception, deduped and capped to a small
+    /// menu. (Today only [`DecisionKind::Shortage`].)
+    fn raise_decision(&mut self, kind: DecisionKind, market: usize, commodity: usize, now: u64) {
+        if self.decisions.len() >= MAX_DECISIONS {
+            return;
+        }
+        if self
+            .decisions
+            .iter()
+            .any(|d| d.kind == kind && d.market == market && d.commodity == commodity)
+        {
+            return; // already pending for this market/commodity
+        }
+        let id = self.next_decision_id;
+        self.next_decision_id += 1;
+        self.decisions.push(Decision {
+            id,
+            kind,
+            market,
+            commodity,
+            deadline_tick: now + DECISION_TTL,
+        });
+    }
+
+    /// The pending dilemmas (the act-now menu, §0.4).
+    pub fn decisions(&self) -> &[Decision] {
+        &self.decisions
+    }
+
+    /// The cheapest *other* market to source `commodity` for a shortage at `market`,
+    /// plus the deal size affordable/available there.
+    fn deal_source(&self, market: usize, commodity: usize) -> Option<(usize, i64)> {
+        let source = (0..self.markets.len())
+            .filter(|&m| m != market && m < self.far_market_start)
+            .min_by_key(|&m| self.markets[m].price(commodity))?;
+        let price = self.markets[source].price(commodity).max(1);
+        let affordable = self.corp.credits() / price;
+        let qty = DEAL_QTY
+            .min(self.markets[source].stock(commodity))
+            .min(affordable);
+        Some((source, qty.max(0)))
+    }
+
+    /// The trade-off options for a pending dilemma, with live numbers for the shell.
+    pub fn decision_options(&self, idx: usize) -> Vec<DecisionOption> {
+        let Some(d) = self.decisions.get(idx) else {
+            return Vec::new();
+        };
+        match d.kind {
+            DecisionKind::Shortage => self.shortage_options(d),
+        }
+    }
+
+    fn shortage_options(&self, d: &Decision) -> Vec<DecisionOption> {
+        let cname = self.markets[d.market].defs()[d.commodity].name;
+        let owner = self.markets[d.market].faction().name();
+        let Some((source, qty)) = self.deal_source(d.market, d.commodity) else {
+            return Vec::new();
+        };
+        let buy = self.markets[source].price(d.commodity);
+        let sell = self.markets[d.market].price(d.commodity);
+        let spread = (sell - buy).max(0);
+        let speculate = qty * spread - qty * sell * Self::TRADE_FEE_BP / 10_000;
+        let profiteer = speculate + qty * sell * GOUGE_BONUS_BP / 10_000;
+        let relief = qty * (buy * RELIEF_MARGIN_BP / 10_000 - buy);
+        vec![
+            DecisionOption {
+                label: "Speculate",
+                summary: format!(
+                    "Buy {cname} cheap, sell into the shortage. ~+{speculate} cr, no strings."
+                ),
+                est_credits: speculate,
+                rep_delta: 0,
+                risky: false,
+            },
+            DecisionOption {
+                label: "Profiteer",
+                summary: format!(
+                    "Gouge the panic. ~+{profiteer} cr but {owner} resents it (−rep); risk a fine if they already do."
+                ),
+                est_credits: profiteer,
+                rep_delta: -GOUGE_REP,
+                risky: true,
+            },
+            DecisionOption {
+                label: "Relief Run",
+                summary: format!(
+                    "Sell at cost to break the shortage. ~{relief} cr, but {owner} won't forget the favour (+rep, climbs the spine)."
+                ),
+                est_credits: relief,
+                rep_delta: RELIEF_REP,
+                risky: false,
+            },
+        ]
+    }
+
+    /// Resolve the dilemma at `idx` with option `opt`. Returns the outcome (credits,
+    /// reputation, whether a risky option backfired) or an error if it can't proceed.
+    pub fn resolve_decision(
+        &mut self,
+        idx: usize,
+        opt: usize,
+    ) -> Result<DecisionOutcome, TradeError> {
+        let Some(d) = self.decisions.get(idx).cloned() else {
+            return Err(TradeError::InsufficientStock);
+        };
+        let outcome = match d.kind {
+            DecisionKind::Shortage => self.resolve_shortage_decision(&d, opt)?,
+        };
+        self.decisions.retain(|x| x.id != d.id);
+        self.feed.resolve_shortage(d.market, d.commodity);
+        Ok(outcome)
+    }
+
+    fn resolve_shortage_decision(
+        &mut self,
+        d: &Decision,
+        opt: usize,
+    ) -> Result<DecisionOutcome, TradeError> {
+        let (source, qty) = self
+            .deal_source(d.market, d.commodity)
+            .ok_or(TradeError::InsufficientStock)?;
+        if qty <= 0 {
+            return Err(TradeError::InsufficientStock);
+        }
+        let owner = self.markets[d.market].faction();
+        match opt {
+            // Speculate: the clean merchant play — source cheap, sell at market.
+            0 => {
+                let cost = self.buy(source, d.commodity, qty)?;
+                let revenue = self.sell(d.market, d.commodity, qty)?;
+                Ok(DecisionOutcome {
+                    credits: revenue - cost,
+                    rep_delta: 0,
+                    backfired: false,
+                    message: format!("Speculated the shortage: +{} cr.", revenue - cost),
+                })
+            }
+            // Profiteer: gouge the panic for extra credits, at a reputation cost — and
+            // an already-resentful faction may slap a profiteering fine (the risk).
+            1 => {
+                let cost = self.buy(source, d.commodity, qty)?;
+                let base = self.sell(d.market, d.commodity, qty)?;
+                let bonus = base * GOUGE_BONUS_BP / 10_000;
+                self.corp.credit(bonus);
+                self.relations.adjust(owner, -GOUGE_REP);
+                // Risk: a faction you've already soured may claw back part of the gain.
+                let standing = self.relations.standing(owner);
+                let mut backfired = false;
+                let mut fine = 0;
+                if standing < 0 {
+                    let chance = (-standing).min(6000) as u32; // up to 60%
+                    if self.rng.chance_bp(chance) {
+                        fine = (base + bonus) / 2;
+                        self.corp.debit(fine.min(self.corp.credits()));
+                        backfired = true;
+                    }
+                }
+                let net = base + bonus - cost - fine;
+                let msg = if backfired {
+                    format!(
+                        "Profiteered, but {} fined you: net +{net} cr, −rep.",
+                        owner.name()
+                    )
+                } else {
+                    format!(
+                        "Profiteered the shortage: +{net} cr, but −rep with {}.",
+                        owner.name()
+                    )
+                };
+                Ok(DecisionOutcome {
+                    credits: net,
+                    rep_delta: -GOUGE_REP,
+                    backfired,
+                    message: msg,
+                })
+            }
+            // Relief Run: flood the market at near cost — forgo profit for goodwill, and
+            // count the favour as an operation on the §0 spine.
+            2 => {
+                let cost = self.buy(source, d.commodity, qty)?;
+                let buy_price = cost / qty.max(1);
+                let revenue = qty * buy_price * RELIEF_MARGIN_BP / 10_000;
+                self.corp.unstore(d.commodity, qty);
+                self.markets[d.market].add_stock(d.commodity, qty);
+                self.corp.credit(revenue);
+                self.relations.adjust(owner, RELIEF_REP);
+                self.complete_op();
+                Ok(DecisionOutcome {
+                    credits: revenue - cost,
+                    rep_delta: RELIEF_REP,
+                    backfired: false,
+                    message: format!("Ran relief to {}: +rep, climbed the spine.", owner.name()),
+                })
+            }
+            _ => Err(TradeError::InsufficientStock),
         }
     }
 
@@ -1656,6 +1872,21 @@ impl Sim {
         }
         // Gauges ebb each tick — biting-but-recoverable (§13).
         self.pressure.decay();
+        // Phase A: surface each fresh act-now shortage as a player dilemma (a menu of
+        // trade-off options), and drop any that timed out.
+        let now = self.tick;
+        let fresh: Vec<(usize, usize)> = self
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Scarcity { market, commodity } => Some((*market, *commodity)),
+                _ => None,
+            })
+            .collect();
+        for (m, c) in fresh {
+            self.raise_decision(DecisionKind::Shortage, m, c, now);
+        }
+        self.decisions.retain(|d| d.deadline_tick > now);
         self.returned = self.events.len();
         &self.events
     }
@@ -3371,6 +3602,59 @@ mod tests {
             sim.corp().cargo(rf),
             0,
             "the cargo round-trips through the warehouse"
+        );
+    }
+
+    #[test]
+    fn a_shortage_dilemma_offers_three_diverging_choices() {
+        // Phase A: a shortage isn't a one-press exploit but a menu of trade-offs —
+        // speculate (clean profit), profiteer (more credits, rep cost), or relief
+        // (forgo profit for goodwill + spine progress). Each pulls a different lever.
+        let (ceres, rf) = (0usize, 5usize);
+        let owner = Sim::new(0).markets()[ceres].faction();
+
+        // Speculate: profits, leaves reputation untouched.
+        let mut a = Sim::new(0);
+        let rep0 = a.relations().standing(owner);
+        a.raise_decision(DecisionKind::Shortage, ceres, rf, a.tick());
+        assert_eq!(
+            a.decision_options(0).len(),
+            3,
+            "a dilemma is a menu, not a button"
+        );
+        let spec = a.resolve_decision(0, 0).unwrap();
+        assert!(spec.credits > 0, "speculating a real shortage profits");
+        assert_eq!(
+            a.relations().standing(owner),
+            rep0,
+            "speculating costs no rep"
+        );
+        assert!(a.decisions().is_empty(), "resolving clears the dilemma");
+
+        // Profiteer: out-earns speculating (no fine at neutral standing) but sours the owner.
+        let mut b = Sim::new(0);
+        b.raise_decision(DecisionKind::Shortage, ceres, rf, b.tick());
+        let prof = b.resolve_decision(0, 1).unwrap();
+        assert!(
+            prof.credits > spec.credits,
+            "profiteering out-earns the clean play"
+        );
+        assert!(
+            b.relations().standing(owner) < rep0,
+            "gouging sours the market's owner"
+        );
+
+        // Relief Run: the reputation play — owner standing rises, profit is forgone.
+        let mut c = Sim::new(0);
+        c.raise_decision(DecisionKind::Shortage, ceres, rf, c.tick());
+        let relief = c.resolve_decision(0, 2).unwrap();
+        assert!(
+            c.relations().standing(owner) > rep0,
+            "relief earns goodwill"
+        );
+        assert!(
+            relief.credits < prof.credits,
+            "relief forgoes the gouge profit"
         );
     }
 

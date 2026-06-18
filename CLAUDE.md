@@ -179,6 +179,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase A: act-now dilemmas (decisions with trade-offs), §0.4.** The QA review's
+  measured #1 fun gap was **Agency** (avg 42/100) — the world raised act-now exceptions but the
+  player's pressable menu was one button (`exploit_shortage`). New `sim::decisions`: an act-now
+  exception is now a **menu of options** with diverging benefit/risk. First kind — a **shortage
+  dilemma** (3 options): **Speculate** (buy cheap / sell into the shortage — clean profit, no
+  rep), **Profiteer** (gouge for ~+40% more credits, but −rep with the market's owner *and* a
+  risk: an already-soured faction may roll a profiteering fine — the one RNG path), **Relief Run**
+  (sell at ~cost to break the shortage — forgoes profit for +rep *and* a spine op). `Sim` holds a
+  transient capped `Vec<Decision>` (raised in `step()` from each fresh `Scarcity` event, deduped,
+  TTL 72 — **not persisted**, like pending incursions); `decision_options(i)` computes live
+  numbers; `resolve_decision(i, opt)` mutates + clears the matching feed alert. Shell: a
+  bottom-centre **dilemma panel** (its own CanvasLayer) that shows the title + a tap-target per
+  option with its live benefit/risk line (render-verified: Speculate +3895 / Profiteer +6639 ⚠ /
+  Relief +120). **Determinism:** raising decisions touches no rng/market (pure event read →
+  push), and the *resolve* RNG only fires when the player chooses Profiteer (personas don't), so
+  the §7c gate + 188 cargo tests + 17 GUT hold and the QA *gameplay* body is byte-identical —
+  only the UI-wiring facet moved (232→239 bindings, +7 wired), regenerated `SAMPLE_GAMEPLAY_
+  REVIEW.md`. *Borrow note:* collect the fresh `(market,commodity)` scarcity pairs into a `Vec`
+  **after** the `&self.events` ingest loop, then push decisions (can't mutate `self.decisions`
+  while borrowing `self.events`). **Next (Phase A cont.):** wreck + raid-defense dilemmas on the
+  same framework, and a reward for engaging so every play style (not just the Tycoon) has reason
+  to act — the lever on the avg-42 Agency score.
+
 - **2026-06-17 — Art: faction-liveried orrery traffic (§4/§24).** The faction palette/shape
   work only showed in the BUILD bench + the §22 diorama; now NPC haulers read by their owner's
   colour on the live map. New read-only binding `hauler_faction(i)` = the hauler's **origin

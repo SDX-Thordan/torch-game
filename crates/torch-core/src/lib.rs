@@ -897,6 +897,76 @@ impl TorchSim {
         self.sim.answer_top_shortage(20)
     }
 
+    // ---- Phase A: player dilemmas (act-now decisions with trade-offs) ----------
+
+    /// Number of pending dilemmas (act-now exceptions awaiting a choice).
+    #[func]
+    fn decision_count(&self) -> i64 {
+        self.sim.decisions().len() as i64
+    }
+
+    /// A one-line title for dilemma `i` (e.g. "ReactorFuel shortage at Ceres Yards").
+    #[func]
+    fn decision_title(&self, i: i64) -> GString {
+        match self.sim.decisions().get(i as usize) {
+            Some(d) => {
+                let c = self.sim.markets()[d.market].defs()[d.commodity].name;
+                let m = self.sim.markets()[d.market].name();
+                GString::from(format!("{c} shortage at {m}"))
+            }
+            None => GString::new(),
+        }
+    }
+
+    /// How many options dilemma `i` offers.
+    #[func]
+    fn decision_option_count(&self, i: i64) -> i64 {
+        self.sim.decision_options(i.max(0) as usize).len() as i64
+    }
+
+    /// The short label of option `opt` on dilemma `i` (e.g. "Profiteer").
+    #[func]
+    fn decision_option_label(&self, i: i64, opt: i64) -> GString {
+        self.sim
+            .decision_options(i.max(0) as usize)
+            .get(opt.max(0) as usize)
+            .map(|o| GString::from(o.label))
+            .unwrap_or_default()
+    }
+
+    /// The benefit/risk one-liner of option `opt` on dilemma `i`.
+    #[func]
+    fn decision_option_desc(&self, i: i64, opt: i64) -> GString {
+        self.sim
+            .decision_options(i.max(0) as usize)
+            .get(opt.max(0) as usize)
+            .map(|o| GString::from(o.summary.clone()))
+            .unwrap_or_default()
+    }
+
+    /// Whether option `opt` on dilemma `i` carries an uncertain (rolled) downside.
+    #[func]
+    fn decision_option_risky(&self, i: i64, opt: i64) -> bool {
+        self.sim
+            .decision_options(i.max(0) as usize)
+            .get(opt.max(0) as usize)
+            .map(|o| o.risky)
+            .unwrap_or(false)
+    }
+
+    /// Resolve dilemma `i` with option `opt`. Returns a feedback message (empty on
+    /// failure, e.g. nothing affordable to source).
+    #[func]
+    fn resolve_decision(&mut self, i: i64, opt: i64) -> GString {
+        match self
+            .sim
+            .resolve_decision(i.max(0) as usize, opt.max(0) as usize)
+        {
+            Ok(o) => GString::from(o.message),
+            Err(_) => GString::new(),
+        }
+    }
+
     /// The player's corporation name (§14 expressive identity).
     #[func]
     fn corp_name(&self) -> GString {

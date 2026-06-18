@@ -138,6 +138,12 @@ var _tg_research: CheckButton
 var _tg_pause: CheckButton
 var _feed: RichTextLabel
 
+# Decision panel (Phase A): act-now dilemmas as a menu of trade-off options.
+var _dec_layer: CanvasLayer
+var _dec_title: Label
+var _dec_opts: VBoxContainer
+var _dec_shown := ""                          # title currently rendered (rebuild on change)
+
 # Fleet view.
 var _fleet_grid: GridContainer
 var _fleet_count: Label
@@ -220,6 +226,7 @@ func _ready() -> void:
 	_build_market_view()
 	_build_empire_view()
 	_build_diorama()
+	_build_decision_panel()
 	_select_view(V_SYSTEMS)
 	# Default to PC mode on desktop, touch on a handheld (§33). Either can be forced
 	# with F8 — handy for testing the desktop layout on a dev machine.
@@ -778,6 +785,75 @@ func _make_op_button(label: String, cb: Callable) -> Button:
 	btn.add_theme_color_override("font_color", UiKit.TEXT_HI)
 	btn.pressed.connect(cb)
 	return btn
+
+
+## ---- Phase A: the act-now decision panel (a menu of trade-off options) --------
+
+## Build the bottom-centre dilemma panel — hidden until an act-now exception offers
+## the player a choice (speculate / profiteer / relief, etc.). Each option is a tap
+## target with its own benefit/risk line, so answering the feed is a *decision*.
+func _build_decision_panel() -> void:
+	_dec_layer = CanvasLayer.new()
+	_dec_layer.layer = 50
+	_dec_layer.visible = false
+	add_child(_dec_layer)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UiKit.panel_box(Color(0.05, 0.07, 0.11, 0.96), UiKit.ACCENT, 10, 2))
+	panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	panel.offset_left = -300
+	panel.offset_right = 300
+	panel.offset_top = -250
+	panel.offset_bottom = -96
+	_dec_layer.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	panel.add_child(box)
+	box.add_child(UiKit.kicker("⚠ Act Now — Your Call"))
+	_dec_title = UiKit.label("", 16, UiKit.TEXT_HI)
+	box.add_child(_dec_title)
+	box.add_child(UiKit.rule())
+	_dec_opts = VBoxContainer.new()
+	_dec_opts.add_theme_constant_override("separation", 5)
+	box.add_child(_dec_opts)
+
+
+## Show/populate the dilemma panel for the top pending decision (rebuilt on change).
+func _refresh_decisions() -> void:
+	if sim.decision_count() <= 0:
+		_dec_layer.visible = false
+		_dec_shown = ""
+		return
+	_dec_layer.visible = true
+	var title := String(sim.decision_title(0))
+	if title == _dec_shown:
+		return                                  # already rendered this dilemma
+	_dec_shown = title
+	_dec_title.text = title
+	for c in _dec_opts.get_children():
+		c.queue_free()
+	var n := sim.decision_option_count(0)
+	for opt in n:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var risky := sim.decision_option_risky(0, opt)
+		var label := String(sim.decision_option_label(0, opt))
+		var btn := _make_op_button(("⚠ " if risky else "") + label, _resolve_decision.bind(opt))
+		btn.custom_minimum_size = Vector2(120, 40)
+		row.add_child(btn)
+		var desc := UiKit.label(String(sim.decision_option_desc(0, opt)), 12, UiKit.TEXT)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc.custom_minimum_size = Vector2(440, 0)
+		desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(desc)
+		_dec_opts.add_child(row)
+
+
+## Resolve the top dilemma with the chosen option, surface the outcome, repaint.
+func _resolve_decision(opt: int) -> void:
+	var msg := String(sim.resolve_decision(0, opt))
+	status = msg if msg != "" else "Couldn't act on that — nothing to source."
+	_dec_shown = ""                             # force a rebuild for any next dilemma
+	_refresh_decisions()
 
 
 ## Send every docked warship on a committed trajectory to the focused world (§6).
@@ -2053,6 +2129,7 @@ func _notification(what: int) -> void:
 
 func _refresh() -> void:
 	_refresh_chrome()
+	_refresh_decisions()
 	match view:
 		V_SYSTEMS:
 			_refresh_systems()
