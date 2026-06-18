@@ -131,7 +131,7 @@ impl TorchSim {
     }
 
     /// The kind of body `index` (§17): 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf,
-    /// 4 Moon, 5 Gate — for the orrery to size and colour it.
+    /// 4 Moon, 5 Gate, 6 FarSide, 7 Asteroid — for the orrery to size and colour it.
     #[func]
     fn body_kind(&self, index: i64) -> i64 {
         use sim::BodyKind::*;
@@ -146,6 +146,7 @@ impl TorchSim {
                 Moon => 4,
                 Gate => 5,
                 FarSide => 6,
+                Asteroid => 7,
             })
             .unwrap_or(1)
     }

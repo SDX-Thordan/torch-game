@@ -22,6 +22,9 @@ pub enum BodyKind {
     GasGiant,
     DwarfPlanet,
     Moon,
+    /// A major named belt asteroid orbiting Sol (§17) — small and rocky, rendered
+    /// without a full orbit ring so the Belt reads as a busy field, not a wheel.
+    Asteroid,
     /// The foreshadowed ring-gate beyond Pluto (§0.1) — a fixed landmark.
     Gate,
     /// A body on the **far side** of the gate (§17 endgame) — revealed only after
@@ -91,6 +94,11 @@ fn planet(name: &'static str, au_milli: i64, years_x100: u64, phase: i64, kind: 
     }
 }
 
+// A major belt asteroid about Sol — real-ish AU radius, real-ish period.
+fn asteroid(name: &'static str, au_milli: i64, years_x100: u64, phase: i64) -> Body {
+    planet(name, au_milli, years_x100, phase, BodyKind::Asteroid)
+}
+
 // A moon about `parent`. Radii are *exaggerated for legibility* (so a zoomed-in
 // gas giant reads as a busy little system, §17) rather than astronomically exact.
 fn moon(name: &'static str, parent: usize, radius: i64, period: u64, phase: i64) -> Body {
@@ -142,12 +150,25 @@ pub fn default_system() -> Vec<Body> {
         },
         // 12+: moons (exaggerated radii for legibility, each on its own orbit).
         moon("Luna", 3, 220_000, 655, 0), // Earth
-        moon("Phobos", 4, 110_000, 8, 0), // Mars
-        moon("Deimos", 4, 175_000, 30, 180_000),
-        moon("Io", 6, 230_000, 42, 0), // Jupiter
-        moon("Europa", 6, 330_000, 85, 70_000),
-        moon("Ganymede", 6, 460_000, 171, 160_000),
-        moon("Callisto", 6, 640_000, 400, 250_000),
+        moon("Phobos", 4, 100_000, 8, 0), // Mars
+        moon("Deimos", 4, 150_000, 30, 180_000),
+        // Jupiter — inner shepherds, the four Galilean giants, and the irregulars.
+        moon("Metis", 6, 150_000, 7, 40_000),
+        moon("Adrastea", 6, 162_000, 7, 200_000),
+        moon("Amalthea", 6, 178_000, 12, 300_000),
+        moon("Thebe", 6, 198_000, 16, 120_000),
+        moon("Io", 6, 232_000, 42, 0),
+        moon("Europa", 6, 300_000, 85, 70_000),
+        moon("Ganymede", 6, 400_000, 171, 160_000),
+        moon("Callisto", 6, 540_000, 400, 250_000),
+        moon("Leda", 6, 720_000, 540, 60_000),
+        moon("Himalia", 6, 760_000, 570, 220_000),
+        moon("Lysithea", 6, 820_000, 610, 330_000),
+        moon("Elara", 6, 860_000, 640, 150_000),
+        moon("Ananke", 6, 940_000, 720, 30_000),
+        moon("Carme", 6, 1_000_000, 780, 260_000),
+        moon("Pasiphae", 6, 1_060_000, 820, 100_000),
+        moon("Sinope", 6, 1_120_000, 870, 300_000),
         // Saturn — the bustling system (§17): ~20 named moons on distinct orbits.
         moon("Pan", 7, 110_000, 14, 20_000),
         moon("Daphnis", 7, 125_000, 17, 250_000),
@@ -169,11 +190,54 @@ pub fn default_system() -> Vec<Body> {
         moon("Hyperion", 7, 650_000, 290, 150_000),
         moon("Iapetus", 7, 820_000, 470, 250_000),
         moon("Phoebe", 7, 980_000, 590, 70_000),
-        // Uranus / Neptune / Pluto.
-        moon("Titania", 8, 260_000, 209, 0),
-        moon("Oberon", 8, 380_000, 323, 150_000),
-        moon("Triton", 9, 280_000, 141, 0),
-        moon("Charon", 10, 110_000, 153, 0),
+        // Uranus — the tilted system: inner shepherds + the five major moons.
+        moon("Cordelia", 8, 120_000, 12, 0),
+        moon("Ophelia", 8, 132_000, 14, 220_000),
+        moon("Bianca", 8, 145_000, 16, 90_000),
+        moon("Cressida", 8, 156_000, 18, 300_000),
+        moon("Desdemona", 8, 165_000, 19, 130_000),
+        moon("Juliet", 8, 176_000, 21, 40_000),
+        moon("Portia", 8, 190_000, 23, 250_000),
+        moon("Rosalind", 8, 205_000, 26, 160_000),
+        moon("Belinda", 8, 225_000, 30, 310_000),
+        moon("Puck", 8, 245_000, 35, 70_000),
+        moon("Miranda", 8, 280_000, 51, 0),
+        moon("Ariel", 8, 330_000, 90, 120_000),
+        moon("Umbriel", 8, 390_000, 124, 240_000),
+        moon("Titania", 8, 470_000, 209, 0),
+        moon("Oberon", 8, 560_000, 323, 150_000),
+        // Neptune — inner moons, great Triton, and the far irregulars.
+        moon("Naiad", 9, 120_000, 7, 0),
+        moon("Thalassa", 9, 132_000, 7, 180_000),
+        moon("Despina", 9, 148_000, 8, 90_000),
+        moon("Galatea", 9, 170_000, 10, 300_000),
+        moon("Larissa", 9, 195_000, 13, 60_000),
+        moon("Hippocamp", 9, 215_000, 22, 240_000),
+        moon("Proteus", 9, 245_000, 27, 150_000),
+        moon("Triton", 9, 330_000, 141, 0),
+        moon("Nereid", 9, 520_000, 360, 200_000),
+        moon("Halimede", 9, 640_000, 480, 100_000),
+        moon("Sao", 9, 720_000, 540, 300_000),
+        moon("Neso", 9, 820_000, 620, 50_000),
+        // Pluto — Charon and the four small moons.
+        moon("Charon", 10, 130_000, 153, 0),
+        moon("Styx", 10, 165_000, 200, 120_000),
+        moon("Nix", 10, 185_000, 250, 250_000),
+        moon("Kerberos", 10, 205_000, 320, 60_000),
+        moon("Hydra", 10, 225_000, 380, 300_000),
+        // Major belt asteroids (real-ish AU). Ceres (the dwarf, index 5) anchors the
+        // Belt; these are the next-largest bodies the field is built around (§17).
+        asteroid("Vesta", 2362, 360, 15_000),
+        asteroid("Pallas", 2773, 460, 200_000),
+        asteroid("Hygiea", 3139, 560, 280_000),
+        asteroid("Juno", 2669, 435, 95_000),
+        asteroid("Eunomia", 2643, 430, 310_000),
+        asteroid("Psyche", 2921, 500, 140_000),
+        asteroid("Davida", 3168, 570, 60_000),
+        asteroid("Interamnia", 3057, 535, 240_000),
+        asteroid("Sylvia", 3490, 650, 20_000),
+        asteroid("Hektor", 5203, 1186, 175_000),
+        asteroid("Eros", 1458, 176, 0),
     ];
     // ---- The far side of the gate (§17 endgame) ----
     // Appended last, so every existing index (planets/gate/moons, and the markets +
@@ -264,6 +328,44 @@ mod tests {
                 "Titan off Saturn-orbit"
             );
         }
+    }
+
+    #[test]
+    fn gas_giants_carry_rich_moon_systems() {
+        // §17: every outer planet should field a busy moon system (10–20 moons).
+        let bodies = default_system();
+        for (planet, want) in [
+            ("Jupiter", 10),
+            ("Saturn", 15),
+            ("Uranus", 10),
+            ("Neptune", 10),
+        ] {
+            let pi = bodies.iter().position(|b| b.name == planet).unwrap();
+            let moons = bodies
+                .iter()
+                .filter(|b| b.kind == BodyKind::Moon && b.parent == pi)
+                .count();
+            assert!(
+                moons >= want,
+                "{planet} should have ≥{want} moons, has {moons}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_belt_has_major_named_asteroids() {
+        // §17: the Belt is built around Ceres + the next-largest named asteroids.
+        let bodies = default_system();
+        for name in ["Vesta", "Pallas", "Hygiea", "Psyche"] {
+            let b = bodies.iter().find(|b| b.name == name).unwrap();
+            assert_eq!(b.kind, BodyKind::Asteroid, "{name} is an asteroid");
+            assert_eq!(b.parent, 0, "{name} orbits Sol");
+        }
+        // Inner indices remain load-bearing despite the appended bodies.
+        assert_eq!(bodies[3].name, "Earth");
+        assert_eq!(bodies[4].name, "Mars");
+        assert_eq!(bodies[5].name, "Ceres");
+        assert_eq!(bodies[11].name, "Ring-Gate");
     }
 
     #[test]

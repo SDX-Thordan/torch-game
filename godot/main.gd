@@ -50,8 +50,6 @@ const VIEW_LERP := 9.0   # orrery marker position smoothing rate (§28 interpola
 const CAM_DIR := Vector3(0.0, 1.15, 0.9)
 const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
-# 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf, 4 Moon, 5 Gate.
-const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0, 0.20]  # 6 = far-side (§17)
 const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
@@ -206,6 +204,8 @@ var _chart_legend: VBoxContainer
 var _orrery_root: Node3D
 var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []
+var _body_spin: Array[Node3D] = []          # the spinning surface mesh per body (or null)
+var _body_spin_rate: PackedFloat32Array = []  # axial-spin rate (rad/s) per body
 var _hauler_pool: Array[MeshInstance3D] = []
 var _faction_haul_mats: Array[StandardMaterial3D] = []   # per-faction hauler livery (§4)
 var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
@@ -280,9 +280,18 @@ func _build_world() -> void:
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
 	e.background_color = SPACE_BG
+	# Bodies are lit in-shader from Sol at the origin (§17), so the scene needs no
+	# engine lights; a faint ambient just keeps the unlit far rims from going pure black.
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.35, 0.4, 0.5)
-	e.ambient_light_energy = 0.35
+	e.ambient_light_color = Color(0.18, 0.22, 0.32)
+	e.ambient_light_energy = 0.18
+	# Bloom so the sun, atmospheres and city lights glow (HDR ALBEDO > 1 → glow).
+	e.glow_enabled = true
+	e.glow_intensity = 0.55
+	e.glow_strength = 1.05
+	e.glow_bloom = 0.18
+	e.glow_hdr_threshold = 1.0
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	env.environment = e
 	add_child(env)
 
@@ -294,15 +303,6 @@ func _build_world() -> void:
 
 	_orrery_root = Node3D.new()
 	add_child(_orrery_root)
-
-	var sun_light := OmniLight3D.new()
-	sun_light.omni_range = 6000.0
-	sun_light.light_energy = 1.2
-	_orrery_root.add_child(sun_light)
-	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-60, -30, 0)
-	key.light_energy = 0.7
-	_orrery_root.add_child(key)
 
 	_hauler_mat = _emissive_mat(HAULER_COL)
 	# Faction-liveried hauler markers (§4/§24): NPC traffic reads by its owner's colour.
@@ -316,43 +316,43 @@ func _build_world() -> void:
 	var gate_r := 40.0
 	for b in sim.body_count():
 		var kind := sim.body_kind(b)
-		if kind == 0:
-			var sun := _sphere(BODY_RADIUS[0], _emissive_mat(Color(1.0, 0.85, 0.3)))
-			_orrery_root.add_child(sun)
-			_body_nodes.append(sun)
-			continue
-		if kind == 5:
+		var name := String(sim.body_name(b))
+		if kind == 5:   # the ring-gate is drawn as a glowing torus, not a sphere
 			gate_r = _world3d(sim.body_x(b), sim.body_y(b)).length()
 			var ph := Node3D.new()
 			_orrery_root.add_child(ph)
 			_body_nodes.append(ph)
+			_body_spin.append(null)
+			_body_spin_rate.append(0.0)
 			continue
-		var body := _sphere(BODY_RADIUS[kind], _lit_mat(_body_colour_kind(b, kind)))
-		# Far-side worlds (§17) exist always but stay hidden until the gate is transited.
+		var container := _spawn_body(b, name, kind)
 		if sim.body_is_far_side(b):
-			body.visible = false
-		_orrery_root.add_child(body)
-		_body_nodes.append(body)
+			container.visible = false   # revealed only after the gate is transited (§17)
+		_orrery_root.add_child(container)
+		_body_nodes.append(container)
+		# Orbit rings: planets/dwarfs trace the ecliptic; moons ring their planet.
+		# Asteroids and the star carry no ring (the Belt reads as a field, not a wheel).
 		var parent := sim.body_parent(b)
-		if parent == 0:
-			# The far-side anchor's ring is drawn in _update_world (toggled with the
-			# reveal); inner-system bodies keep their static orbit ring here.
-			if not sim.body_is_far_side(b):
-				var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-				_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
-		else:
-			var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
-			var mrm := _emissive_mat(Color(0.32, 0.36, 0.42))
-			_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.004, mr * 0.012)))
+		if kind != 0 and kind != 7:
+			if parent == 0:
+				if not sim.body_is_far_side(b):
+					var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
+					_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+			else:
+				var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
+				var mrm := _emissive_mat(Color(0.34, 0.4, 0.48))
+				_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.003, mr * 0.01)))
+		var rad := _display_radius(name, kind)
 		var tag := Label3D.new()
-		tag.text = sim.body_name(b)
+		tag.text = name
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		tag.modulate = Color(0.6, 0.7, 0.78) if kind == 4 else Color(0.72, 0.84, 0.95)
-		tag.pixel_size = 0.0026 if kind == 4 else 0.006
-		tag.position = Vector3(0, BODY_RADIUS[kind] + 0.06, 0)
-		body.add_child(tag)
+		tag.modulate = Color(0.6, 0.7, 0.78) if (kind == 4 or kind == 7) else Color(0.72, 0.84, 0.95)
+		tag.pixel_size = 0.0024 if (kind == 4 or kind == 7) else 0.006
+		tag.position = Vector3(0, rad + 0.05, 0)
+		container.add_child(tag)
 
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
+	_gate_mat.albedo_color = Color(0.95, 0.82, 0.4) * 1.6   # glow through bloom
 	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
 	_orrery_root.add_child(_gate_ring)
 
@@ -361,21 +361,24 @@ func _build_world() -> void:
 		if cb < 0 or cb >= _body_nodes.size():
 			continue
 		var fcol: Color = FACTION_COL[clampi(sim.colony_faction(ci), 0, 3)]
+		var crad := _display_radius(String(sim.body_name(cb)), sim.body_kind(cb))
 		var marker := _station_glyph(fcol)
-		marker.position = Vector3(BODY_RADIUS[sim.body_kind(cb)] + 0.03, 0.0, 0.0)
+		marker.position = Vector3(crad + 0.03, 0.0, 0.0)
 		_body_nodes[cb].add_child(marker)
 		var clbl := Label3D.new()
 		clbl.text = sim.colony_name(ci)
 		clbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		clbl.modulate = fcol
 		clbl.pixel_size = 0.0026
-		clbl.position = Vector3(0.0, -BODY_RADIUS[sim.body_kind(cb)] - 0.07, 0.0)
+		clbl.position = Vector3(0.0, -crad - 0.06, 0.0)
 		_body_nodes[cb].add_child(clbl)
 
 	for b in sim.body_count():
 		if sim.body_name(b) == "Saturn":
-			_build_saturn_rings(_body_nodes[b])
+			_build_saturn_rings(_body_spin[b])   # parent to the tilted surface
 			break
+
+	_build_asteroid_belt()
 
 	_lane_mesh = ImmediateMesh.new()
 	var lanes := MeshInstance3D.new()
@@ -387,6 +390,194 @@ func _build_world() -> void:
 	_orrery_root.add_child(lanes)
 
 	_build_starfield()
+
+
+## Build one celestial body: a positioned container holding a tilted, spinning,
+## procedurally-shaded surface sphere (§17) plus an atmospheric glow shell where
+## the world has an atmosphere. Records the surface + spin rate for the frame loop.
+func _spawn_body(b: int, name: String, kind: int) -> Node3D:
+	var container := Node3D.new()
+	var rad := _display_radius(name, kind)
+	var surf := _sphere(rad, _make_body_material(name, kind))
+	# Lean the spin axis (axial tilt) — Uranus rolls on its side, Earth a gentle 23°.
+	surf.rotation_degrees = Vector3(0.0, 0.0, _axial_tilt(name))
+	# Tune sphere resolution to apparent size (cheap for tiny moons/rocks).
+	var sm := surf.mesh as SphereMesh
+	var segs := 12
+	if rad > 0.25: segs = 40
+	elif rad > 0.09: segs = 28
+	elif rad > 0.035: segs = 18
+	sm.radial_segments = segs
+	sm.rings = maxi(6, segs / 2)
+	container.add_child(surf)
+	_body_spin.append(surf)
+	_body_spin_rate.append(_spin_rate(name, kind))
+	var atmo := _atmosphere_for(name, kind, rad)
+	if atmo != null:
+		container.add_child(atmo)
+	return container
+
+
+## Numerous small bodies filling the asteroid belt (§17) — a deterministic ring of
+## tumbling rocks between Mars and Jupiter, so the Belt looks inhabited, not empty.
+func _build_asteroid_belt() -> void:
+	var amat := PlanetShaders.rocky(Color(0.42, 0.36, 0.3), Color(0.2, 0.17, 0.14), 0.9, 0.0, Color.WHITE)
+	var rock := SphereMesh.new()
+	rock.radius = 0.012
+	rock.height = 0.024
+	rock.radial_segments = 6
+	rock.rings = 4
+	rock.material = amat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = rock
+	mm.instance_count = 1400
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	for i in mm.instance_count:
+		var ang := rng.randf() * TAU
+		var r := rng.randf_range(2.05, 3.35)   # AU = world units
+		var y := rng.randf_range(-0.06, 0.06) * r
+		var pos := Vector3(cos(ang) * r, y, -sin(ang) * r)
+		var s := rng.randf_range(0.4, 2.6)
+		var basis := Basis(Vector3(rng.randf(), rng.randf(), rng.randf()).normalized(), rng.randf() * TAU).scaled(Vector3.ONE * s)
+		mm.set_instance_transform(i, Transform3D(basis, pos))
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	_orrery_root.add_child(mmi)
+
+
+# ---- body appearance specs (§17/§24) ---------------------------------------
+
+# Apparent display radii (world units). Not true scale — at 1 AU = 1 unit the real
+# bodies would be invisible specks — but the *relative* sizes are honest (Jupiter
+# dwarfs the terrestrials, moons are tiny), so the system reads more to scale (§21).
+const _RADII := {
+	"Sol": 0.55,
+	"Mercury": 0.045, "Venus": 0.105, "Earth": 0.11, "Mars": 0.062,
+	"Jupiter": 0.42, "Saturn": 0.36, "Uranus": 0.21, "Neptune": 0.20,
+	"Ceres": 0.05, "Pluto": 0.046,
+	"Ganymede": 0.05, "Titan": 0.05, "Callisto": 0.046, "Io": 0.04, "Europa": 0.038,
+	"Luna": 0.046, "Triton": 0.042, "Titania": 0.034, "Oberon": 0.033,
+	"Rhea": 0.03, "Iapetus": 0.03, "Vesta": 0.028, "Pallas": 0.026,
+}
+# Icy/bright moons (and Pluto-likes) — share the rocky shader tuned pale and ice-rich.
+const _ICY := ["Europa", "Enceladus", "Tethys", "Dione", "Mimas", "Rhea", "Iapetus",
+	"Ganymede", "Callisto", "Triton", "Charon", "Miranda", "Ariel", "Umbriel",
+	"Titania", "Oberon", "Hydra", "Nix"]
+
+
+func _display_radius(name: String, kind: int) -> float:
+	if _RADII.has(name):
+		return float(_RADII[name])
+	match kind:
+		0: return 0.55
+		1: return 0.075
+		2: return 0.30
+		3: return 0.04
+		4: return 0.022
+		6: return 0.18
+		7: return 0.024
+	return 0.06
+
+
+func _make_body_material(name: String, kind: int) -> ShaderMaterial:
+	match name:
+		"Sol":
+			return PlanetShaders.sun()
+		"Earth":
+			return PlanetShaders.earth()
+		"Venus":
+			return PlanetShaders.venus()
+		"Jupiter":
+			return PlanetShaders.gas_giant(Color(0.74, 0.58, 0.4), Color(0.92, 0.84, 0.68),
+				Color(0.58, 0.4, 0.28), Color(0.72, 0.66, 0.56), 1.0, Color(0.8, 0.32, 0.22))
+		"Saturn":
+			return PlanetShaders.gas_giant(Color(0.84, 0.74, 0.52), Color(0.94, 0.88, 0.68),
+				Color(0.76, 0.64, 0.44), Color(0.82, 0.76, 0.6), 0.0, Color.WHITE)
+		"Uranus":
+			return PlanetShaders.gas_giant(Color(0.52, 0.82, 0.83), Color(0.72, 0.92, 0.92),
+				Color(0.42, 0.7, 0.76), Color(0.6, 0.82, 0.84), 0.0, Color.WHITE)
+		"Neptune":
+			return PlanetShaders.gas_giant(Color(0.18, 0.34, 0.78), Color(0.34, 0.52, 0.92),
+				Color(0.13, 0.26, 0.6), Color(0.28, 0.44, 0.8), 1.0, Color(0.16, 0.28, 0.66))
+		"Mars":
+			return PlanetShaders.rocky(Color(0.74, 0.36, 0.18), Color(0.44, 0.2, 0.12), 0.5, 0.11, Color(0.93, 0.94, 0.96))
+		"Mercury":
+			return PlanetShaders.rocky(Color(0.55, 0.5, 0.46), Color(0.3, 0.28, 0.26), 0.95, 0.0, Color.WHITE)
+		"Luna":
+			return PlanetShaders.rocky(Color(0.62, 0.62, 0.63), Color(0.3, 0.3, 0.32), 0.9, 0.0, Color.WHITE)
+		"Titan":
+			return PlanetShaders.rocky(Color(0.82, 0.56, 0.2), Color(0.52, 0.34, 0.12), 0.15, 0.0, Color.WHITE)
+		"Pluto":
+			return PlanetShaders.rocky(Color(0.72, 0.62, 0.52), Color(0.45, 0.38, 0.32), 0.45, 0.28, Color(0.86, 0.83, 0.78))
+		"Ceres":
+			return PlanetShaders.rocky(Color(0.5, 0.48, 0.46), Color(0.29, 0.28, 0.27), 0.75, 0.06, Color(0.72, 0.74, 0.76))
+	if _ICY.has(name):
+		return PlanetShaders.rocky(Color(0.82, 0.86, 0.92), Color(0.5, 0.58, 0.68), 0.55, 0.0, Color.WHITE)
+	match kind:
+		2:
+			return PlanetShaders.gas_giant(Color(0.7, 0.62, 0.5), Color(0.86, 0.8, 0.66),
+				Color(0.55, 0.46, 0.36), Color(0.7, 0.66, 0.58), 0.0, Color.WHITE)
+		3:
+			return PlanetShaders.rocky(Color(0.66, 0.6, 0.54), Color(0.4, 0.36, 0.32), 0.6, 0.15, Color(0.82, 0.82, 0.8))
+		6:
+			return PlanetShaders.rocky(Color(0.5, 0.4, 0.62), Color(0.24, 0.18, 0.34), 0.7, 0.0, Color.WHITE)
+		7:
+			return PlanetShaders.rocky(Color(0.46, 0.4, 0.34), Color(0.22, 0.19, 0.16), 0.95, 0.0, Color.WHITE)
+	return PlanetShaders.rocky(Color(0.6, 0.58, 0.55), Color(0.34, 0.33, 0.31), 0.7, 0.0, Color.WHITE)
+
+
+func _axial_tilt(name: String) -> float:
+	match name:
+		"Earth": return 23.0
+		"Mars": return 25.0
+		"Saturn": return 27.0
+		"Neptune": return 28.0
+		"Jupiter": return 3.0
+		"Uranus": return 92.0   # rolls on its side
+		"Pluto": return 57.0
+		"Mercury": return 2.0
+		"Venus": return 3.0
+	return 8.0
+
+
+func _spin_rate(name: String, kind: int) -> float:
+	match kind:
+		0: return 0.0     # the sun's surface is animated in-shader
+		2: return 0.5     # gas giants whirl
+		1: return 0.13
+		3: return 0.10
+		4: return 0.08
+		7: return 0.35    # rubble-pile asteroids tumble
+		6: return 0.10
+	return 0.10
+
+
+## A thin additive atmospheric-glow shell around bodies with an atmosphere, or null.
+func _atmosphere_for(name: String, kind: int, rad: float) -> MeshInstance3D:
+	var col := Color.BLACK
+	var inten := 0.0
+	match name:
+		"Earth": col = Color(0.35, 0.6, 1.0); inten = 1.5
+		"Venus": col = Color(0.96, 0.86, 0.56); inten = 1.7
+		"Mars": col = Color(0.86, 0.55, 0.4); inten = 0.5
+		"Titan": col = Color(0.86, 0.56, 0.2); inten = 1.3
+		"Jupiter": col = Color(0.86, 0.72, 0.56); inten = 0.9
+		"Saturn": col = Color(0.92, 0.84, 0.62); inten = 0.8
+		"Uranus": col = Color(0.6, 0.86, 0.9); inten = 0.9
+		"Neptune": col = Color(0.32, 0.52, 0.96); inten = 1.0
+		"Pluto": col = Color(0.72, 0.76, 0.86); inten = 0.35
+		_:
+			if kind == 2:
+				col = Color(0.72, 0.76, 0.86); inten = 0.7
+			else:
+				return null
+	var shell := _sphere(rad * (1.05 if kind == 2 else 1.07), PlanetShaders.atmosphere(col, inten))
+	var sm := shell.mesh as SphereMesh
+	sm.radial_segments = 28
+	sm.rings = 14
+	return shell
 
 
 func _build_starfield() -> void:
@@ -417,32 +608,53 @@ func _build_starfield() -> void:
 
 
 func _build_saturn_rings(saturn: Node3D) -> void:
-	for rr in [0.42, 0.48, 0.54, 0.60, 0.66, 0.72]:
-		var rm := _emissive_mat(Color(0.85, 0.78, 0.55, 0.45))
-		rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		saturn.add_child(_ring_mat(rr, rm, 0.018))
-	var amat := StandardMaterial3D.new()
-	amat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	amat.albedo_color = Color(0.78, 0.74, 0.66)
-	var rock := BoxMesh.new()
-	rock.size = Vector3(0.012, 0.012, 0.012)
+	# The main ring sheet — a flat, banded, Sol-lit annulus (parented to the tilted
+	# planet so the rings sit on Saturn's equator).
+	var ring := MeshInstance3D.new()
+	ring.mesh = _flat_ring_mesh(0.44, 0.82, 120)
+	ring.material_override = PlanetShaders.rings(0.44, 0.82, Color(1.0, 0.95, 0.85))
+	saturn.add_child(ring)
+	# A scatter of ring particles for a touch of depth/sparkle.
+	var amat := PlanetShaders.rocky(Color(0.82, 0.76, 0.62), Color(0.5, 0.46, 0.38), 0.4, 0.0, Color.WHITE)
+	var rock := SphereMesh.new()
+	rock.radius = 0.006
+	rock.height = 0.012
+	rock.radial_segments = 5
+	rock.rings = 3
 	rock.material = amat
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = rock
-	mm.instance_count = 220
+	mm.instance_count = 300
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 17
 	for i in mm.instance_count:
 		var ang := rng.randf() * TAU
-		var rad := rng.randf_range(0.40, 0.74)
-		var pos := Vector3(cos(ang) * rad, rng.randf_range(-0.012, 0.012), sin(ang) * rad)
-		var s := rng.randf_range(0.5, 2.2)
+		var rad := rng.randf_range(0.44, 0.82)
+		var pos := Vector3(cos(ang) * rad, rng.randf_range(-0.006, 0.006), sin(ang) * rad)
+		var s := rng.randf_range(0.5, 2.0)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s)
 		mm.set_instance_transform(i, Transform3D(basis, pos))
 	var ast := MultiMeshInstance3D.new()
 	ast.multimesh = mm
 	saturn.add_child(ast)
+
+
+## A flat horizontal annulus (ring of triangles in the XZ plane) for planetary rings.
+func _flat_ring_mesh(inner: float, outer: float, segs: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in segs:
+		var a0 := TAU * float(i) / float(segs)
+		var a1 := TAU * float(i + 1) / float(segs)
+		var ci := Vector3(cos(a0) * inner, 0.0, sin(a0) * inner)
+		var co := Vector3(cos(a0) * outer, 0.0, sin(a0) * outer)
+		var ni := Vector3(cos(a1) * inner, 0.0, sin(a1) * inner)
+		var no := Vector3(cos(a1) * outer, 0.0, sin(a1) * outer)
+		for v in [ci, co, no, ci, no, ni]:
+			st.set_normal(Vector3.UP)
+			st.add_vertex(v)
+	return st.commit()
 
 
 # ============================================================================
@@ -2162,6 +2374,10 @@ func _update_world(delta: float) -> void:
 	for b in sim.body_count():
 		if b < _body_nodes.size():
 			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
+			# Spin the body on its (tilted) axis — purely cosmetic view interpolation
+			# like §28 marker smoothing, so it turns even while the sim is paused.
+			if b < _body_spin.size() and _body_spin[b] != null and _body_spin_rate[b] != 0.0:
+				_body_spin[b].rotate_object_local(Vector3.UP, delta * _body_spin_rate[b])
 			# Reveal the far side only once the gate is transited (§17).
 			if sim.body_is_far_side(b):
 				_body_nodes[b].visible = beyond
@@ -3041,13 +3257,7 @@ func _emissive_mat(col: Color) -> StandardMaterial3D:
 	return m
 
 
-func _lit_mat(col: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	return m
-
-
-func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
+func _sphere(radius: float, mat: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = radius
@@ -3108,27 +3318,3 @@ func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInsta
 	return mi
 
 
-func _body_colour(b: int) -> Color:
-	var palette := [
-		Color(0.55, 0.75, 1.0), Color(0.8, 0.85, 0.9),
-		Color(0.9, 0.6, 0.45), Color(0.6, 0.85, 0.7),
-	]
-	return palette[(b - 1) % palette.size()]
-
-
-func _body_colour_kind(b: int, kind: int) -> Color:
-	match kind:
-		2:
-			var giants := [
-				Color(0.85, 0.72, 0.5), Color(0.92, 0.85, 0.6),
-				Color(0.6, 0.88, 0.88), Color(0.45, 0.6, 0.95),
-			]
-			return giants[((b - 6) % giants.size() + giants.size()) % giants.size()]
-		3:
-			return Color(0.72, 0.66, 0.6)
-		4:
-			return Color(0.7, 0.72, 0.76)
-		6:
-			return Color(0.56, 0.44, 0.72)   # cold violet — the far side of the gate
-		_:
-			return _body_colour(b)

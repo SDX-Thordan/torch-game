@@ -234,7 +234,7 @@ _Acquires a couple of colonies, then grows them tall by developing — does the 
 
 | metric | value |
 | --- | --- |
-| treasury | 5000 → 128590 cr (+123590, ~25×) |
+| treasury | 5000 → 128591 cr (+123591, ~25×) |
 | actions | 490 over 12% of ticks |
 | pacing | 2088 ticks pending · longest idle 1193 ticks |
 | campaign | The Region · gate 33% · 1 ascent(s) |
@@ -251,7 +251,7 @@ _Acquires a couple of colonies, then grows them tall by developing — does the 
 **Findings:**
 
 - **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
-- **[CONCERN]** _Economy_ — Treasury ran away: 5000 → 128590 cr (~25×) with no wealth-scaled sink. Repeated arbitrage compounds without bound, so trading stops being a decision and becomes a faucet.
+- **[CONCERN]** _Economy_ — Treasury ran away: 5000 → 128591 cr (~25×) with no wealth-scaled sink. Repeated arbitrage compounds without bound, so trading stops being a decision and becomes a faucet.
 - **[INFO]** _Agency_ — Issued 490 actions across 12% of ticks.
 - **[NOTE]** _Alert feed_ — 29 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.

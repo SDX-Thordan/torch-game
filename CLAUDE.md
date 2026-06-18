@@ -179,6 +179,41 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — A beautiful 3D orrery: procedural-shader bodies + Sol-lit day/night + richer
+  system (§17/§21/§24).** A big "make the map beautiful" pass, mostly shell + a small orbit-data
+  add. **Rust (`orbit.rs`):** a new `BodyKind::Asteroid` (one arm in `lib.rs body_kind`, nothing
+  else matches `BodyKind` exhaustively), the gas-giant moon systems fleshed out to the real majors
+  + irregulars (Jupiter 16 / Uranus 15 / Neptune 12 / Pluto 5; Saturn's ~20 kept), and 11 **major
+  named belt asteroids** (Vesta…Eros). All **appended before the far-side push**, so the
+  load-bearing inner indices (Earth 3 / Mars 4 / Ceres 5 / Gate 11) and the dynamically-computed
+  far-side anchor are unmoved; frontier colonies resolve **by name** so they're untouched. Only
+  effect on QA: `salvage` seeds wrecks off `body_count`, so the review shifted by **1 credit** on
+  one persona — regenerated honestly. **Shell — procedural "textures" via shaders** (no texture
+  pipeline; same ethos as the ship forge): new `godot/ui/planet_shaders.gd` (`class_name
+  PlanetShaders`) with in-fragment value-noise/fbm and a sun-lit term. **The key trick: Sol sits
+  at the world origin, so each body derives its sunlight direction from its own node origin** —
+  giving a real **day/night terminator** (and Earth's **night-side city lights**) for free as a
+  body orbits + spins, no engine lights (everything renders `unshaded`; the scene has *no*
+  `DirectionalLight`/`OmniLight` now). Shaders: a turbulent **sun**, **banded gas giants** (with a
+  Great-Red-Spot/Neptune-storm), **Earth** (oceans/continents/clouds/ice-caps/city-lights),
+  **Venus** cloud deck, **rocky/icy** worlds (cratered, polar caps — tuned per body), an additive
+  **atmospheric rim glow** shell on bodies with air, and a flat **Saturn ring** annulus (banded,
+  Cassini gap, Sol-lit). Bodies now **spin on a tilted axis** (`_spawn_body` → container ▸ tilted
+  spinning surface ▸ atmosphere; rotation is frame-based cosmetic interpolation like §28, so it
+  turns while paused), **relative sizes are more honest** (Jupiter dwarfs the terrestrials —
+  `_display_radius` by name/kind; true scale is impossible to view at 1 AU = 1 unit), the Belt has
+  a **1400-rock MultiMesh field** plus the named majors, and the `Environment` runs **glow/bloom**
+  so the sun, atmospheres and city lights actually glow (HDR `ALBEDO > 1`). **Two GL-compat shader
+  traps (fatal, caught by render-not-parse):** under `gl_compatibility` the fragment stage has
+  **no `NODE_POSITION_WORLD` / `CAMERA_POSITION_WORLD`** ("Unknown identifier") — compute the
+  node-to-sun dir in `vertex()` from `MODEL_MATRIX[3].xyz` and pass it as a **varying**, and do
+  fresnel rims with view-space `NORMAL`/`VIEW` (both fragment-available). Render-verified each body
+  under xvfb (Earth's city lights + terminator, the gas-giant bands + moon labels, Saturn's rings,
+  the bloomed sun). Pure-shell + read-only data, so the §7c gate holds and the QA *gameplay* body
+  is byte-identical bar the 1-credit salvage drift. 209 cargo + 17 GUT green. *Lesson:* "proper
+  textures" in a primitives renderer = **procedural shaders**, and putting the star at the origin
+  makes correct planetary lighting a one-liner (`-normalize(node_origin)`).
+
 - **2026-06-18 — Ship sourcing reframe: Tycho buys vs. your own shipyard (§8/§5).** Player call:
   you **can't freely build warships**. Civilians + (with **OPA standing ≥ 250**) **corvettes**
   come from **Tycho**; **Destroyer/Cruiser/Battleship** need your **own shipyard** (tier 1/2/3),
