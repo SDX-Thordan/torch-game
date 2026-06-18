@@ -50,6 +50,12 @@ const VIEW_LERP := 9.0   # orrery marker position smoothing rate (§28 interpola
 const CAM_DIR := Vector3(0.0, 1.15, 0.9)
 const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
+const ROT_DRAG_SENS := 0.006                  # one-finger drag → yaw (rad per screen px)
+const ROT_STEP := 0.40                         # ↺/↻ button + Q/E key rotation step (rad)
+# UI magnification (§33 readability) — the whole HUD scales by this; touch needs it bigger
+# than a desktop monitor. Applied via the window's content scale (canvas_items stretch).
+const UI_SCALE_TOUCH := 1.35
+const UI_SCALE_PC := 1.0
 const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
@@ -71,8 +77,11 @@ var last_tier := ""
 var _last_endgame := 0                       # 0 undecided · 1 won · 2 lost (§17, G5)
 var _zoom := 10.0
 var _focus_body := 0
+var _yaw := 0.0                              # camera orbit angle (rad) — rotate the map
 var _touches := {}
 var _pinch_prev := 0.0
+var _pinch_ang_prev := 0.0                   # two-finger twist angle (rad) for rotation
+var _was_drag := false                       # a one-finger drag rotated — suppress the tap-focus
 # PC mode (desktop): mouse-wheel zoom + keyboard, no touch-zoom buttons. Auto-detected
 # on desktop, manually toggleable (F8) so it can be forced on either platform.
 var pc_mode := false
@@ -251,6 +260,8 @@ func _set_pc_mode(on: bool) -> void:
 	pc_mode = on
 	if _map_controls:
 		_map_controls.visible = not on
+	# Magnify the whole HUD for legibility — bigger on a handheld than a desktop monitor (§33).
+	get_window().content_scale_factor = UI_SCALE_PC if on else UI_SCALE_TOUCH
 	if on:
 		# A desktop window: resizable, a sensible default, mouse cursor shown.
 		var win := get_window()
@@ -726,8 +737,11 @@ func _build_chrome() -> void:
 	_res_crew = UiKit.label("", 14, UiKit.TEXT)
 	res.add_child(_make_res_cell("CREW", _res_crew))
 
-	# Content host (between the rail and the screen edge, below the bar).
+	# Content host (between the rail and the screen edge, below the bar). IGNORE so that
+	# taps/drags/pinches over the *map* (the 3D orrery behind it) reach `_unhandled_input`;
+	# the interactive panels inside still catch their own input (they default to STOP).
 	_content = Control.new()
+	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fill(_content, 86, 54, 8, 8)
 	_layer.add_child(_content)
 
@@ -885,7 +899,7 @@ func _build_systems_view() -> void:
 	mc.set_anchors_preset(Control.PRESET_FULL_RECT)
 	mc.anchor_left = 1
 	mc.anchor_top = 1
-	mc.offset_left = -470
+	mc.offset_left = -560
 	mc.offset_top = -176
 	mc.offset_right = -322
 	mc.offset_bottom = -132
@@ -893,6 +907,8 @@ func _build_systems_view() -> void:
 	_map_controls = mc
 	mc.add_child(_make_map_button("+", func(): _zoom_by(0.8)))
 	mc.add_child(_make_map_button("–", func(): _zoom_by(1.25)))
+	mc.add_child(_make_map_button("↺", func(): _rotate_by(-ROT_STEP)))
+	mc.add_child(_make_map_button("↻", func(): _rotate_by(ROT_STEP)))
 	mc.add_child(_make_map_button("◉", _reset_view))
 
 	# Fleet ops (§6): send the docked warships to the focused world, or refuel them.
@@ -2289,7 +2305,9 @@ func _update_camera() -> void:
 	# Shift the look target so the focus sits left-of-centre, clear of the right
 	# context panel that overlays the orrery in the SYSTEMS view.
 	var look := f + Vector3(0.18 * _zoom, 0.0, 0.0)
-	_cam.position = look + CAM_DIR.normalized() * _zoom
+	# Orbit the view around the focus by the player's yaw (finger-twist / drag / Q-E / buttons).
+	var dir := CAM_DIR.normalized().rotated(Vector3.UP, _yaw)
+	_cam.position = look + dir * _zoom
 	_cam.look_at(look, Vector3.UP)
 
 
@@ -2307,8 +2325,21 @@ func _screen(p: Vector3) -> Vector2:
 	return _cam.unproject_position(p)
 
 
+## Convert an input event position (delivered in the content-scaled canvas space) into the
+## viewport/render pixel space that `Camera3D.unproject_position` uses, so map picking lines
+## up when the HUD is magnified (content_scale_factor ≠ 1, e.g. touch mode). No-op at 1.0.
+func _to_view(pos: Vector2) -> Vector2:
+	return pos * get_window().content_scale_factor
+
+
 func _zoom_by(factor: float) -> void:
 	_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+
+
+## Orbit the map view by `d` radians (wrapped). Drives both the ↺/↻ buttons + Q/E keys
+## and the finger gestures (one-finger drag, two-finger twist).
+func _rotate_by(d: float) -> void:
+	_yaw = wrapf(_yaw + d, -PI, PI)
 
 
 func _two_finger_dist() -> float:
@@ -2318,10 +2349,20 @@ func _two_finger_dist() -> float:
 	return pts[0].distance_to(pts[1])
 
 
+## The angle (rad) of the line between the two active touches — its change is the twist.
+func _two_finger_angle() -> float:
+	var pts := _touches.values()
+	if pts.size() < 2:
+		return 0.0
+	var v: Vector2 = pts[1] - pts[0]
+	return v.angle()
+
+
 func _reset_view() -> void:
 	_focus_body = 0
 	_zoom = 10.0
-	status = "View: inner system (pinch / +– to zoom, tap a world to focus)."
+	_yaw = 0.0
+	status = "View: inner system (pinch to zoom · drag/twist to rotate · tap a world)."
 
 
 # ============================================================================
@@ -2755,9 +2796,9 @@ func _refresh() -> void:
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
 	if pc_mode:
-		_help.text = "PC ·  [Space/1/2/3] time   [F1–F4/F6] views   wheel: zoom · click: focus   [↑↓] commodity [←→] market   [B]uy [S]ell   [Tab] target [I]nterdict [E]xploit   [N]ew ship   [F5]/[F9] save·load   [F8] touch mode"
+		_help.text = "PC ·  [Space/1/2/3] time   [F1–F4/F6] views   wheel: zoom · [,/.] rotate · click: focus   [↑↓] commodity [←→] market   [B]uy [S]ell   [Tab] target [I]nterdict [E]xploit   [N]ew ship   [F5]/[F9] save·load   [F8] touch mode"
 	else:
-		_help.text = "Touch ·  [Space/1/2/3] time   pinch: zoom · tap: focus   [B]uy [S]ell   [I]nterdict [E]xploit   [F8] PC mode"
+		_help.text = "Touch ·  [Space/1/2/3] time   pinch: zoom · drag/twist: rotate · tap: focus   [B]uy [S]ell   [I]nterdict [E]xploit   [F8] PC mode"
 
 
 func _refresh_chrome() -> void:
@@ -3184,9 +3225,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_touches[event.index] = event.position
+			if _touches.size() == 1:
+				_was_drag = false
 			if _touches.size() >= 2:
 				_was_multitouch = true
 				_pinch_prev = _two_finger_dist()
+				_pinch_ang_prev = _two_finger_angle()
 		else:
 			_touches.erase(event.index)
 			if _touches.size() < 2:
@@ -3196,10 +3240,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _touches.has(event.index):
 			_touches[event.index] = event.position
 		if _touches.size() >= 2:
+			# Two fingers: pinch distance → zoom, twist angle → rotate (map gestures).
 			var d := _two_finger_dist()
 			if _pinch_prev > 0.0 and d > 0.0:
 				_zoom = clampf(_zoom * (_pinch_prev / d), ZOOM_MIN, ZOOM_MAX)
 			_pinch_prev = d
+			var a := _two_finger_angle()
+			_rotate_by(a - _pinch_ang_prev)
+			_pinch_ang_prev = a
+		elif view == V_SYSTEMS:
+			# One finger dragging the map: orbit the view; mark it so the release isn't a tap.
+			_rotate_by(-event.relative.x * ROT_DRAG_SENS)
+			if absf(event.relative.x) + absf(event.relative.y) > 1.0:
+				_was_drag = true
 		return
 	if event is InputEventMagnifyGesture:
 		_zoom = clampf(_zoom / event.factor, ZOOM_MIN, ZOOM_MAX)
@@ -3216,10 +3269,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			MOUSE_BUTTON_LEFT:
 				if not event.pressed and view == V_SYSTEMS:
-					if _was_multitouch:
+					if _was_multitouch or _was_drag:
 						_was_multitouch = false
-					elif not _pick_hauler(event.position):
-						_pick_body(event.position)
+						_was_drag = false
+					else:
+						var vp := _to_view(event.position)
+						if not _pick_hauler(vp):
+							_pick_body(vp)
 				return
 			MOUSE_BUTTON_RIGHT:
 				if event.pressed and view == V_SYSTEMS:
@@ -3262,6 +3318,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			trade_qty = maxi(QTY_STEP, trade_qty - QTY_STEP)
 		KEY_BRACKETRIGHT:
 			trade_qty = mini(QTY_MAX, trade_qty + QTY_STEP)
+		KEY_COMMA:
+			_rotate_by(-ROT_STEP)
+		KEY_PERIOD:
+			_rotate_by(ROT_STEP)
 		KEY_B:
 			_do_buy()
 		KEY_S:

@@ -291,6 +291,19 @@ Status: [x] done, [~] in progress, [ ] todo.
   on-screen buttons + tap still work. Op-buttons default 104px wide → a row of single-char
   cycle buttons overflows; use a tiny 26×26 button for arrows. `-1 << 30` is rejected
   ("only positive operands for `<<`") → use a literal.
+- **Map gestures reach `_unhandled_input` only if nothing STOPs them first.** A full-rect
+  **layout host** Control defaults to `MOUSE_FILTER_STOP` and silently eats every tap/drag/pinch
+  over the 3D map behind it (the interactive child panels are themselves STOP, so they keep
+  working) → set the **host to `IGNORE`**. With that, one-finger drag = orbit, two-finger
+  pinch = zoom + **twist (`Vector2.angle()` delta) = rotate**; mark a `_was_drag` flag so the
+  release isn't read as a tap-to-focus.
+- **`content_scale_factor` (the HUD magnify lever for handheld readability) breaks 3D picking.**
+  Under `canvas_items` stretch, `_unhandled_input` event positions arrive in **scaled canvas
+  space** (physical ÷ factor) while `Camera3D.unproject_position` returns **render pixels** — so
+  a tap projected against unproject coords misses by the factor. Convert at the boundary:
+  `pick(event.position * content_scale_factor)` (a no-op at 1.0, so PC mode is unaffected).
+  **Verify headlessly** by `push_input`-ing a click at a body's unproject position (push_input
+  applies the same stretch transform a real finger does) and asserting the focus lands.
 
 ### 7.5 Render-verify workflow
 
