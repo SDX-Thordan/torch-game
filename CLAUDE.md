@@ -320,6 +320,14 @@ Status: [x] done, [~] in progress, [ ] todo.
   `editor_settings-4.6.tres`; `use_gradle_build=true` + `--install-android-build-template`;
   build-tools match `target_sdk=34`; `HOME=/github/home`; stage the host `libtorch_core.so`
   (`cargo build`) + the arm64 lib at `godot/bin/android/arm64/`.
+- **Updatable releases (install *over* the prior version):** two non-obvious requirements.
+  **(1) Stable signing key** — Android rejects an update signed with a *different* key, so the CI
+  must **not** regenerate the keystore each run; the repo ships a committed stable
+  `godot/debug.keystore` (the preset references it), overridable by an `ANDROID_KEYSTORE_BASE64`
+  secret for a private/Play key. **(2) Increasing `versionCode`** — a build is only seen as
+  *newer* when its `version/code` is higher; the tag job stamps `version/code` + `version/name`
+  into `export_presets.cfg` from the `vMAJOR.MINOR.PATCH` tag (`code = MA*10000+MI*100+PA`). Saves
+  already survive updates via the §7.2 `#[serde(default)]` discipline.
 - **GUT view tests:** pin **≥9.4.0** (9.3.0's `Logger` shadows Godot 4.6's native `Logger` →
   the addon won't compile). One `--import` pass on a fresh checkout registers GUT's
   class_names; headless GUT needs no xvfb; `gut_cmdln … -gexit` exits non-zero on failure (a

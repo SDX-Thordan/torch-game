@@ -27,6 +27,8 @@ harness (works? / engaging? / reachable?).
   deterministic core, the stable multi-market economy + §7c no-death-spiral gate, §7b
   interceptable traffic, ships/fitting/combat, alert feed, factions/reputation/research/CEO,
   managers/automation, tier ascent + gate foreshadowing, pressure/pacing, the QA harness.
+  The tagged-release APK is now **updatable** — stable committed signing key + tag-derived
+  `versionCode`/`versionName` (see CLAUDE.md §7.6).
 - **Empire layer (E1–E8, EP1–EP4)** — acquisition by economy/diplomacy/military, admin-cap
   overextension, the per-faction coalition, holdings→supply→markets economic integration,
   the piracy/inspection security layer, corporate diplomacy. *(EMPIRE_*_PLAN.md)*
