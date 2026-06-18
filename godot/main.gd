@@ -1029,6 +1029,13 @@ func _transit_gate() -> void:
 
 ## Buy out the cheapest independent frontier colony (the empire layer, E1). One-press
 ## expansion — but each acquisition angers the inner powers, so grow with care.
+## Develop the least-developed holding (Phase C, the tall growth axis) — invest credits
+## to scale its output, with no coalition alarm (unlike acquiring a new colony).
+func _develop_colony() -> void:
+	var msg := String(sim.develop_best())
+	status = msg if msg != "" else "Nothing to develop — acquire a colony first, or you're maxed/short on credits."
+
+
 func _acquire_colony() -> void:
 	var best := -1
 	var best_cost := 1 << 30
@@ -2234,6 +2241,7 @@ func _build_empire_view() -> void:
 	ops.add_child(_make_op_button("⊕ BUY", _acquire_colony))
 	ops.add_child(_make_op_button("⊕ ANNEX", _annex_colony))
 	ops.add_child(_make_op_button("⚔ SEIZE", _seize_colony))
+	ops.add_child(_make_op_button("⬆ DEVELOP", _develop_colony))
 	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
 	ops.add_child(_make_op_button("🤝 COURT", _court_company))
 	v.add_child(UiKit.rule())
@@ -2259,6 +2267,8 @@ func _refresh_empire() -> void:
 	var rank := String(sim.empire_rank())
 	var next_name := String(sim.next_empire_rank_name())
 	var head := "%s   ·   %d holding(s)" % [rank, holdings]
+	if holdings > 0:
+		head += "   ·   tallest L%d" % sim.peak_dev()   # Phase C: the tall axis
 	if next_name != "":
 		head += "   →   %s at %d" % [next_name, sim.next_empire_rank_at()]
 	_emp_header.text = head
@@ -2302,7 +2312,14 @@ func _refresh_empire() -> void:
 			any_held = true
 			var fac := _faction_name(sim.colony_faction(i))
 			var good := String(sim.commodity_name(sim.colony_specialty(i)))
-			var line := "[color=#78e68c]✦ %s[/color]  (%s)  ·  supplies [color=#cfd8e0]%s[/color]" % [String(sim.colony_name(i)), fac, good]
+			var dev: int = sim.colony_dev(i)
+			var devtxt := "[color=#e6c860]dev L%d[/color]" % dev
+			var dcost: int = sim.develop_cost(i)
+			if dcost >= 0:
+				devtxt += " [color=#7a8696](→L%d: %s cr)[/color]" % [dev + 1, _commas(dcost)]
+			else:
+				devtxt += " [color=#7a8696](max)[/color]"
+			var line := "[color=#78e68c]✦ %s[/color]  (%s)  ·  %s  ·  supplies [color=#cfd8e0]%s[/color]" % [String(sim.colony_name(i)), fac, devtxt, good]
 			# EP2: flag the ones that are markets you now own (fee-reduced + NPC tariff).
 			var body := sim.colony_body(i)
 			for m in sim.market_count():

@@ -143,6 +143,15 @@ pub enum CraftError {
     CantAfford,
 }
 
+/// Why a colony could not be developed (Phase C).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DevelopError {
+    NotControlled,
+    /// Already at the development cap.
+    Maxed,
+    CantAfford,
+}
+
 /// Why a ship could not be refitted (Phase B).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RefitError {
@@ -207,6 +216,14 @@ const COLONY_TRIBUTE_OUTPOST: i64 = 16;
 /// Raw units a controlled colony produces into your warehouse each tick (EP1) — the
 /// supply that integrates holdings into your production/logistics chain.
 const COLONY_OUTPUT_PER_TICK: i64 = 3;
+/// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
+/// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
+/// developed holding is worth far more than a bare one. The cost to raise it escalates
+/// (`DEV_COST_BASE × current level`), so growing tall is a real, paced investment — and
+/// unlike *wide* expansion, developing your **own** colony draws no coalition alarm.
+const DEV_BASE: i64 = 1;
+const MAX_DEV: i64 = 5;
+const DEV_COST_BASE: i64 = 8_000;
 /// Phase A dilemma tuning: the profiteer's panic premium (bp of the sale), the relief
 /// run's sell margin over cost (bp), and the reputation swing for gouging vs. relieving.
 const GOUGE_BONUS_BP: i64 = 4000; // +40% of the sale, wrung from desperate buyers
@@ -501,6 +518,10 @@ pub struct Sim {
     /// player has taken. A fresh sim controls none, so this is inert by default.
     colonies: Vec<Colony>,
     controlled: Vec<bool>,
+    /// **Development level** per colony (Phase C, the *tall* growth axis): higher dev
+    /// scales a controlled colony's tribute + specialty output. Inert until you control
+    /// + invest. Indexed like `colonies`; starts at `DEV_BASE`.
+    colony_dev: Vec<i64>,
     /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
     /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
     /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
@@ -601,6 +622,7 @@ impl Sim {
             endgame_outcome: EndgameOutcome::Undecided,
             colonies: default_colonies(),
             controlled: vec![false; default_colonies().len()],
+            colony_dev: vec![DEV_BASE; default_colonies().len()],
             faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
@@ -2027,6 +2049,7 @@ impl Sim {
             incursions_survived: self.incursions_survived,
             endgame_outcome: self.endgame_outcome,
             controlled_colonies: self.controlled.clone(),
+            colony_dev: self.colony_dev.clone(),
             faction_alarm: self.faction_alarm,
             influence: self.influence,
             company_relations: self.diplomacy.relations(),
@@ -2152,6 +2175,9 @@ impl Sim {
         // (old saves / fresh games control none → keep the all-false default).
         if s.controlled_colonies.len() == self.controlled.len() {
             self.controlled = s.controlled_colonies.clone();
+        }
+        if s.colony_dev.len() == self.colony_dev.len() {
+            self.colony_dev = s.colony_dev.clone();
         }
         // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
         self.faction_alarm = s.faction_alarm;
@@ -2728,9 +2754,12 @@ impl Sim {
             .iter()
             .enumerate()
             .filter(|(_, &held)| held)
-            .map(|(i, _)| match self.colonies[i].is_market {
-                true => COLONY_TRIBUTE_MARKET,
-                false => COLONY_TRIBUTE_OUTPOST,
+            .map(|(i, _)| {
+                let base = match self.colonies[i].is_market {
+                    true => COLONY_TRIBUTE_MARKET,
+                    false => COLONY_TRIBUTE_OUTPOST,
+                };
+                base * self.colony_dev(i) // Phase C: tribute scales with development
             })
             .sum();
         if gross == 0 {
@@ -2750,13 +2779,55 @@ impl Sim {
         // holdings are supply nodes feeding your production (refine it) and logistics
         // (route/sell it), not just a credit drip. Warehouse-only ⇒ no market RNG, so
         // a fresh sim (which controls nothing) stays byte-identical and §7c holds.
-        let outputs: Vec<usize> = (0..self.controlled.len())
+        let outputs: Vec<(usize, i64)> = (0..self.controlled.len())
             .filter(|&i| self.controlled[i])
-            .map(|i| self.colony_specialty(i))
+            .map(|i| (self.colony_specialty(i), self.colony_dev(i)))
             .collect();
-        for c in outputs {
-            self.corp.store(c, COLONY_OUTPUT_PER_TICK);
+        for (c, dev) in outputs {
+            self.corp.store(c, COLONY_OUTPUT_PER_TICK * dev); // Phase C: output scales with dev
         }
+    }
+
+    /// A controlled colony's development level (Phase C) — `DEV_BASE` until invested.
+    pub fn colony_dev(&self, i: usize) -> i64 {
+        self.colony_dev.get(i).copied().unwrap_or(DEV_BASE)
+    }
+
+    /// The credit cost to raise colony `i` one development level (escalates with level).
+    /// Returns `None` if it can't be developed (not controlled, or already at `MAX_DEV`).
+    pub fn develop_cost(&self, i: usize) -> Option<i64> {
+        if !self.colony_controlled(i) || self.colony_dev(i) >= MAX_DEV {
+            return None;
+        }
+        Some(DEV_COST_BASE * self.colony_dev(i))
+    }
+
+    /// **Develop** a controlled colony (Phase C, the *tall* growth axis): spend credits
+    /// to raise its development a level, scaling its tribute + output. Unlike acquiring a
+    /// *new* colony, improving your **own** draws **no coalition alarm** — the safe way
+    /// to grow. Counts as an operation on the §0 climb.
+    pub fn develop_colony(&mut self, i: usize) -> Result<(), DevelopError> {
+        let cost = match self.develop_cost(i) {
+            Some(c) => c,
+            None if !self.colony_controlled(i) => return Err(DevelopError::NotControlled),
+            None => return Err(DevelopError::Maxed),
+        };
+        if self.corp.credits() < cost {
+            return Err(DevelopError::CantAfford);
+        }
+        self.corp.debit(cost);
+        self.colony_dev[i] += 1;
+        self.complete_op();
+        Ok(())
+    }
+
+    /// The highest development among the player's holdings (for the EMPIRE headline).
+    pub fn peak_dev(&self) -> i64 {
+        (0..self.colonies.len())
+            .filter(|&i| self.colony_controlled(i))
+            .map(|i| self.colony_dev(i))
+            .max()
+            .unwrap_or(0)
     }
 
     /// The specialty raw commodity a colony produces (EP1) — thematic by its faction
@@ -4956,6 +5027,49 @@ mod tests {
         assert!(
             after >= before + 50 * COLONY_OUTPUT_PER_TICK,
             "the colony stocked your warehouse with its specialty good"
+        );
+    }
+
+    #[test]
+    fn developing_a_colony_scales_output_and_draws_no_coalition_alarm() {
+        // Phase C (the *tall* axis): investing in a colony raises its development, which
+        // scales its specialty output — and unlike acquiring a *new* colony, improving
+        // your own draws no extra coalition alarm.
+        let mut sim = Sim::new(1);
+        sim.corp_mut().credit(2_000_000);
+        let i = sim.acquirable_colonies()[0];
+        sim.acquire_colony(i).unwrap();
+        let specialty = sim.colony_specialty(i);
+        // Output at base development.
+        let c0 = sim.corp().cargo(specialty);
+        for _ in 0..20 {
+            sim.step();
+        }
+        let base_out = sim.corp().cargo(specialty) - c0;
+        // Develop it: costs credits, raises the level, no extra alarm.
+        let alarm_before = sim.coalition_alarm();
+        let cost = sim.develop_cost(i).unwrap();
+        let credits0 = sim.corp().credits();
+        sim.develop_colony(i).unwrap();
+        assert_eq!(
+            sim.corp().credits(),
+            credits0 - cost,
+            "development costs credits"
+        );
+        assert_eq!(sim.colony_dev(i), 2);
+        assert!(
+            sim.coalition_alarm() <= alarm_before,
+            "developing your own colony draws no coalition alarm"
+        );
+        // Output now scales with the higher development.
+        let c1 = sim.corp().cargo(specialty);
+        for _ in 0..20 {
+            sim.step();
+        }
+        let dev_out = sim.corp().cargo(specialty) - c1;
+        assert!(
+            dev_out > base_out,
+            "a developed colony out-produces a bare one ({dev_out} > {base_out})"
         );
     }
 

@@ -536,6 +536,54 @@ impl TorchSim {
         }
     }
 
+    // ---- Phase C: colony development (the tall growth axis) ------------------
+
+    /// Development level of colony `i` (Phase C).
+    #[func]
+    fn colony_dev(&self, i: i64) -> i64 {
+        self.sim.colony_dev(i.max(0) as usize)
+    }
+
+    /// Credit cost to develop colony `i` one level (−1 if not controlled / maxed).
+    #[func]
+    fn develop_cost(&self, i: i64) -> i64 {
+        self.sim.develop_cost(i.max(0) as usize).unwrap_or(-1)
+    }
+
+    /// Highest development among your holdings (the EMPIRE "grow tall" headline).
+    #[func]
+    fn peak_dev(&self) -> i64 {
+        self.sim.peak_dev()
+    }
+
+    /// Develop the player's **least-developed** controlled colony (one-press, mobile-
+    /// friendly tall growth). Returns a feedback message (empty if none affordable).
+    #[func]
+    fn develop_best(&mut self) -> GString {
+        // Pick the cheapest (least-developed) controllable colony.
+        let mut target: Option<(usize, i64)> = None;
+        for i in 0..self.sim.colonies().len() {
+            if let Some(cost) = self.sim.develop_cost(i) {
+                if target.is_none_or(|(_, c)| cost < c) {
+                    target = Some((i, cost));
+                }
+            }
+        }
+        match target {
+            Some((i, _)) => match self.sim.develop_colony(i) {
+                Ok(()) => {
+                    let name = sim::default_colonies().get(i).map(|c| c.name).unwrap_or("");
+                    GString::from(format!(
+                        "Developed {name} to level {} — its output grows.",
+                        self.sim.colony_dev(i)
+                    ))
+                }
+                Err(_) => GString::new(),
+            },
+            None => GString::new(),
+        }
+    }
+
     #[func]
     fn body_x(&self, index: i64) -> i64 {
         self.sim

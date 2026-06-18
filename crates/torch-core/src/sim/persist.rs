@@ -116,6 +116,9 @@ pub struct SaveState {
     /// fresh game / old saves.
     #[serde(default)]
     pub controlled_colonies: Vec<bool>,
+    /// Per-colony development level (Phase C).
+    #[serde(default)]
+    pub colony_dev: Vec<i64>,
     /// Per-faction alarm at the player's expansion (E3/E7), by `Faction` index; all-0
     /// for a fresh game / old saves. The coalition schedule re-arms from it on load.
     #[serde(default)]

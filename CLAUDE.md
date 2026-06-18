@@ -179,6 +179,26 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase C: colony development — the *tall* growth axis (§46, the 4X gap).** The
+  deepest remaining 4X gap was that holdings were flat (acquire-only, no depth). New per-colony
+  **development level** (`colony_dev: Vec<i64>`, `DEV_BASE=1`..`MAX_DEV=5`): `run_holdings` now
+  scales a controlled colony's **tribute *and* specialty output** by its level, so a developed
+  holding is worth multiples of a bare one. `develop_colony(i)` spends escalating credits
+  (`DEV_COST_BASE × level`) to raise it — and the strategic crux: improving your **own** colony
+  draws **no coalition alarm** (unlike *wide* acquisition, E3/E7), so "grow tall" is the safe,
+  capital-intensive alternative to "grow wide." Counts as a §0 op. **The byte-identical trick:**
+  `DEV_BASE=1` makes the scaling an **identity** at base level (`base×1`, `output×1`), so existing
+  behaviour — incl. the Expansionist persona acquiring colonies it never develops — is byte-for-
+  byte unchanged; the whole QA *gameplay* body holds (only the UI-wiring facet moved, +4 wired).
+  Persisted (`colony_dev`, `#[serde(default)]`). Shell: a `⬆ DEVELOP` button (one-press, invests
+  the least-developed holding), a "tallest L%d" headline, and `dev L%d (→L%d: N cr)` per holding
+  in the EMPIRE master-table. 194 cargo + 17 GUT green; test
+  `developing_a_colony_scales_output_and_draws_no_coalition_alarm`. *Design note:* kept it
+  un-fiddly per §0.2 — a single develop verb + escalating cost is the depth, no per-colony policy
+  micro (yet). **Deferred:** a per-colony focus policy (industry/trade/growth) + a Developer QA
+  persona to *measure* that tall pays (today it's player-only, so byte-identical but unmeasured).
+
+
 - **2026-06-18 — Phase B cont.: per-model refit + a FLEET refit bay (§8a).** Refit was "to
   best-owned" only; now you **choose the model per kind** for a *specific* hull. `Sim::refit_ship`
   gained `pdc_model/torp_model/rail_model` ids (via `chosen_weapon_def` — an unowned/invalid id
