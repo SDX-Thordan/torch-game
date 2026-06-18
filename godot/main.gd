@@ -186,6 +186,9 @@ var _des_rail := 0
 var _des_burn := 100        # remass load, percent of tankage
 var _des_vals := {}         # kind -> value Label (updated each refresh)
 var _design_lbl: Label
+var _arsenal_box: VBoxContainer               # weapon-crafting list (Phase B)
+var _scrap_lbl: Label
+var _arsenal_sig := ""                         # rebuild the list only when it changes
 
 # Market view.
 var _flow: Control
@@ -1603,6 +1606,19 @@ func _build_build_view() -> void:
 	_build_queue.add_theme_constant_override("separation", 6)
 	right.add_child(_build_queue)
 
+	# Weapon arsenal / crafting (Phase B): scrap from combat crafts better weapons,
+	# which newly built ships fit. Advanced/faction designs antagonise the powers.
+	right.add_child(UiKit.kicker("Weapon Arsenal"))
+	_scrap_lbl = UiKit.label("", 12, UiKit.ACCENT)
+	right.add_child(_scrap_lbl)
+	var asc := ScrollContainer.new()
+	asc.custom_minimum_size = Vector2(0, 230)
+	asc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(asc)
+	_arsenal_box = VBoxContainer.new()
+	_arsenal_box.add_theme_constant_override("separation", 3)
+	asc.add_child(_arsenal_box)
+
 
 ## Build (or rebuild) the procedural ship in the BUILD bench for the selected class,
 ## using the sim's hull slot counts + the player's faction livery (§24/§25).
@@ -1616,6 +1632,59 @@ func _forge_ship() -> void:
 	var fac := 3
 	var ship := ShipForge.build(build_pick, fac, _des_pdc, _des_torp, _des_rail, 1000 + build_pick)
 	_ship_pivot.add_child(ship)
+
+
+## The weapon-crafting list (Phase B) — rebuilt only when scrap/ownership changes.
+func _refresh_arsenal() -> void:
+	if _arsenal_box == null:
+		return
+	var scrap := sim.scrap()
+	_scrap_lbl.text = "⚙ Scrap parts: %d" % scrap
+	var owned := 0
+	var wc := sim.weapon_count()
+	for i in wc:
+		if sim.weapon_owned(i):
+			owned += 1
+	var sig := "%d|%d" % [scrap, owned]
+	if sig == _arsenal_sig:
+		return
+	_arsenal_sig = sig
+	for c in _arsenal_box.get_children():
+		c.queue_free()
+	var kinds := ["PDC", "TORPEDO", "RAILGUN"]
+	var last_kind := -1
+	for i in wc:
+		var k := sim.weapon_kind(i)
+		if k != last_kind:
+			last_kind = k
+			_arsenal_box.add_child(UiKit.kicker(kinds[clampi(k, 0, 2)]))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 5)
+		var ownd := sim.weapon_owned(i)
+		var nm := UiKit.label(String(sim.weapon_name(i)), 11, UiKit.TEXT_HI if ownd else UiKit.TEXT)
+		nm.custom_minimum_size = Vector2(118, 0)
+		row.add_child(nm)
+		if ownd:
+			row.add_child(UiKit.label("✓ owned", 10, UiKit.GOOD))
+		elif sim.weapon_can_craft(i):
+			var b := _make_op_button("CRAFT", _craft_weapon.bind(i))
+			b.custom_minimum_size = Vector2(64, 24)
+			row.add_child(b)
+		else:
+			row.add_child(UiKit.label("locked", 10, UiKit.TEXT_DIM))
+		_arsenal_box.add_child(row)
+		var d := UiKit.label(String(sim.weapon_desc(i)), 10, UiKit.TEXT_DIM)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size = Vector2(200, 0)
+		_arsenal_box.add_child(d)
+
+
+## Craft weapon `i` from scrap + credits; surface the outcome, force a list rebuild.
+func _craft_weapon(i: int) -> void:
+	var msg := String(sim.craft_weapon(i))
+	status = msg if msg != "" else "Can't craft that yet — need more scrap or credits."
+	_arsenal_sig = ""
+	_refresh_arsenal()
 
 
 ## A weapon/burn stepper for the designer (A2): [label] [−] value [+].
@@ -2393,6 +2462,7 @@ func _refresh_build() -> void:
 	# Slow turntable so the procedural hull shows off (§24).
 	if _ship_pivot:
 		_ship_pivot.rotate_y(get_process_delta_time() * 0.5)
+	_refresh_arsenal()
 	# Designer (A2): step values + live fit stats.
 	if _des_vals.has("pdc"):
 		(_des_vals["pdc"] as Label).text = "%d/%d" % [_des_pdc, shipyard.pdc_mounts(build_pick)]

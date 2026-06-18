@@ -31,6 +31,7 @@ pub mod rng;
 pub mod salvage;
 pub mod ships;
 pub mod traffic;
+pub mod weapons;
 pub mod world;
 
 pub use alerts::{Alert, AlertFeed, Priority, Urgency, Verb};
@@ -57,6 +58,7 @@ pub use progression::{Blueprints, Branch, Buff, Ceo, Progression, Research};
 pub use salvage::{SalvageField, SalvageReward, Wreck};
 pub use ships::{Crew, FitError, HullDef, Loadout, ShipClass, ShipStats, WeaponDef, WeaponKind};
 pub use traffic::Hauler;
+pub use weapons::{weapon_models, WeaponModel, WeaponOrigin};
 pub use world::{BodyState, CommissionError, Sim, Snapshot};
 
 use rng::Pcg32;

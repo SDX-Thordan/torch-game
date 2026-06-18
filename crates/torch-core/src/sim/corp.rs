@@ -108,6 +108,11 @@ pub struct Corp {
     name: String,
     /// Livery colour index into [`LIVERY`] — the company's flag across the fleet.
     livery: usize,
+    /// Scrap parts recovered from combat — the input to weapon crafting (Phase B).
+    scrap: i64,
+    /// Weapon-model ids the player owns/can fit (the arsenal). Starts with the basic
+    /// tier-0 of each kind; crafting adds advanced models.
+    arsenal: Vec<usize>,
 }
 
 impl Corp {
@@ -121,6 +126,47 @@ impl Corp {
             freighters: 0,
             name: CORP_NAMES[0].to_string(),
             livery: 0,
+            scrap: 0,
+            arsenal: vec![
+                super::weapons::BASIC_PDC,
+                super::weapons::BASIC_TORPEDO,
+                super::weapons::BASIC_RAILGUN,
+            ],
+        }
+    }
+
+    /// Scrap parts on hand (the crafting input).
+    pub fn scrap(&self) -> i64 {
+        self.scrap
+    }
+    pub fn add_scrap(&mut self, n: i64) {
+        self.scrap += n.max(0);
+    }
+    pub fn spend_scrap(&mut self, n: i64) -> bool {
+        if self.scrap >= n {
+            self.scrap -= n;
+            true
+        } else {
+            false
+        }
+    }
+    /// The weapon-model ids the player owns.
+    pub fn arsenal(&self) -> &[usize] {
+        &self.arsenal
+    }
+    pub fn owns_weapon(&self, id: usize) -> bool {
+        self.arsenal.contains(&id)
+    }
+    pub fn add_weapon(&mut self, id: usize) {
+        if !self.arsenal.contains(&id) {
+            self.arsenal.push(id);
+        }
+    }
+    /// Restore the arsenal + scrap on load (§30).
+    pub fn restore_arsenal(&mut self, scrap: i64, arsenal: Vec<usize>) {
+        self.scrap = scrap;
+        if !arsenal.is_empty() {
+            self.arsenal = arsenal;
         }
     }
 

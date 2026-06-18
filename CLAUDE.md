@@ -179,6 +179,31 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase B cont.: scrap → a tiered weapon-crafting arsenal (§8a).** Player ask:
+  combat should yield **scrap parts** to craft better weapons, because weapons are otherwise
+  scarce — you can't just buy the best, and your own production is **antagonised by the great
+  powers**. New `sim::weapons`: a ladder of **named models** per kind (the player's 21-weapon
+  list — Hashari Flak→Maegnus PDCs, Ramshackle→Stealthed torps, Ramshackle Coilgun→Farren
+  railguns), list order = power. Each has tier-scaled stats, an `origin` (Open/Pirate/Faction),
+  and a craft cost (scrap + credits). **Railguns trade power for accuracy** — `accuracy_bp` falls
+  up the ladder and `to_def` scales damage by it, so a heavy gun lands less reliably. **The
+  byte-identical trick:** tier-0 of each kind has stats *identical* to the old generic weapon, so
+  a fresh, un-crafted fleet fits the same loadout (combat + persist tests + §7c all hold). A won
+  `engage_raiders` now also yields **scrap** (`add_scrap`); `craft_weapon(id)` spends scrap +
+  credits, adds the model to the corp's **arsenal**, and a great power's design **sours that
+  power** (`relations.adjust(origin, −tier·CRAFT_ANGER)`). `stand_up_hull` fits the **best-owned**
+  model per kind (`best_weapon_def` → `loadout_with`), so crafting strengthens *newly built*
+  ships. Persisted (`scrap` + `arsenal`, `#[serde(default)]`); load restores the arsenal **before**
+  rebuilding the fleet, so a reload never downgrades your guns. Shell: a **Weapon Arsenal** panel
+  in BUILD (scrap readout + the catalog grouped by kind, owned ✓ / CRAFT / locked with live
+  costs). **Determinism:** personas never craft and combat-scrap is an inert counter, so the QA
+  *gameplay* body is byte-identical — only the UI-wiring facet moved (+8 wired bindings).
+  192 cargo + 17 GUT green; tests `crafting_a_weapon_upgrades_new_ships_and_antagonizes_the_power`.
+  *Deferred (clearly):* per-slot model picking in the designer (today the best-owned auto-fits all
+  slots of a kind), buying faction weapons via good standing (today they're craft-or-nothing), and
+  the weapon *models* showing on the forged hull. **The loop the player wanted is closed:** fight →
+  scrap → craft a better gun (angering the powers) → stronger fleet.
+
 - **2026-06-18 — Phase B (start): combat pays + protects the lanes (§7/§9/§13).** The Warlord
   was the lowest non-degenerate persona (49) because winning a fight was pure attrition — no
   payoff, just lost ships. Now a **won** `engage_raiders` credits a **bounty** (`BOUNTY_PER_

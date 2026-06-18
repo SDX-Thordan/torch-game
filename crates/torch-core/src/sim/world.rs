@@ -31,8 +31,9 @@ use super::pressure::{Intensity, PressureKind, PressureSystem};
 use super::progression::Progression;
 use super::rng::Pcg32;
 use super::salvage::{SalvageField, SalvageReward};
-use super::ships::{self, Loadout, ShipCatalog, ShipClass};
+use super::ships::{self, Loadout, ShipCatalog, ShipClass, WeaponDef, WeaponKind};
 use super::traffic::Hauler;
+use super::weapons;
 
 /// Credits charged per unit of a commissioned hull's dry mass (§5 sink) — the
 /// "buy a finished hull off the yard" price.
@@ -80,6 +81,10 @@ const RAIDER_QUALITY: i64 = 50;
 /// costs 4000), making combat net-positive — but combat is crew-capped, so not a faucet.
 const BOUNTY_PER_RAIDER: i64 = 2200;
 const COMBAT_PIRACY_RELIEF: i32 = 25;
+/// Scrap parts recovered per raider hull destroyed on a won fight (Phase B crafting
+/// input), and how much crafting a great power's design sours them per tier.
+const SCRAP_PER_RAIDER: i64 = 8;
+const CRAFT_ANGER: i64 = 6;
 /// Ticks between contract-board postings (§3.3/§16): a faction posts a delivery
 /// job roughly once a day at 1 tick/hour.
 const CONTRACT_INTERVAL: u64 = 24;
@@ -116,6 +121,15 @@ pub enum CommissionError {
     MissingParts,
     /// A custom design (A2) that fails the fitting (e.g. over the power budget).
     BadFit,
+}
+
+/// Why a weapon could not be crafted (Phase B).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CraftError {
+    Unknown,
+    AlreadyOwned,
+    NotEnoughScrap,
+    CantAfford,
 }
 
 /// Why a warship could not be ordered to move (§6).
@@ -1339,12 +1353,26 @@ impl Sim {
         Ok(())
     }
 
-    /// Shared tail of commission/assemble: fit the hull off the catalog, draw its
-    /// crew, christen it (§14), dock it at the yard (§6), and count the op (§0/§16).
+    /// The [`WeaponDef`] of the highest-tier model of `kind` the player owns (Phase B) —
+    /// crafted upgrades flow into newly built ships. Falls back to the generic catalog.
+    pub fn best_weapon_def(&self, kind: WeaponKind) -> WeaponDef {
+        weapons::weapon_models()
+            .into_iter()
+            .filter(|m| m.kind == kind && self.corp.owns_weapon(m.id))
+            .max_by_key(|m| m.tier)
+            .map(|m| m.to_def())
+            .unwrap_or_else(|| self.catalog.weapon(kind))
+    }
+
+    /// Shared tail of commission/assemble: fit the hull with the player's **best-owned**
+    /// weapons (Phase B), draw its crew, christen it (§14), dock it (§6), count the op.
     fn stand_up_hull(&mut self, class: ShipClass) {
+        let pdc = self.best_weapon_def(WeaponKind::Pdc);
+        let torp = self.best_weapon_def(WeaponKind::Torpedo);
+        let rail = self.best_weapon_def(WeaponKind::Railgun);
         let loadout = self
             .catalog
-            .reference_loadout_quality(class, 50, &mut self.rng);
+            .loadout_with(class, &pdc, &torp, &rail, 50, &mut self.rng);
         self.stand_up_loadout(loadout);
     }
 
@@ -1915,6 +1943,8 @@ impl Sim {
             warehouse: self.corp.warehouse().to_vec(),
             trained_crew: self.corp.trained_crew(),
             freighters: self.corp.freighters(),
+            scrap: self.corp.scrap(),
+            arsenal: self.corp.arsenal().to_vec(),
             fleet,
             corp_name: self.corp.name().to_string(),
             corp_livery: self.corp.livery(),
@@ -1993,14 +2023,26 @@ impl Sim {
     /// Overlay a loaded [`SaveState`] onto a sim already re-simmed to its tick.
     fn apply_save(&mut self, s: &super::persist::SaveState) {
         self.tick = s.tick;
+        // Restore the crafted arsenal first so the fleet rebuilds with the player's
+        // best-owned weapons (Phase B) — a reload never downgrades your guns.
+        self.corp.restore_arsenal(s.scrap, s.arsenal.clone());
+        let pdc = self.best_weapon_def(WeaponKind::Pdc);
+        let torp = self.best_weapon_def(WeaponKind::Torpedo);
+        let rail = self.best_weapon_def(WeaponKind::Railgun);
         // Rebuild each hull's loadout from its class + crew quality (§14), then
         // restore its name and service history.
         let fleet = s
             .fleet
             .iter()
             .map(|sh| {
-                let loadout =
-                    ships::reference_loadout_quality(sh.class, sh.crew_quality, &mut self.rng);
+                let loadout = self.catalog.loadout_with(
+                    sh.class,
+                    &pdc,
+                    &torp,
+                    &rail,
+                    sh.crew_quality,
+                    &mut self.rng,
+                );
                 let mut ship = OwnedShip::new(
                     sh.name.clone(),
                     loadout,
@@ -2876,6 +2918,30 @@ impl Sim {
         self.last_bounty
     }
 
+    /// Craft a weapon model into the arsenal (Phase B): spend scrap (recovered in
+    /// combat) + credits. A great power's design **antagonises** that power — the price
+    /// of arming up independently. Newly commissioned ships fit the best-owned model.
+    pub fn craft_weapon(&mut self, id: usize) -> Result<(), CraftError> {
+        let model = weapons::model(id).ok_or(CraftError::Unknown)?;
+        if self.corp.owns_weapon(id) {
+            return Err(CraftError::AlreadyOwned);
+        }
+        if self.corp.scrap() < model.scrap_cost {
+            return Err(CraftError::NotEnoughScrap);
+        }
+        if self.corp.credits() < model.credit_cost {
+            return Err(CraftError::CantAfford);
+        }
+        self.corp.spend_scrap(model.scrap_cost);
+        self.corp.debit(model.credit_cost);
+        self.corp.add_weapon(id);
+        if let Some(f) = model.origin.antagonist() {
+            self.relations.adjust(f, -(model.tier as i64) * CRAFT_ANGER);
+        }
+        self.complete_op(); // standing up weapon production is progress on the climb (§0)
+        Ok(())
+    }
+
     // ---- piracy on your trade empire (EP3) ----------------------------------
 
     /// How many escorts (warships on station) the empire needs to screen its shipping
@@ -3131,6 +3197,8 @@ impl Sim {
             // pure attrition. Combat is crew-capped, so this isn't a faucet.
             let bounty = pack.len() as i64 * BOUNTY_PER_RAIDER;
             self.corp.credit(bounty);
+            // Scrap recovered from the wrecked raiders — the crafting input (Phase B).
+            self.corp.add_scrap(pack.len() as i64 * SCRAP_PER_RAIDER);
             self.pressure
                 .relieve(PressureKind::Piracy, COMBAT_PIRACY_RELIEF);
             self.complete_op(); // holding the field is progress on the climb (§0)
@@ -3853,6 +3921,47 @@ mod tests {
         assert!(
             (10..=90).contains(&pct),
             "win rate {pct}% should be competitive, not lopsided"
+        );
+    }
+
+    #[test]
+    fn crafting_a_weapon_upgrades_new_ships_and_antagonizes_the_power() {
+        // Phase B: scrap (from combat) + credits craft an advanced model into the
+        // arsenal; a newly built ship then fits it (stronger), and building a great
+        // power's design sours that power.
+        let mut sim = Sim::new(0);
+        let base_pdc = sim.best_weapon_def(WeaponKind::Pdc).intercept;
+        let model17 = 2usize; // Model 17 PDC (Earth, tier 2)
+        assert!(
+            matches!(sim.craft_weapon(model17), Err(CraftError::NotEnoughScrap)),
+            "can't craft with no scrap"
+        );
+        // Grant scrap (as a won fight would) and craft it — Earth takes offence.
+        let earth0 = sim.relations().standing(crate::sim::Faction::Earth);
+        sim.corp_mut().add_scrap(200);
+        sim.craft_weapon(model17).unwrap();
+        assert!(
+            sim.corp().owns_weapon(model17),
+            "the design joins the arsenal"
+        );
+        assert!(
+            sim.relations().standing(crate::sim::Faction::Earth) < earth0,
+            "building Earth's design antagonises Earth"
+        );
+        let up_pdc = sim.best_weapon_def(WeaponKind::Pdc).intercept;
+        assert!(
+            up_pdc > base_pdc,
+            "the crafted PDC screens better ({up_pdc} > {base_pdc})"
+        );
+        // A newly built Frigate fits the upgraded screen.
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        let ship = sim.corp().fleet().last().unwrap();
+        assert!(
+            ship.loadout
+                .weapons()
+                .iter()
+                .any(|w| w.kind == WeaponKind::Pdc && w.intercept == up_pdc),
+            "the new ship fits the crafted PDC"
         );
     }
 

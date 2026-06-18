@@ -549,6 +549,34 @@ impl ShipCatalog {
         Loadout::fit(h, weapons, remass, crew).expect("reference loadout must fit")
     }
 
+    /// Like [`Self::reference_loadout_quality`] but fits **specific** weapon models per
+    /// kind (the player's best-owned arsenal, Phase B) instead of the generic catalog —
+    /// so crafting a better PDC/torpedo/railgun strengthens newly commissioned ships.
+    pub fn loadout_with(
+        &self,
+        class: ShipClass,
+        pdc: &WeaponDef,
+        torpedo: &WeaponDef,
+        railgun: &WeaponDef,
+        quality: i64,
+        rng: &mut Pcg32,
+    ) -> Loadout {
+        let h = self.hull(class);
+        let mut weapons = Vec::new();
+        for _ in 0..h.pdc_mounts {
+            weapons.push(pdc.clone());
+        }
+        for _ in 0..h.torpedo_mounts {
+            weapons.push(torpedo.clone());
+        }
+        for _ in 0..h.railgun_mounts {
+            weapons.push(railgun.clone());
+        }
+        let crew = Crew::recruit(rng, h.crew_required, quality);
+        let remass = h.remass_capacity;
+        Loadout::fit(h, weapons, remass, crew).expect("reference loadout must fit")
+    }
+
     /// Fit a **custom** loadout for the ship designer (§8/A2): `pdc`/`torp`/`rail`
     /// weapons of each kind (clamped to the hull's mounts) and a `remass_load`,
     /// crewed at `quality`. Returns the validated fit or the [`FitError`] (e.g.

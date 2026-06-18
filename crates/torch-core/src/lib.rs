@@ -1883,6 +1883,101 @@ impl TorchSim {
         self.sim.last_bounty()
     }
 
+    // ---- Phase B: scrap + the weapon-crafting arsenal ----------------------
+
+    /// Scrap parts on hand (recovered in combat; the crafting input).
+    #[func]
+    fn scrap(&self) -> i64 {
+        self.sim.corp().scrap()
+    }
+
+    /// Number of weapon models in the catalog.
+    #[func]
+    fn weapon_count(&self) -> i64 {
+        sim::weapon_models().len() as i64
+    }
+
+    /// Display name of weapon model `i`.
+    #[func]
+    fn weapon_name(&self, i: i64) -> GString {
+        sim::weapon_models()
+            .get(i as usize)
+            .map(|m| GString::from(m.name))
+            .unwrap_or_default()
+    }
+
+    /// Kind of weapon `i`: 0 PDC, 1 Torpedo, 2 Railgun.
+    #[func]
+    fn weapon_kind(&self, i: i64) -> i64 {
+        use sim::WeaponKind::*;
+        match sim::weapon_models().get(i as usize).map(|m| m.kind) {
+            Some(Pdc) => 0,
+            Some(Torpedo) => 1,
+            Some(Railgun) => 2,
+            None => -1,
+        }
+    }
+
+    /// Whether the player already owns weapon `i`.
+    #[func]
+    fn weapon_owned(&self, i: i64) -> bool {
+        sim::weapon_models()
+            .get(i as usize)
+            .map(|m| self.sim.corp().owns_weapon(m.id))
+            .unwrap_or(false)
+    }
+
+    /// A one-line stats + cost summary of weapon `i` for the craft list.
+    #[func]
+    fn weapon_desc(&self, i: i64) -> GString {
+        let models = sim::weapon_models();
+        let Some(m) = models.get(i as usize) else {
+            return GString::new();
+        };
+        use sim::WeaponKind::*;
+        let stat = match m.kind {
+            Pdc => format!("screen {}", m.intercept),
+            Torpedo => format!("dmg {}", m.damage),
+            Railgun => format!(
+                "dmg {} · acc {}% · {}",
+                m.damage,
+                m.accuracy_bp / 100,
+                if m.turreted { "turret" } else { "fixed" }
+            ),
+        };
+        let cost = if self.sim.corp().owns_weapon(m.id) {
+            "owned".to_string()
+        } else {
+            format!("{} scrap · {} cr", m.scrap_cost, m.credit_cost)
+        };
+        GString::from(format!("{stat} · {} · {cost}", m.origin.label()))
+    }
+
+    /// Whether weapon `i` can be crafted now (not owned, scrap + credits available).
+    #[func]
+    fn weapon_can_craft(&self, i: i64) -> bool {
+        sim::weapon_models()
+            .get(i as usize)
+            .map(|m| {
+                !self.sim.corp().owns_weapon(m.id)
+                    && self.sim.corp().scrap() >= m.scrap_cost
+                    && self.sim.corp().credits() >= m.credit_cost
+            })
+            .unwrap_or(false)
+    }
+
+    /// Craft weapon `i`. Returns a feedback message (empty on failure).
+    #[func]
+    fn craft_weapon(&mut self, i: i64) -> GString {
+        let Some(model) = sim::weapon_models().get(i as usize).cloned() else {
+            return GString::new();
+        };
+        match self.sim.craft_weapon(model.id) {
+            Ok(()) => GString::from(format!("Crafted {} — fit on your next build.", model.name)),
+            Err(_) => GString::new(),
+        }
+    }
+
     /// Starting count for `side` (0 player, 1 raiders) in the last battle.
     #[func]
     fn battle_start_count(&self, side: i64) -> i64 {
