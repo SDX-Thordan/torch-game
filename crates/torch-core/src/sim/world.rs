@@ -1363,11 +1363,15 @@ impl Sim {
     /// chosen weapon counts + remass (as a percent of tankage), validated through the
     /// fitting (`FitError` → `BadFit`). Same hull price + crew draw as the reference
     /// commission; the design only changes what's bolted on (and thus the stats).
+    #[allow(clippy::too_many_arguments)]
     pub fn commission_designed(
         &mut self,
         class: ShipClass,
+        pdc_model: usize,
         pdc: u32,
+        torp_model: usize,
         torp: u32,
+        rail_model: usize,
         rail: u32,
         remass_bp: i64,
     ) -> Result<(), CommissionError> {
@@ -1380,13 +1384,36 @@ impl Sim {
             return Err(CommissionError::NotEnoughCrew);
         }
         let remass = hull.remass_capacity * remass_bp.clamp(0, 100) / 100;
+        let pdc_def = self.chosen_weapon_def(WeaponKind::Pdc, pdc_model);
+        let torp_def = self.chosen_weapon_def(WeaponKind::Torpedo, torp_model);
+        let rail_def = self.chosen_weapon_def(WeaponKind::Railgun, rail_model);
         let loadout = self
             .catalog
-            .custom_loadout(class, pdc, torp, rail, remass, 50, &mut self.rng)
+            .custom_loadout_with(
+                class,
+                &pdc_def,
+                pdc,
+                &torp_def,
+                torp,
+                &rail_def,
+                rail,
+                remass,
+                50,
+                &mut self.rng,
+            )
             .map_err(|_| CommissionError::BadFit)?;
         self.corp.debit(price);
         self.stand_up_loadout(loadout);
         Ok(())
+    }
+
+    /// The [`WeaponDef`] for a player-chosen weapon model of `kind` — if the model is in
+    /// service (owned), use it; otherwise fall back to the best-owned of that kind.
+    pub fn chosen_weapon_def(&self, kind: WeaponKind, model_id: usize) -> WeaponDef {
+        match weapons::model(model_id) {
+            Some(m) if m.kind == kind && self.corp.owns_weapon(model_id) => m.to_def(),
+            _ => self.best_weapon_def(kind),
+        }
     }
 
     /// The [`WeaponDef`] of the highest-tier model of `kind` the player owns (Phase B) —
@@ -3779,14 +3806,14 @@ mod tests {
         sim.corp_mut().credit(2_000_000);
         // A lean frigate: PDC only, no torpedoes, half tanks (the 60-crew pool affords it).
         assert_eq!(
-            sim.commission_designed(ShipClass::Frigate, 2, 0, 0, 50),
+            sim.commission_designed(ShipClass::Frigate, 0, 2, 8, 0, 13, 0, 50),
             Ok(())
         );
         assert_eq!(sim.corp().fleet().len(), 1);
         let lean = sim.corp().fleet()[0].loadout.stats();
         // A fully-armed frigate (torpedoes added).
         assert_eq!(
-            sim.commission_designed(ShipClass::Frigate, 2, 2, 0, 100),
+            sim.commission_designed(ShipClass::Frigate, 0, 2, 8, 2, 13, 0, 100),
             Ok(())
         );
         let armed = sim.corp().fleet()[1].loadout.stats();

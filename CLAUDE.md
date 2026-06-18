@@ -179,6 +179,22 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase B cont.: per-slot weapon-model loadouts (macro>micro, §8/§8a).** Player
+  call: drop B3 live mid-fight commands (too micro) — **fleet loadouts** are the macro decision
+  that matters. So the BUILD designer now picks **which in-service weapon model arms each kind's
+  slots**, not just counts. `ShipCatalog::custom_loadout_with` fits chosen `WeaponDef`s per kind;
+  `Sim::commission_designed` gained `pdc_model/torp_model/rail_model` ids (`chosen_weapon_def`
+  resolves an owned model, else falls back to best-owned); `TorchShipyard::evaluate_fit` takes the
+  same models so the live alpha/Δv/mobility/power readout reflects the *picked* loadout. Bindings
+  `owned_model_count(kind)`/`owned_model_id(kind, n)` enumerate the in-service models (lowest-tier
+  first) for the shell's `<`/`>` per-kind pickers ("Fit models (from your foundry)"). Refit stays
+  "to best-owned" (the batch convenience). **Determinism:** personas use `commission_ship` (not
+  the designer), so the QA *gameplay* body is byte-identical — only the UI-wiring facet moved.
+  *Clippy:* `commission_designed` (8 args) + `evaluate_fit` (9) trip `too_many_arguments` →
+  `#[allow]` on both (the binding *and* the `Sim` method). 193 cargo + 17 GUT green. The weapon
+  loop is now end-to-end: reverse-engineer a schematic → produce it (slow, antagonises the power)
+  → **pick it per slot** in the designer → commission the loadout (or refit an old hull to best).
+
 - **2026-06-18 — Phase B cont.: no buying weapons → schematics + slow production + refit (§8a).**
   Player reframe: you **can't buy** advanced weapons; the goal is to **get the schematic** and
   **slowly produce your own**, plus **refit** existing hulls (time + money). Reshaped the Phase-B

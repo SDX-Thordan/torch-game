@@ -185,6 +185,8 @@ var _des_torp := 0
 var _des_rail := 0
 var _des_burn := 100        # remass load, percent of tankage
 var _des_vals := {}         # kind -> value Label (updated each refresh)
+var _des_model_i := {0: 0, 1: 0, 2: 0}   # kind -> index into owned models (per-slot pick)
+var _des_model_lbl := {}    # kind -> model-name Label
 var _design_lbl: Label
 var _arsenal_box: VBoxContainer               # weapon-crafting list (Phase B)
 var _scrap_lbl: Label
@@ -1593,6 +1595,12 @@ func _build_build_view() -> void:
 	centre.add_child(drow2)
 	drow2.add_child(_make_stepper("rail", "RAIL"))
 	drow2.add_child(_make_stepper("burn", "BURN%"))
+	# Per-slot model pickers (Phase B): choose which in-service weapon model arms each
+	# kind's slots — your fleet loadout is the macro decision.
+	centre.add_child(UiKit.kicker("Fit models (from your foundry)"))
+	centre.add_child(_make_model_picker(0, "PDC"))
+	centre.add_child(_make_model_picker(1, "TORP"))
+	centre.add_child(_make_model_picker(2, "RAIL"))
 	_design_lbl = UiKit.label("", 12, UiKit.TEXT)
 	centre.add_child(_design_lbl)
 	_reset_design()
@@ -1729,6 +1737,41 @@ func _make_stepper(kind: String, label: String) -> Control:
 	return hb
 
 
+## A per-kind weapon-model picker (Phase B): [LABEL] [<] model-name [>] — cycles the
+## in-service models of that kind. The chosen model arms that kind's slots.
+func _make_model_picker(kind: int, label: String) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	var l := UiKit.label(label, 11, UiKit.TEXT_DIM)
+	l.custom_minimum_size = Vector2(40, 0)
+	hb.add_child(l)
+	hb.add_child(_make_op_button("<", func() -> void: _cycle_model(kind, -1)))
+	var nm := UiKit.label("—", 11, UiKit.TEXT_HI)
+	nm.custom_minimum_size = Vector2(150, 0)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(nm)
+	_des_model_lbl[kind] = nm
+	hb.add_child(_make_op_button(">", func() -> void: _cycle_model(kind, 1)))
+	return hb
+
+
+## The model id chosen for `kind` (0 PDC, 1 TORP, 2 RAIL), from the in-service models.
+func _des_model_id(kind: int) -> int:
+	var n := sim.owned_model_count(kind)
+	if n <= 0:
+		return -1
+	var idx: int = clampi(int(_des_model_i[kind]), 0, n - 1)
+	return sim.owned_model_id(kind, idx)
+
+
+## Cycle the chosen model for a kind (wrapping through the in-service models).
+func _cycle_model(kind: int, delta: int) -> void:
+	var n := sim.owned_model_count(kind)
+	if n <= 0:
+		return
+	_des_model_i[kind] = (int(_des_model_i[kind]) + delta + n) % n
+
+
 ## Reset the draft loadout to the hull's full reference fit (every slot armed).
 func _reset_design() -> void:
 	_des_pdc = shipyard.pdc_mounts(build_pick)
@@ -1756,8 +1799,13 @@ func _pick_build(i: int) -> void:
 
 
 func _commission_selected() -> void:
-	# Build the player's custom design (A2), not the reference fit.
-	var code: int = sim.commission_designed(build_pick, _des_pdc, _des_torp, _des_rail, _des_burn)
+	# Build the player's custom design (A2/Phase B): chosen weapon models per slot.
+	var code: int = sim.commission_designed(
+		build_pick,
+		_des_model_id(0), _des_pdc,
+		_des_model_id(1), _des_torp,
+		_des_model_id(2), _des_rail,
+		_des_burn)
 	match code:
 		0: status = "%s commissioned to your design." % String(shipyard.class_name(build_pick))
 		1: status = "Can't build — short on credits."
@@ -2496,8 +2544,18 @@ func _refresh_build() -> void:
 		(_des_vals["torp"] as Label).text = "%d/%d" % [_des_torp, shipyard.torpedo_mounts(build_pick)]
 		(_des_vals["rail"] as Label).text = "%d/%d" % [_des_rail, shipyard.railgun_mounts(build_pick)]
 		(_des_vals["burn"] as Label).text = "%d" % _des_burn
+	# Per-slot model picks: show the chosen model's name (or "—" if none owned).
+	for kind in [0, 1, 2]:
+		if _des_model_lbl.has(kind):
+			var mid := _des_model_id(kind)
+			(_des_model_lbl[kind] as Label).text = "—" if mid < 0 else String(sim.weapon_name(mid))
 	if _design_lbl:
-		var fit := shipyard.evaluate_fit(build_pick, _des_pdc, _des_torp, _des_rail, _des_burn)
+		var fit := shipyard.evaluate_fit(
+			build_pick,
+			_des_model_id(0), _des_pdc,
+			_des_model_id(1), _des_torp,
+			_des_model_id(2), _des_rail,
+			_des_burn)
 		var ok: bool = fit.get("ok", true)
 		_design_lbl.text = "Design:  alpha %d   ·   Δv %d   ·   mobility %d   ·   power %d/%d" % [
 			int(fit.get("alpha", 0)), int(fit.get("delta_v", 0)), int(fit.get("mobility", 0)),

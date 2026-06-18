@@ -608,6 +608,38 @@ impl ShipCatalog {
         let remass = remass_load.clamp(0, h.remass_capacity);
         Loadout::fit(h, weapons, remass, crew)
     }
+
+    /// Like [`Self::custom_loadout`] but fits **chosen** weapon models per kind (the
+    /// player's per-slot loadout pick, Phase B) rather than the generic catalog.
+    #[allow(clippy::too_many_arguments)]
+    pub fn custom_loadout_with(
+        &self,
+        class: ShipClass,
+        pdc_def: &WeaponDef,
+        pdc: u32,
+        torp_def: &WeaponDef,
+        torp: u32,
+        rail_def: &WeaponDef,
+        rail: u32,
+        remass_load: i64,
+        quality: i64,
+        rng: &mut Pcg32,
+    ) -> Result<Loadout, FitError> {
+        let h = self.hull(class);
+        let mut weapons = Vec::new();
+        for _ in 0..pdc.min(h.pdc_mounts) {
+            weapons.push(pdc_def.clone());
+        }
+        for _ in 0..torp.min(h.torpedo_mounts) {
+            weapons.push(torp_def.clone());
+        }
+        for _ in 0..rail.min(h.railgun_mounts) {
+            weapons.push(rail_def.clone());
+        }
+        let crew = Crew::recruit(rng, h.crew_required, quality);
+        let remass = remass_load.clamp(0, h.remass_capacity);
+        Loadout::fit(h, weapons, remass, crew)
+    }
 }
 
 /// Per-hull numeric overlay (§31), matched to a compiled hull by `name`. Identity

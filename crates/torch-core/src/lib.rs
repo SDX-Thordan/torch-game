@@ -1603,18 +1603,25 @@ impl TorchSim {
     /// armed `pdc`/`torp`/`rail` counts, and `remass_bp` (0..100% of tankage). Returns
     /// 0 ok, 1 can't afford, 2 not enough crew, 3 bad fit.
     #[func]
+    #[allow(clippy::too_many_arguments)]
     fn commission_designed(
         &mut self,
         class: i64,
+        pdc_model: i64,
         pdc: i64,
+        torp_model: i64,
         torp: i64,
+        rail_model: i64,
         rail: i64,
         remass_bp: i64,
     ) -> i64 {
         let r = self.sim.commission_designed(
             warship_class(class),
+            pdc_model.max(0) as usize,
             pdc.max(0) as u32,
+            torp_model.max(0) as usize,
             torp.max(0) as u32,
+            rail_model.max(0) as usize,
             rail.max(0) as u32,
             remass_bp,
         );
@@ -1624,6 +1631,32 @@ impl TorchSim {
             Err(sim::CommissionError::NotEnoughCrew) => 2,
             _ => 3,
         }
+    }
+
+    /// In-service (owned) weapon models of `kind` (0 PDC, 1 Torpedo, 2 Railgun),
+    /// lowest-tier first — the choices the designer's per-slot picker cycles.
+    fn owned_models(&self, kind: sim::WeaponKind) -> Vec<sim::WeaponModel> {
+        let mut models: Vec<sim::WeaponModel> = sim::weapon_models()
+            .into_iter()
+            .filter(|m| m.kind == kind && self.sim.corp().owns_weapon(m.id))
+            .collect();
+        models.sort_by_key(|m| m.tier);
+        models
+    }
+
+    /// How many in-service models of `kind` (0 PDC, 1 Torpedo, 2 Railgun) the player has.
+    #[func]
+    fn owned_model_count(&self, kind: i64) -> i64 {
+        self.owned_models(weapon_kind_of(kind)).len() as i64
+    }
+
+    /// The model id at slot `n` among the in-service models of `kind` (−1 if none).
+    #[func]
+    fn owned_model_id(&self, kind: i64, n: i64) -> i64 {
+        self.owned_models(weapon_kind_of(kind))
+            .get(n.max(0) as usize)
+            .map(|m| m.id as i64)
+            .unwrap_or(-1)
     }
 
     /// A one-line bill of materials for assembling `class` (§7d), e.g.
@@ -2364,6 +2397,15 @@ fn warship_class(class: i64) -> sim::ShipClass {
     }
 }
 
+/// 0 PDC, 1 Torpedo, 2 Railgun.
+fn weapon_kind_of(kind: i64) -> sim::WeaponKind {
+    match kind {
+        0 => sim::WeaponKind::Pdc,
+        1 => sim::WeaponKind::Torpedo,
+        _ => sim::WeaponKind::Railgun,
+    }
+}
+
 /// Godot-facing view of the warship catalog and reference fits (§8). Exposes the
 /// derived stats of a sensible reference loadout per class so the shell can show
 /// the railgun escalation axis; the fitting logic stays in `sim::ships`.
@@ -2491,20 +2533,25 @@ impl TorchShipyard {
             .unwrap_or(0)
     }
 
-    /// Evaluate a draft fit for the ship designer (A2): given `class` 0..3 and the
-    /// armed `pdc`/`torp`/`rail` counts + `remass_bp` (0..100% of tankage), return the
-    /// derived stats so the bench updates live. Keys: `ok`, `alpha`, `delta_v`,
-    /// `mobility`, `power_used`, `power_cap`, `crew`.
+    /// Evaluate a draft fit for the ship designer (A2/Phase B): given `class` 0..3, the
+    /// chosen weapon **model** per kind + the armed counts + `remass_bp` (0..100% of
+    /// tankage), return the derived stats so the bench updates live with the picked
+    /// loadout. Keys: `ok`, `alpha`, `delta_v`, `mobility`, `power_used`, `power_cap`,
+    /// `crew`.
     #[func]
+    #[allow(clippy::too_many_arguments)]
     fn evaluate_fit(
         &self,
         class: i64,
+        pdc_model: i64,
         pdc: i64,
+        torp_model: i64,
         torp: i64,
+        rail_model: i64,
         rail: i64,
         remass_bp: i64,
     ) -> Dictionary {
-        use sim::ships::{ShipCatalog, ShipClass, WeaponKind};
+        use sim::ships::{ShipCatalog, ShipClass, WeaponDef, WeaponKind};
         let cls = match class {
             1 => ShipClass::Destroyer,
             2 => ShipClass::Cruiser,
@@ -2516,9 +2563,18 @@ impl TorchShipyard {
         let p = pdc.clamp(0, hull.pdc_mounts as i64);
         let t = torp.clamp(0, hull.torpedo_mounts as i64);
         let r = rail.clamp(0, hull.railgun_mounts as i64);
-        let power_used = p * cat.weapon(WeaponKind::Pdc).power
-            + t * cat.weapon(WeaponKind::Torpedo).power
-            + r * cat.weapon(WeaponKind::Railgun).power;
+        // The chosen model's def per kind (fall back to the generic catalog weapon).
+        let def = |id: i64, kind: WeaponKind| -> WeaponDef {
+            sim::weapon_models()
+                .into_iter()
+                .find(|m| m.id == id.max(0) as usize && m.kind == kind)
+                .map(|m| m.to_def())
+                .unwrap_or_else(|| cat.weapon(kind))
+        };
+        let pdc_def = def(pdc_model, WeaponKind::Pdc);
+        let torp_def = def(torp_model, WeaponKind::Torpedo);
+        let rail_def = def(rail_model, WeaponKind::Railgun);
+        let power_used = p * pdc_def.power + t * torp_def.power + r * rail_def.power;
         let remass = hull.remass_capacity * remass_bp.clamp(0, 100) / 100;
         let mut rng =
             sim::rng::Pcg32::new((class * 131 + pdc * 17 + torp * 7 + rail * 3 + remass_bp) as u64);
@@ -2526,7 +2582,9 @@ impl TorchShipyard {
         d.set("power_used", power_used);
         d.set("power_cap", hull.power_capacity);
         d.set("crew", hull.crew_required);
-        match cat.custom_loadout(cls, p as u32, t as u32, r as u32, remass, 50, &mut rng) {
+        match cat.custom_loadout_with(
+            cls, &pdc_def, p as u32, &torp_def, t as u32, &rail_def, r as u32, remass, 50, &mut rng,
+        ) {
             Ok(lo) => {
                 let s = lo.stats();
                 d.set("ok", true);
