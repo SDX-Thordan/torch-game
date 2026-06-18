@@ -10,6 +10,11 @@ decision is made or a lesson is learned.
 - `docs/EMPIRE_LAYER_PLAN.md` / `EMPIRE_PHASE2_PLAN.md` / `EMPIRE_DIPLOMACY_PLAN.md` /
   `POST_GATE_PLAN.md` — the sequenced empire/endgame roadmaps (E1–E8, EP1–EP4, G1–G5),
   all ✅ done; the live record of what shipped and why.
+- `docs/MID_LATE_GAME_STORY.md` — **design notes (not yet built)** for the mid/late-game
+  authored arc: the protomolecule mystery time-gating into the Earth/Mars war + OPA
+  uprising (Act II), then the post-gate collapse — population flight, the EMC gate
+  blockade, the Free Navy ⟷ EMC war, and the powers waning into the player's opening
+  (Act III). Reuses the war/contest/coalition/transit machinery; sequenced M1–M2/L1–L4.
 - `docs/SAMPLE_GAMEPLAY_REVIEW.md` — the QA harness's current output (regenerated each
   run; not hand-edited).
 - `docs/TORCH_Player_Influence_and_Interaction_Model.md` — *what* the player can
@@ -178,6 +183,25 @@ Status: [x] done, [~] in progress, [ ] todo.
   (A1 procedural assembly/baking, A2 voxel diorama) + deeper Tier-3 geopolitics.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-18 — Mid/late-game story arc captured as design notes (`docs/MID_LATE_GAME_STORY.md`).**
+  Player direction on the *narrative* spine for the middle and end of a run (no code yet — notes).
+  Wrote the doc: **Act II** — a second authored thread, the **protomolecule mystery**, time-gated
+  like `GATE_LORE` (the Expanse arc reframed: the derelict, the lost lab, **Eros** as the atrocity,
+  **Venus** as the build site, the artifact then **building the Ring** — handing off to the existing
+  gate-mystery beats), boiling over into a mid-game **crisis** (Earth/Mars open war + an **OPA
+  uprising**) driven by a `CrisisState` governor that scales the *already-built* `FactionWar`
+  flashpoint cadence + `sim::contest` flare magnitude. **Act III** (post-gate) — population **flees
+  through the gate → Sol economic collapse**; the inners bury the hatchet into an **EMC** that
+  **blockades the ring** (a re-aim of the E3 coalition at the gate); a **Free Navy** forms and
+  **fights the EMC** for the chokepoint (a two-bloc war-state resolved via `combat::resolve`, with
+  four player stances); the collapse + infighting **hollow out Earth/Mars**, the late-game vision's
+  "the inners wane" — the player's opening to become the real power, folding into the G5 win-state.
+  Sequenced M1–M2 / L1–L4, each a small byte-identical PR (lore is pure `feed.announce`; the crisis
+  is time-gated; Act III is transit-gated — so default/QA stay untouched, the same discipline as
+  every layer). The doc's value: it makes the systems we've built (war gauge, contest, coalition,
+  transit, post-gate sandbox) legible as *the machinery of an authored arc*, so future work points
+  at a coherent story rather than accreting. Linked from the companion-authorities list. No code.
 
 - **2026-06-18 — Belt's major hubs added to the contest (Eros/Pallas/Vesta/Tycho).** Player ask:
   also make the iconic **asteroid-belt** stations contested major hubs. Added four belt bodies to
