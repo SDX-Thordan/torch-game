@@ -54,6 +54,9 @@ pub struct OwnedShip {
     pub battles_won: u16,
     /// Position + delta-v/remass budget (§6) — the ship is a positional asset.
     pub nav: Nav,
+    /// Tick a refit completes (0 = not in the yard). While refitting the hull can't
+    /// move or fight (Phase B). Transient — not persisted.
+    pub refit_until: u64,
 }
 
 /// Battles a hull must have won to read as a *veteran* (a hero ship, §14).
@@ -71,7 +74,13 @@ impl OwnedShip {
             battles: 0,
             battles_won: 0,
             nav: Nav::docked(location, remass_max),
+            refit_until: 0,
         }
+    }
+
+    /// Whether the hull is in the yard being refitted (can't move or fight).
+    pub fn is_refitting(&self, tick: u64) -> bool {
+        self.refit_until > tick
     }
 
     /// Record an engagement this hull lived through (§13 blooding).
@@ -110,14 +119,23 @@ pub struct Corp {
     livery: usize,
     /// Scrap parts recovered from combat — the input to weapon crafting (Phase B).
     scrap: i64,
-    /// Weapon-model ids the player owns/can fit (the arsenal). Starts with the basic
-    /// tier-0 of each kind; crafting adds advanced models.
+    /// Weapon-model ids whose **schematic** the player holds — the designs you know how
+    /// to build. Advanced/faction schematics are *earned* (reverse-engineering), never
+    /// bought. Production requires the schematic first.
+    schematics: Vec<usize>,
+    /// Weapon-model ids in **production** (the line is tooled up → fittable on ships).
+    /// Starts with the basic tier-0 of each kind.
     arsenal: Vec<usize>,
 }
 
 impl Corp {
     /// Found the corporation with a starting treasury and crew.
     pub fn new(commodity_count: usize) -> Self {
+        let basics = vec![
+            super::weapons::BASIC_PDC,
+            super::weapons::BASIC_TORPEDO,
+            super::weapons::BASIC_RAILGUN,
+        ];
         Self {
             credits: STARTING_CREDITS,
             warehouse: vec![0; commodity_count],
@@ -127,15 +145,12 @@ impl Corp {
             name: CORP_NAMES[0].to_string(),
             livery: 0,
             scrap: 0,
-            arsenal: vec![
-                super::weapons::BASIC_PDC,
-                super::weapons::BASIC_TORPEDO,
-                super::weapons::BASIC_RAILGUN,
-            ],
+            schematics: basics.clone(),
+            arsenal: basics,
         }
     }
 
-    /// Scrap parts on hand (the crafting input).
+    /// Scrap parts on hand (the production input).
     pub fn scrap(&self) -> i64 {
         self.scrap
     }
@@ -150,7 +165,23 @@ impl Corp {
             false
         }
     }
-    /// The weapon-model ids the player owns.
+    /// Weapon schematics the player holds (the designs they can produce).
+    pub fn schematics(&self) -> &[usize] {
+        &self.schematics
+    }
+    pub fn knows_schematic(&self, id: usize) -> bool {
+        self.schematics.contains(&id)
+    }
+    /// Learn a schematic (earned via reverse-engineering — never bought).
+    pub fn learn_schematic(&mut self, id: usize) -> bool {
+        if self.schematics.contains(&id) {
+            false
+        } else {
+            self.schematics.push(id);
+            true
+        }
+    }
+    /// The weapon-model ids the player can fit (production lines established).
     pub fn arsenal(&self) -> &[usize] {
         &self.arsenal
     }
@@ -162,9 +193,12 @@ impl Corp {
             self.arsenal.push(id);
         }
     }
-    /// Restore the arsenal + scrap on load (§30).
-    pub fn restore_arsenal(&mut self, scrap: i64, arsenal: Vec<usize>) {
+    /// Restore the arsenal + schematics + scrap on load (§30).
+    pub fn restore_arsenal(&mut self, scrap: i64, schematics: Vec<usize>, arsenal: Vec<usize>) {
         self.scrap = scrap;
+        if !schematics.is_empty() {
+            self.schematics = schematics;
+        }
         if !arsenal.is_empty() {
             self.arsenal = arsenal;
         }

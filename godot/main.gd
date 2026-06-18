@@ -709,6 +709,7 @@ func _build_systems_view() -> void:
 	root.add_child(fo)
 	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
 	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
+	fo.add_child(_make_op_button("⚒ REFIT FLEET", _refit_fleet))
 	# The empire layer (E1): buy out an independent frontier colony. Mobile-friendly
 	# one-press expansion — takes the cheapest acquirable colony.
 	fo.add_child(_make_op_button("⊕ ACQUIRE COLONY", _acquire_colony))
@@ -962,6 +963,19 @@ func _refuel_fleet() -> void:
 		if sim.refuel_ship(i):
 			n += 1
 	status = "Refuelled %d ship(s)." % n if n > 0 else "Nothing to refuel."
+
+
+## Refit every docked hull to your best-owned weapons (Phase B) — a yard fee + time
+## per ship; refitting hulls can't fight until they're out of the yard.
+func _refit_fleet() -> void:
+	var n := 0
+	for i in sim.fleet_size():
+		if String(sim.refit_ship(i)) != "":
+			n += 1
+	if n > 0:
+		status = "Refitting %d hull(s) to your latest weapons — they're in the yard." % n
+	else:
+		status = "No hull to refit (need docked ships + a better weapon in service)."
 
 
 ## Transit the open ring-gate into the endgame (§0.1/§17) — the climax of the climb.
@@ -1634,18 +1648,27 @@ func _forge_ship() -> void:
 	_ship_pivot.add_child(ship)
 
 
-## The weapon-crafting list (Phase B) — rebuilt only when scrap/ownership changes.
+## The weapon foundry list (Phase B): schematics you've earned → production lines you
+## tool up (time + scrap + credits). You can't buy advanced weapons. Rebuilt on change.
 func _refresh_arsenal() -> void:
 	if _arsenal_box == null:
 		return
 	var scrap := sim.scrap()
 	_scrap_lbl.text = "⚙ Scrap parts: %d" % scrap
+	# Signature folds in owned + schematic + producing counts so the list repaints as
+	# production lines finish.
 	var owned := 0
+	var known := 0
+	var building := 0
 	var wc := sim.weapon_count()
 	for i in wc:
 		if sim.weapon_owned(i):
 			owned += 1
-	var sig := "%d|%d" % [scrap, owned]
+		if sim.weapon_known(i):
+			known += 1
+		if sim.weapon_producing(i) > 0:
+			building += 1
+	var sig := "%d|%d|%d|%d" % [scrap, owned, known, building]
 	if sig == _arsenal_sig:
 		return
 	_arsenal_sig = sig
@@ -1665,13 +1688,17 @@ func _refresh_arsenal() -> void:
 		nm.custom_minimum_size = Vector2(118, 0)
 		row.add_child(nm)
 		if ownd:
-			row.add_child(UiKit.label("✓ owned", 10, UiKit.GOOD))
-		elif sim.weapon_can_craft(i):
-			var b := _make_op_button("CRAFT", _craft_weapon.bind(i))
+			row.add_child(UiKit.label("✓ in service", 10, UiKit.GOOD))
+		elif sim.weapon_producing(i) > 0:
+			row.add_child(UiKit.label("⏳ building", 10, UiKit.ACCENT))
+		elif sim.weapon_can_produce(i):
+			var b := _make_op_button("BUILD", _produce_weapon.bind(i))
 			b.custom_minimum_size = Vector2(64, 24)
 			row.add_child(b)
+		elif sim.weapon_known(i):
+			row.add_child(UiKit.label("need parts", 10, UiKit.TEXT_DIM))
 		else:
-			row.add_child(UiKit.label("locked", 10, UiKit.TEXT_DIM))
+			row.add_child(UiKit.label("🔒 schematic", 10, UiKit.TEXT_DIM))
 		_arsenal_box.add_child(row)
 		var d := UiKit.label(String(sim.weapon_desc(i)), 10, UiKit.TEXT_DIM)
 		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1679,10 +1706,10 @@ func _refresh_arsenal() -> void:
 		_arsenal_box.add_child(d)
 
 
-## Craft weapon `i` from scrap + credits; surface the outcome, force a list rebuild.
-func _craft_weapon(i: int) -> void:
-	var msg := String(sim.craft_weapon(i))
-	status = msg if msg != "" else "Can't craft that yet — need more scrap or credits."
+## Start producing weapon `i` (needs the schematic + scrap + credits + time).
+func _produce_weapon(i: int) -> void:
+	var msg := String(sim.produce_weapon(i))
+	status = msg if msg != "" else "Can't build that — need the schematic, scrap, or credits."
 	_arsenal_sig = ""
 	_refresh_arsenal()
 

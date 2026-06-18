@@ -66,11 +66,15 @@ pub struct SaveState {
     pub trained_crew: i64,
     pub freighters: i64,
     pub fleet: Vec<ShipSave>,
-    /// Scrap parts + crafted weapon arsenal (Phase B).
+    /// Scrap parts + weapon schematics + arsenal + production lines (Phase B).
     #[serde(default)]
     pub scrap: i64,
     #[serde(default)]
+    pub schematics: Vec<usize>,
+    #[serde(default)]
     pub arsenal: Vec<usize>,
+    #[serde(default)]
+    pub weapon_production: Vec<(usize, u64)>,
     /// Expressive identity (§14): corp name + livery index.
     #[serde(default)]
     pub corp_name: String,

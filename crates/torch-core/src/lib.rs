@@ -1918,7 +1918,7 @@ impl TorchSim {
         }
     }
 
-    /// Whether the player already owns weapon `i`.
+    /// Whether the player can fit weapon `i` (its production line is established).
     #[func]
     fn weapon_owned(&self, i: i64) -> bool {
         sim::weapon_models()
@@ -1927,7 +1927,25 @@ impl TorchSim {
             .unwrap_or(false)
     }
 
-    /// A one-line stats + cost summary of weapon `i` for the craft list.
+    /// Whether the player holds the schematic for weapon `i` (can produce it).
+    #[func]
+    fn weapon_known(&self, i: i64) -> bool {
+        sim::weapon_models()
+            .get(i as usize)
+            .map(|m| self.sim.corp().knows_schematic(m.id))
+            .unwrap_or(false)
+    }
+
+    /// Ticks left on weapon `i`'s production line (0 = not in production).
+    #[func]
+    fn weapon_producing(&self, i: i64) -> i64 {
+        sim::weapon_models()
+            .get(i as usize)
+            .map(|m| self.sim.production_remaining(m.id) as i64)
+            .unwrap_or(0)
+    }
+
+    /// A one-line stats + state summary of weapon `i` for the arsenal list.
     #[func]
     fn weapon_desc(&self, i: i64) -> GString {
         let models = sim::weapon_models();
@@ -1945,37 +1963,65 @@ impl TorchSim {
                 if m.turreted { "turret" } else { "fixed" }
             ),
         };
-        let cost = if self.sim.corp().owns_weapon(m.id) {
-            "owned".to_string()
+        let state = if self.sim.corp().owns_weapon(m.id) {
+            "in service".to_string()
+        } else if self.sim.production_remaining(m.id) > 0 {
+            format!("building… {}h", self.sim.production_remaining(m.id))
+        } else if self.sim.corp().knows_schematic(m.id) {
+            format!("{} scrap · {} cr · build", m.scrap_cost, m.credit_cost)
         } else {
-            format!("{} scrap · {} cr", m.scrap_cost, m.credit_cost)
+            "schematic unknown".to_string()
         };
-        GString::from(format!("{stat} · {} · {cost}", m.origin.label()))
+        GString::from(format!("{stat} · {} · {state}", m.origin.label()))
     }
 
-    /// Whether weapon `i` can be crafted now (not owned, scrap + credits available).
+    /// Whether weapon `i` can be put into production now (known schematic, not owned,
+    /// not already building, scrap + credits available).
     #[func]
-    fn weapon_can_craft(&self, i: i64) -> bool {
+    fn weapon_can_produce(&self, i: i64) -> bool {
         sim::weapon_models()
             .get(i as usize)
             .map(|m| {
-                !self.sim.corp().owns_weapon(m.id)
+                self.sim.corp().knows_schematic(m.id)
+                    && !self.sim.corp().owns_weapon(m.id)
+                    && self.sim.production_remaining(m.id) == 0
                     && self.sim.corp().scrap() >= m.scrap_cost
                     && self.sim.corp().credits() >= m.credit_cost
             })
             .unwrap_or(false)
     }
 
-    /// Craft weapon `i`. Returns a feedback message (empty on failure).
+    /// Start producing weapon `i`. Returns a feedback message (empty on failure).
     #[func]
-    fn craft_weapon(&mut self, i: i64) -> GString {
+    fn produce_weapon(&mut self, i: i64) -> GString {
         let Some(model) = sim::weapon_models().get(i as usize).cloned() else {
             return GString::new();
         };
-        match self.sim.craft_weapon(model.id) {
-            Ok(()) => GString::from(format!("Crafted {} — fit on your next build.", model.name)),
+        match self.sim.produce_weapon(model.id) {
+            Ok(()) => GString::from(format!("{} line tooling up — it'll take time.", model.name)),
             Err(_) => GString::new(),
         }
+    }
+
+    /// Refit fleet ship `idx` to your best-owned weapons (Phase B). Returns a feedback
+    /// message (empty on failure — not docked / can't afford / already refitting).
+    #[func]
+    fn refit_ship(&mut self, idx: i64) -> GString {
+        match self.sim.refit_ship(idx.max(0) as usize) {
+            Ok(()) => GString::from("Refit underway — the hull is in the yard."),
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Whether fleet ship `idx` is in the yard being refitted.
+    #[func]
+    fn ship_refitting(&self, idx: i64) -> bool {
+        self.sim
+            .corp()
+            .fleet()
+            .get(idx.max(0) as usize)
+            .map(|s| s.is_refitting(self.sim.tick()))
+            .unwrap_or(false)
     }
 
     /// Starting count for `side` (0 player, 1 raiders) in the last battle.

@@ -179,6 +179,28 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase B cont.: no buying weapons → schematics + slow production + refit (§8a).**
+  Player reframe: you **can't buy** advanced weapons; the goal is to **get the schematic** and
+  **slowly produce your own**, plus **refit** existing hulls (time + money). Reshaped the Phase-B
+  arsenal: `Corp` now splits **`schematics`** (designs you know — earned, never bought) from
+  **`arsenal`** (production lines established → fittable). `produce_weapon(id)` requires the
+  schematic, spends scrap + credits, and **takes time** (`weapon_production` queue, completes in
+  `step()` → arsenal; `PRODUCTION_BASE_TICKS + tier·30`, so advanced guns are slow). Schematics
+  are **earned** by **reverse-engineering a derelict** (the wreck dilemma's option 2 now grants a
+  random unknown weapon schematic instead of a blueprint). `refit_ship(idx)` re-equips a docked
+  hull to your **best-owned** weapons for a yard fee + a stint **in the yard** (`refit_until`;
+  excluded from combat while refitting). Production/schematic events are voiced via `feed.announce`
+  (Foundry/R&D) to **dodge new `Event` variants** (no exhaustive-match churn). Persisted (schematics
+  + arsenal + production queue, `#[serde(default)]`); `refit_until` is transient. Shell: the BUILD
+  **foundry** list now shows ✓ in service / ⏳ building / BUILD / need parts / 🔒 schematic; a
+  **REFIT FLEET** button in FLEET. **Determinism:** personas never produce/refit/reverse-engineer
+  (the Responder strips wrecks via option 0), so the QA *gameplay* body is byte-identical — only
+  the UI-wiring facet moved. 193 cargo + 17 GUT green; tests
+  `producing_a_weapon_needs_a_schematic_then_time_and_antagonizes_the_power` +
+  `refitting_upgrades_an_old_hull_for_time_and_money`. **Deferred (clearly):** per-slot/per-kind
+  model *picking* in the designer + refit (today both auto-fit the **best-owned** model per kind,
+  not a chosen one) — the remaining designer-choice work.
+
 - **2026-06-18 — Phase B cont.: scrap → a tiered weapon-crafting arsenal (§8a).** Player ask:
   combat should yield **scrap parts** to craft better weapons, because weapons are otherwise
   scarce — you can't just buy the best, and your own production is **antagonised by the great

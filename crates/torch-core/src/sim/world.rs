@@ -85,6 +85,13 @@ const COMBAT_PIRACY_RELIEF: i32 = 25;
 /// input), and how much crafting a great power's design sours them per tier.
 const SCRAP_PER_RAIDER: i64 = 8;
 const CRAFT_ANGER: i64 = 6;
+/// Weapon production time (§8a): tooling up a line takes time, scaled by tier — you
+/// produce your own guns *slowly*, you don't buy them off the shelf.
+const PRODUCTION_BASE_TICKS: u64 = 48;
+const PRODUCTION_TICKS_PER_TIER: u64 = 30;
+/// Refitting a ship's weapons takes time in the yard (Phase B), scaled by hull mass.
+const REFIT_TICKS_PER_MASS: u64 = 1;
+const REFIT_FEE_PER_MASS: i64 = 2;
 /// Ticks between contract-board postings (§3.3/§16): a faction posts a delivery
 /// job roughly once a day at 1 tick/hour.
 const CONTRACT_INTERVAL: u64 = 24;
@@ -123,12 +130,27 @@ pub enum CommissionError {
     BadFit,
 }
 
-/// Why a weapon could not be crafted (Phase B).
+/// Why a weapon could not be produced (Phase B).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CraftError {
     Unknown,
     AlreadyOwned,
+    /// You don't hold the schematic — it must be earned (reverse-engineering), not bought.
+    NoSchematic,
+    /// A line for this model is already tooling up.
+    AlreadyProducing,
     NotEnoughScrap,
+    CantAfford,
+}
+
+/// Why a ship could not be refitted (Phase B).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefitError {
+    NoSuchShip,
+    /// Already in the yard being refitted.
+    Busy,
+    /// Not docked at the home yard (must be on station to refit).
+    NotAtYard,
     CantAfford,
 }
 
@@ -455,6 +477,8 @@ pub struct Sim {
     /// of trade-off options. Transient (not persisted) — re-derived from the world.
     decisions: Vec<Decision>,
     next_decision_id: u64,
+    /// Weapon-model production lines in progress (id, completion tick) — Phase B.
+    weapon_production: Vec<(usize, u64)>,
     salvage: SalvageField,
     /// The player's far-side foothold (§17 endgame, G3). Unfounded until the player
     /// transits the gate and founds it; inert pre-transit.
@@ -568,6 +592,7 @@ impl Sim {
             board: ContractBoard::new(seed),
             decisions: Vec::new(),
             next_decision_id: 1,
+            weapon_production: Vec::new(),
             salvage: SalvageField::new(seed, blueprint_count, body_count),
             bridgehead: Bridgehead::new(),
             endgame_since: None,
@@ -1089,16 +1114,27 @@ impl Sim {
                 }
             }
             2 => {
-                // Reverse-engineer: a gamble — a blueprint on success, else consolation data.
+                // Reverse-engineer: a gamble — recover a **weapon schematic** on success
+                // (the route to advanced weapons, Phase B; you can't buy them), else
+                // consolation data.
                 if self.rng.chance_bp(REVENG_CHANCE_BP) {
-                    let i = (d.target as usize) % self.progression.blueprints.known_count().max(1);
-                    self.progression.blueprints.reverse_engineer(i);
+                    let learned = self.grant_weapon_schematic();
                     self.reveal_gate_beat();
+                    let msg = match learned.and_then(weapons::model) {
+                        Some(m) => format!("Cracked it — recovered the {} schematic.", m.name),
+                        None => {
+                            // Every schematic already known — fall back to a blueprint.
+                            let i = (d.target as usize)
+                                % self.progression.blueprints.known_count().max(1);
+                            self.progression.blueprints.reverse_engineer(i);
+                            "Cracked it — a recovered blueprint is yours.".to_string()
+                        }
+                    };
                     DecisionOutcome {
                         credits: 0,
                         rep_delta: 0,
                         backfired: false,
-                        message: "Cracked it — a recovered blueprint is yours.".to_string(),
+                        message: msg,
                     }
                 } else {
                     self.progression.research.add_points(WRECK_DATA / 2);
@@ -1944,7 +1980,9 @@ impl Sim {
             trained_crew: self.corp.trained_crew(),
             freighters: self.corp.freighters(),
             scrap: self.corp.scrap(),
+            schematics: self.corp.schematics().to_vec(),
             arsenal: self.corp.arsenal().to_vec(),
+            weapon_production: self.weapon_production.clone(),
             fleet,
             corp_name: self.corp.name().to_string(),
             corp_livery: self.corp.livery(),
@@ -2023,9 +2061,11 @@ impl Sim {
     /// Overlay a loaded [`SaveState`] onto a sim already re-simmed to its tick.
     fn apply_save(&mut self, s: &super::persist::SaveState) {
         self.tick = s.tick;
-        // Restore the crafted arsenal first so the fleet rebuilds with the player's
-        // best-owned weapons (Phase B) — a reload never downgrades your guns.
-        self.corp.restore_arsenal(s.scrap, s.arsenal.clone());
+        // Restore the arsenal (+ schematics) first so the fleet rebuilds with the
+        // player's best-owned weapons (Phase B) — a reload never downgrades your guns.
+        self.corp
+            .restore_arsenal(s.scrap, s.schematics.clone(), s.arsenal.clone());
+        self.weapon_production = s.weapon_production.clone();
         let pdc = self.best_weapon_def(WeaponKind::Pdc);
         let torp = self.best_weapon_def(WeaponKind::Torpedo);
         let rail = self.best_weapon_def(WeaponKind::Railgun);
@@ -2132,6 +2172,7 @@ impl Sim {
         self.run_industry();
         self.run_fleet_nav();
         self.run_contracts();
+        self.run_weapon_production();
         self.run_holdings();
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
@@ -2918,13 +2959,21 @@ impl Sim {
         self.last_bounty
     }
 
-    /// Craft a weapon model into the arsenal (Phase B): spend scrap (recovered in
-    /// combat) + credits. A great power's design **antagonises** that power — the price
-    /// of arming up independently. Newly commissioned ships fit the best-owned model.
-    pub fn craft_weapon(&mut self, id: usize) -> Result<(), CraftError> {
+    /// Start **producing** a weapon model (Phase B). You can't *buy* advanced weapons:
+    /// you must hold the **schematic** (earned by reverse-engineering, never bought),
+    /// then tool up a production line — it costs scrap (from combat) + credits and takes
+    /// **time** (`production_ticks`, longer for higher tiers). Building a great power's
+    /// design **antagonises** that power. The line finishes in `step()` → the arsenal.
+    pub fn produce_weapon(&mut self, id: usize) -> Result<(), CraftError> {
         let model = weapons::model(id).ok_or(CraftError::Unknown)?;
         if self.corp.owns_weapon(id) {
             return Err(CraftError::AlreadyOwned);
+        }
+        if !self.corp.knows_schematic(id) {
+            return Err(CraftError::NoSchematic);
+        }
+        if self.weapon_production.iter().any(|&(m, _)| m == id) {
+            return Err(CraftError::AlreadyProducing);
         }
         if self.corp.scrap() < model.scrap_cost {
             return Err(CraftError::NotEnoughScrap);
@@ -2934,12 +2983,118 @@ impl Sim {
         }
         self.corp.spend_scrap(model.scrap_cost);
         self.corp.debit(model.credit_cost);
-        self.corp.add_weapon(id);
         if let Some(f) = model.origin.antagonist() {
             self.relations.adjust(f, -(model.tier as i64) * CRAFT_ANGER);
         }
-        self.complete_op(); // standing up weapon production is progress on the climb (§0)
+        let done = self.tick + Self::production_ticks(model.tier);
+        self.weapon_production.push((id, done));
         Ok(())
+    }
+
+    /// How long tooling up a tier-`t` weapon line takes — advanced designs are slower.
+    fn production_ticks(tier: u8) -> u64 {
+        PRODUCTION_BASE_TICKS + tier as u64 * PRODUCTION_TICKS_PER_TIER
+    }
+
+    /// Tick the weapon-production lines: any that finished this tick join the arsenal
+    /// (fittable on new/refitted ships) and count as an operation on the climb (§0).
+    fn run_weapon_production(&mut self) {
+        let now = self.tick;
+        let mut finished = Vec::new();
+        self.weapon_production.retain(|&(id, done)| {
+            if done <= now {
+                finished.push(id);
+                false
+            } else {
+                true
+            }
+        });
+        for id in finished {
+            self.corp.add_weapon(id);
+            if let Some(model) = weapons::model(id) {
+                self.feed.announce(
+                    "Foundry",
+                    format!("{} line online — fit it on new builds.", model.name),
+                    now,
+                );
+            }
+            self.complete_op();
+        }
+    }
+
+    /// Ticks remaining on the production line for `id` (0 = not in production).
+    pub fn production_remaining(&self, id: usize) -> u64 {
+        self.weapon_production
+            .iter()
+            .find(|&&(m, _)| m == id)
+            .map(|&(_, done)| done.saturating_sub(self.tick))
+            .unwrap_or(0)
+    }
+
+    /// Refit ship `idx` to the player's **best-owned** weapons (Phase B): swaps its
+    /// guns to your latest production, charges a yard fee, and puts the hull **in the
+    /// yard** for a refit period (it can't move or fight until done). Must be docked at
+    /// the home yard and not already refitting.
+    pub fn refit_ship(&mut self, idx: usize) -> Result<(), RefitError> {
+        let now = self.tick;
+        let home = self.markets[0].body();
+        let fleet = self.corp.fleet();
+        let ship = fleet.get(idx).ok_or(RefitError::NoSuchShip)?;
+        if ship.is_refitting(now) {
+            return Err(RefitError::Busy);
+        }
+        if ship.nav.in_transit(now) || ship.nav.location != home {
+            return Err(RefitError::NotAtYard);
+        }
+        let class = ship.loadout.hull().class;
+        let mass = ship.loadout.hull().dry_mass;
+        let fee = mass * REFIT_FEE_PER_MASS;
+        if self.corp.credits() < fee {
+            return Err(RefitError::CantAfford);
+        }
+        let crew_quality = ship.loadout.crew().quality;
+        // Rebuild the loadout with the best-owned models (railgun/torpedo/pdc).
+        let pdc = self.best_weapon_def(WeaponKind::Pdc);
+        let torp = self.best_weapon_def(WeaponKind::Torpedo);
+        let rail = self.best_weapon_def(WeaponKind::Railgun);
+        let new_loadout =
+            self.catalog
+                .loadout_with(class, &pdc, &torp, &rail, crew_quality, &mut self.rng);
+        self.corp.debit(fee);
+        let until = now + mass as u64 * REFIT_TICKS_PER_MASS;
+        if let Some(ship) = self.corp.fleet_mut().get_mut(idx) {
+            ship.loadout = new_loadout;
+            ship.refit_until = until;
+        }
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Learn a weapon schematic the player doesn't yet hold (earned, e.g. from
+    /// reverse-engineering a derelict). Returns the learned model id, if any was new.
+    fn grant_weapon_schematic(&mut self) -> Option<usize> {
+        let unknown: Vec<usize> = weapons::weapon_models()
+            .iter()
+            .map(|m| m.id)
+            .filter(|id| !self.corp.knows_schematic(*id))
+            .collect();
+        if unknown.is_empty() {
+            return None;
+        }
+        let pick = unknown[self.rng.below(unknown.len() as u32) as usize];
+        self.corp.learn_schematic(pick);
+        if let Some(model) = weapons::model(pick) {
+            let tick = self.tick;
+            self.feed.announce(
+                "R&D",
+                format!(
+                    "Schematic recovered: {} — you can produce it now.",
+                    model.name
+                ),
+                tick,
+            );
+        }
+        Some(pick)
     }
 
     // ---- piracy on your trade empire (EP3) ----------------------------------
@@ -3148,7 +3303,11 @@ impl Sim {
             .fleet()
             .iter()
             .enumerate()
-            .filter(|(_, s)| !s.nav.in_transit(self.tick) && s.nav.location == muster)
+            .filter(|(_, s)| {
+                !s.nav.in_transit(self.tick)
+                    && s.nav.location == muster
+                    && !s.is_refitting(self.tick)
+            })
             .map(|(i, _)| i)
             .collect();
         if on_station.is_empty() {
@@ -3925,35 +4084,47 @@ mod tests {
     }
 
     #[test]
-    fn crafting_a_weapon_upgrades_new_ships_and_antagonizes_the_power() {
-        // Phase B: scrap (from combat) + credits craft an advanced model into the
-        // arsenal; a newly built ship then fits it (stronger), and building a great
-        // power's design sours that power.
+    fn producing_a_weapon_needs_a_schematic_then_time_and_antagonizes_the_power() {
+        // Phase B: you can't *buy* advanced weapons — you need the schematic (earned),
+        // then tool up a production line that takes time; building a great power's design
+        // sours that power. A newly built ship then fits the produced model.
         let mut sim = Sim::new(0);
         let base_pdc = sim.best_weapon_def(WeaponKind::Pdc).intercept;
         let model17 = 2usize; // Model 17 PDC (Earth, tier 2)
         assert!(
-            matches!(sim.craft_weapon(model17), Err(CraftError::NotEnoughScrap)),
-            "can't craft with no scrap"
+            matches!(sim.produce_weapon(model17), Err(CraftError::NoSchematic)),
+            "no buying — you need the schematic first"
         );
-        // Grant scrap (as a won fight would) and craft it — Earth takes offence.
-        let earth0 = sim.relations().standing(crate::sim::Faction::Earth);
+        // Learn the schematic (as reverse-engineering would) + grant scrap.
+        sim.corp_mut().learn_schematic(model17);
         sim.corp_mut().add_scrap(200);
-        sim.craft_weapon(model17).unwrap();
-        assert!(
-            sim.corp().owns_weapon(model17),
-            "the design joins the arsenal"
-        );
+        let earth0 = sim.relations().standing(crate::sim::Faction::Earth);
+        sim.produce_weapon(model17).unwrap();
         assert!(
             sim.relations().standing(crate::sim::Faction::Earth) < earth0,
             "building Earth's design antagonises Earth"
         );
+        assert!(
+            !sim.corp().owns_weapon(model17) && sim.production_remaining(model17) > 0,
+            "production takes time, it's not instant"
+        );
+        // Run until the line completes.
+        for _ in 0..400 {
+            sim.step();
+            if sim.corp().owns_weapon(model17) {
+                break;
+            }
+        }
+        assert!(
+            sim.corp().owns_weapon(model17),
+            "the line eventually finishes"
+        );
         let up_pdc = sim.best_weapon_def(WeaponKind::Pdc).intercept;
         assert!(
             up_pdc > base_pdc,
-            "the crafted PDC screens better ({up_pdc} > {base_pdc})"
+            "the produced PDC screens better ({up_pdc} > {base_pdc})"
         );
-        // A newly built Frigate fits the upgraded screen.
+        // A newly built Frigate fits the produced PDC.
         sim.commission_ship(ShipClass::Frigate).unwrap();
         let ship = sim.corp().fleet().last().unwrap();
         assert!(
@@ -3961,8 +4132,49 @@ mod tests {
                 .weapons()
                 .iter()
                 .any(|w| w.kind == WeaponKind::Pdc && w.intercept == up_pdc),
-            "the new ship fits the crafted PDC"
+            "the new ship fits the produced PDC"
         );
+    }
+
+    #[test]
+    fn refitting_upgrades_an_old_hull_for_time_and_money() {
+        // Phase B: refit re-equips an existing ship with your best-owned weapons, for a
+        // yard fee and a stint in the yard (it can't fight while refitting).
+        let mut sim = Sim::new(0);
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        let pdc = |s: &Sim| {
+            s.corp().fleet()[0]
+                .loadout
+                .weapons()
+                .iter()
+                .find(|w| w.kind == WeaponKind::Pdc)
+                .unwrap()
+                .intercept
+        };
+        let before = pdc(&sim);
+        // Produce a better PDC line so "best owned" upgrades.
+        sim.corp_mut().learn_schematic(2); // Model 17 PDC
+        sim.corp_mut().add_scrap(200);
+        sim.produce_weapon(2).unwrap();
+        for _ in 0..400 {
+            sim.step();
+            if sim.corp().owns_weapon(2) {
+                break;
+            }
+        }
+        assert_eq!(
+            pdc(&sim),
+            before,
+            "the old hull still has its original screen"
+        );
+        let credits0 = sim.corp().credits();
+        sim.refit_ship(0).unwrap();
+        assert!(sim.corp().credits() < credits0, "refit charges a yard fee");
+        assert!(
+            sim.corp().fleet()[0].is_refitting(sim.tick()),
+            "the hull is in the yard, out of action"
+        );
+        assert!(pdc(&sim) > before, "refit swapped in the better screen");
     }
 
     #[test]
