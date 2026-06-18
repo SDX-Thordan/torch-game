@@ -278,6 +278,13 @@ Status: [x] done, [~] in progress, [ ] todo.
 - `Camera3D.look_at` needs the node **in the tree** (add_child *then* look_at).
   `Viewport.get_texture().get_image()` lags **one frame** → switch-then-wait-N-frames before a
   screenshot. A **`SubViewport` owns its own world** → give it its own lights + WorldEnvironment.
+- **Procedural body shaders (the "proper textures" path, no texture pipeline):** under
+  `gl_compatibility` the **fragment** stage has no `NODE_POSITION_WORLD` / `CAMERA_POSITION_WORLD`
+  ("Unknown identifier") → compute the node-to-sun dir in `vertex()` from `MODEL_MATRIX[3].xyz`
+  and pass it as a **varying**; do fresnel rims with view-space `NORMAL`/`VIEW` (both
+  fragment-available). Putting **Sol at the world origin** makes day/night a one-liner
+  (`-normalize(node_origin)`). At fine star-grid scales a per-cell star is **sub-pixel** (cell
+  ≈9px, star <1px) → use bigger cells + a core + 3× halo so it reads (`PlanetShaders.space_sky`).
 - **Mobile:** `project.godot` orientation enum **4 = sensor-landscape** (1 = Portrait!).
   Pinch-zoom needs real multitouch tracking (`InputEventScreenTouch`/`Drag`), **not**
   `InputEventMagnifyGesture` (that's a trackpad gesture); keep `emulate_mouse_from_touch` on so
