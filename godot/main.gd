@@ -1400,10 +1400,14 @@ func _dio_outcome_line() -> String:
 			head = "[color=#%s]✖ FLEET BROKEN — the raiders hold the field.[/color]" % UiKit.BAD.to_html(false)
 		_:
 			head = "[color=#%s]— STALEMATE — both sides withdraw.[/color]" % UiKit.TEXT_DIM.to_html(false)
-	return "%s\n[color=#%s]Survivors — %s %d/%d  ·  Raiders %d/%d[/color]" % [
+	var bounty := sim.battle_bounty()
+	var bline := ""
+	if sim.battle_winner() == 0 and bounty > 0:
+		bline = "\n[color=#%s]✚ Bounty +%d cr — the lanes are calmer.[/color]" % [UiKit.GOOD.to_html(false), bounty]
+	return "%s\n[color=#%s]Survivors — %s %d/%d  ·  Raiders %d/%d[/color]%s" % [
 		head, UiKit.TEXT.to_html(false),
 		String(sim.corp_name()), sim.battle_survivors(0), sim.battle_start_count(0),
-		sim.battle_survivors(1), sim.battle_start_count(1)]
+		sim.battle_survivors(1), sim.battle_start_count(1), bline]
 
 
 # ============================================================================

@@ -1877,6 +1877,12 @@ impl TorchSim {
             .unwrap_or(-1)
     }
 
+    /// Bounty paid for the last won engagement (Phase B) — 0 on a loss/none.
+    #[func]
+    fn battle_bounty(&self) -> i64 {
+        self.sim.last_bounty()
+    }
+
     /// Starting count for `side` (0 player, 1 raiders) in the last battle.
     #[func]
     fn battle_start_count(&self, side: i64) -> i64 {

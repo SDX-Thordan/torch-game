@@ -75,6 +75,11 @@ const REMASS_PER_FUEL: i64 = 5;
 /// same-count pack is a genuine coin-flip (the gameplay-QA balance target), so
 /// committing warships is a real risk — your fleet can be lost (§13 attrition).
 const RAIDER_QUALITY: i64 = 50;
+/// Phase B: the bounty per raider hull on a *won* engagement, and how much holding the
+/// core calms the piracy gauge. Sized so a win covers attrition + a margin (a frigate
+/// costs 4000), making combat net-positive — but combat is crew-capped, so not a faucet.
+const BOUNTY_PER_RAIDER: i64 = 2200;
+const COMBAT_PIRACY_RELIEF: i32 = 25;
 /// Ticks between contract-board postings (§3.3/§16): a faction posts a delivery
 /// job roughly once a day at 1 tick/hour.
 const CONTRACT_INTERVAL: u64 = 24;
@@ -483,6 +488,8 @@ pub struct Sim {
     /// The last resolved battle (band, starting counts, BattleLog) — for the §22
     /// diorama. Transient (not saved).
     last_battle: Option<(Band, [usize; 2], BattleOutcome)>,
+    /// Bounty paid for the last won engagement (Phase B) — 0 on a loss/none.
+    last_bounty: i64,
     /// Hull + weapon catalog the player's ships are fit from (§31). Defaults to the
     /// compiled tables; `reload_ship_data` retunes it from JSON. A tuning overlay,
     /// not save state — content stays in code.
@@ -564,6 +571,7 @@ impl Sim {
             missions: super::missions::Missions::new(),
             combat_doctrine: Doctrine::default(),
             last_battle: None,
+            last_bounty: 0,
             catalog: ShipCatalog::default(),
             pressure: PressureSystem::new(Intensity::default()),
             markets,
@@ -2863,6 +2871,11 @@ impl Sim {
         Some(outcome)
     }
 
+    /// The bounty paid for the last won engagement (Phase B) — 0 on a loss/none.
+    pub fn last_bounty(&self) -> i64 {
+        self.last_bounty
+    }
+
     // ---- piracy on your trade empire (EP3) ----------------------------------
 
     /// How many escorts (warships on station) the empire needs to screen its shipping
@@ -3112,9 +3125,19 @@ impl Sim {
         let won = outcome.winner == Some(0);
         // Only the on-station ships were at risk; veterans pull through (§11/§13).
         self.corp.resolve_engagement_for(on_station, survivors, won);
-        if won {
+        self.last_bounty = if won {
+            // Phase B: holding the field *pays* (bounty per raider hull) and protects
+            // the lanes (calms piracy) — so a navy is a viable economic strategy, not
+            // pure attrition. Combat is crew-capped, so this isn't a faucet.
+            let bounty = pack.len() as i64 * BOUNTY_PER_RAIDER;
+            self.corp.credit(bounty);
+            self.pressure
+                .relieve(PressureKind::Piracy, COMBAT_PIRACY_RELIEF);
             self.complete_op(); // holding the field is progress on the climb (§0)
-        }
+            bounty
+        } else {
+            0
+        };
         self.events.push(Event::BattleResolved { won, losses });
         self.last_battle = Some((band, [player_ships.len(), pack.len()], outcome.clone()));
         Some(outcome)
@@ -3831,6 +3854,29 @@ mod tests {
             (10..=90).contains(&pct),
             "win rate {pct}% should be competitive, not lopsided"
         );
+    }
+
+    #[test]
+    fn winning_an_engagement_pays_a_bounty() {
+        // Phase B: holding the field credits a bounty per raider hull, so a won fight is
+        // net-positive — combat is a viable economic strategy, not pure attrition.
+        for seed in 0..64 {
+            let mut sim = Sim::new(seed);
+            for _ in 0..3 {
+                sim.commission_ship(ShipClass::Frigate).unwrap();
+            }
+            let before = sim.corp().credits();
+            let out = sim.engage_raiders(Band::Close).unwrap();
+            if out.winner == Some(0) {
+                assert!(sim.last_bounty() > 0, "a win pays a bounty");
+                assert!(
+                    sim.corp().credits() > before,
+                    "a won engagement is net-positive (ship loss is not a credit cost)"
+                );
+                return;
+            }
+        }
+        panic!("no winning engagement found across seeds");
     }
 
     #[test]

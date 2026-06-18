@@ -116,7 +116,7 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 
 | metric | value |
 | --- | --- |
-| treasury | 42000 → 30000 cr (+-12000, ~0×) |
+| treasury | 42000 → 34400 cr (+-7600, ~0×) |
 | actions | 6 over 0% of ticks |
 | pacing | 2088 ticks pending · longest idle 905 ticks |
 | campaign | The Region · gate 33% · 1 ascent(s) |
@@ -133,7 +133,7 @@ _Stands up warships and fights raider packs — is the combat resolver reachable
 **Findings:**
 
 - **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
-- **[NOTE]** _Economy_ — Lost money over the run: 42000 → 30000 cr (-12000).
+- **[NOTE]** _Economy_ — Lost money over the run: 42000 → 34400 cr (-7600).
 - **[NOTE]** _Agency_ — Acted on only 0% of ticks (6 actions), and the longest dead stretch with nothing pending ran 905 ticks — the world needs denser exceptions there, not just faster time-compression (§36).
 - **[NOTE]** _Alert feed_ — 29 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
@@ -238,7 +238,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | Arbitrageur | **28** | 0 | 100 | 0 | 0 | 30 | 49 |
 | Logistician | **76** | 100 | 76 | 60 | 100 | 25 | 86 |
 | Privateer | **90** | 100 | 100 | 60 | 100 | 100 | 79 |
-| Warlord | **49** | 33 | 78 | 19 | 23 | 92 | 72 |
+| Warlord | **51** | 33 | 78 | 19 | 23 | 100 | 72 |
 | Tycoon | **98** | 100 | 100 | 100 | 100 | 100 | 86 |
 | Expansionist | **87** | 100 | 98 | 60 | 100 | 74 | 92 |
 | Responder | **90** | 100 | 99 | 100 | 100 | 40 | 92 |
@@ -249,14 +249,14 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 - **Arbitrageur** ███······· 28/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
 - **Logistician** ████████·· 76/100 — weakest is _Stakes_ (25/100): treasury dip 1%, 0 ships lost, rep low 0, pressure peak 29
 - **Privateer** █████████· 90/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/166 act-now shortages
-- **Warlord** █████····· 49/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/29 act-now shortages
+- **Warlord** ██████···· 51/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/29 act-now shortages
 - **Tycoon** ██████████ 98/100 — weakest is _Variety_ (86/100): 7 of 9 event kinds; 4 tier(s) of scope
 - **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/21 act-now shortages
 - **Responder** █████████· 90/100 — weakest is _Stakes_ (40/100): treasury dip 7%, 0 ships lost, rep low 0, pressure peak 29
 
 **What the comparison says about fun:**
 
-- **[GOOD]** _Fun · breadth_ — Several distinct play styles are engaging (["Logistician", "Privateer", "Tycoon", "Expansionist", "Responder"] all score ≥50/100). Depth-of-decision survives the choice of approach — no single dominant strategy starves the others.
+- **[GOOD]** _Fun · breadth_ — Several distinct play styles are engaging (["Logistician", "Privateer", "Warlord", "Tycoon", "Expansionist", "Responder"] all score ≥50/100). Depth-of-decision survives the choice of approach — no single dominant strategy starves the others.
 - **[NOTE]** _Fun · weakest link_ — Across all play styles, **Agency** is the weakest engagement dimension (avg 49/100) — the experience's biggest fun gap to invest in next.
 - **[GOOD]** _Fun · strength_ — **Flow** is the strongest dimension (avg 90/100) — the experience leans on it well.
 - **[GOOD]** _Fun · watchability_ — Hands fully off, the world scores 61/100 on flow+variety — the measure of whether it's worth watching before you act (§28).
@@ -267,16 +267,16 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 
 | metric | value |
 | --- | --- |
-| bindings exposed | 239 |
-| wired by the shell | 184 (76%) |
+| bindings exposed | 240 |
+| wired by the shell | 185 (77%) |
 | keyboard bindings | 42 |
 | pointer/touch | 10 pointer hit(s), native touch: true |
 | controls legend | true |
 
 **Findings:**
 
-- **[GOOD]** _UI · wiring_ — Every one of the shell's 184 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
-- **[NOTE]** _UI · coverage_ — The shell wires 76% of the 239 exposed bindings; 55 are never referenced (e.g. ["admin_load", "alert_threshold", "ally_count", "alpha", "blueprint_discover", "blueprint_known_count"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
+- **[GOOD]** _UI · wiring_ — Every one of the shell's 185 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
+- **[NOTE]** _UI · coverage_ — The shell wires 77% of the 240 exposed bindings; 55 are never referenced (e.g. ["admin_load", "alert_threshold", "ally_count", "alpha", "blueprint_discover", "blueprint_known_count"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
 - **[GOOD]** _UI · exception→verb_ — The act-now exception loop is pressable: the shell wires a one-press answer to shortages/contracts, so an alert resolves into a verb rather than a dead notification (§0.4).
 - **[GOOD]** _UI · status visibility_ — The load-bearing state is on screen — treasury, the tier/destination, the alert feed, and the now-goal are all read by the shell (Nielsen #1, the §0 three-horizon stack).
 - **[GOOD]** _UI · recognition_ — A controls legend is on screen — the keymap is recognised, not recalled (Nielsen #6).

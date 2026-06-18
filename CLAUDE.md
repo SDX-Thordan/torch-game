@@ -179,6 +179,24 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase B (start): combat pays + protects the lanes (§7/§9/§13).** The Warlord
+  was the lowest non-degenerate persona (49) because winning a fight was pure attrition — no
+  payoff, just lost ships. Now a **won** `engage_raiders` credits a **bounty** (`BOUNTY_PER_
+  RAIDER` × pack size, sized so a clean win clears a frigate's 4000 cr build + a margin) **and**
+  `relieve`s the piracy gauge — so a navy is a viable economic strategy (B2) that also protects
+  trade (B1), not a money sink. `last_bounty` field + `battle_bounty()` binding surface it in the
+  diorama verdict ("✚ Bounty +N cr — the lanes are calmer"). **Crew-capped, so not a faucet:**
+  combat fires only a few times a run (the §8c pool gates rebuilds), so even a generous bounty
+  can't runaway. **Determinism:** only the Warlord persona calls `engage_raiders`, so the other
+  personas' review bodies are byte-identical; the Warlord legitimately shifts (overall 49→51,
+  Stakes 92→100, treasury −12k→−7.6k — still net-negative because it *loses* 2 of 3 coin-flip
+  fights + over-commissions, which is honest: combat is risky, but each *win* is net-positive,
+  proven by `winning_an_engagement_pays_a_bounty` finding a seed that wins on the first engage and
+  asserting credits rose). 191 cargo + 17 GUT green; regenerated `SAMPLE_GAMEPLAY_REVIEW.md`.
+  **Next (Phase B cont.):** tie engagements to the frequent EP3 empire-piracy loop (fight *to*
+  protect a specific convoy/holding), and B3 live mid-fight commands (the Warlord's real gap is
+  Agency 19 — combat is too sparse/passive; mid-fight verbs on the §22 diorama address that).
+
 - **2026-06-18 — Phase A2: answering pays + a hard-pause on stacked dilemmas + a Responder
   QA persona.** Three parts closing the Agency loop. **(1) Universal reward (A2):** every
   resolved dilemma now calls `complete_op` *once, centrally* in `resolve_decision` (removed
