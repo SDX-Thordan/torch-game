@@ -9,6 +9,7 @@ pub mod automation;
 pub mod bridgehead;
 pub mod campaign;
 pub mod combat;
+pub mod contest;
 pub mod contracts;
 pub mod corp;
 pub mod decisions;

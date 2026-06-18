@@ -877,6 +877,9 @@ func _deploy_miner() -> void:
 	if _focus_body <= 0 or sim.body_kind(_focus_body) == 5:
 		status = "Tap a body first (an asteroid/moon), then ⛏ MINE its mineral."
 		return
+	if not sim.can_mine_body(_focus_body):
+		status = "Off-limits — miners work only the belts & outer moons/rings, not the Earth/Mars AO."
+		return
 	var msg := String(sim.buy_miner(_focus_body))
 	status = msg if msg != "" else "Can't deploy a miner — need 9,000 cr (or the miner cap is reached)."
 
@@ -1172,6 +1175,56 @@ func _court_company() -> void:
 			status = "Not enough Influence to court %s (need 100)." % name
 		_:
 			status = "Can't court %s." % name
+
+
+## The contested hub the player has the focused body on, else the one they've courted
+## most (so the COURT/CLAIM verbs act on something sensible without a separate selector).
+func _focus_contested() -> int:
+	var n := sim.contested_count()
+	if n == 0:
+		return -1
+	if _focus_body > 0:
+		for i in n:
+			if sim.contested_body(i) == _focus_body:
+				return i
+	var best := 0
+	var best_pi := -1
+	for i in n:
+		var pi: int = sim.contested_player_influence(i)
+		if pi > best_pi:
+			best_pi = pi
+			best = i
+	return best
+
+
+## Court the focused contested hub — spend Influence to build standing toward claiming it.
+func _court_contested() -> void:
+	var i := _focus_contested()
+	if i < 0:
+		status = "No contested hubs."
+		return
+	var msg := String(sim.court_contested_colony(i))
+	if msg != "":
+		status = msg
+	else:
+		status = "Can't court %s — need Influence (it accrues over time)." % String(sim.contested_name(i))
+
+
+## Claim the focused contested hub once your standing clears the threshold.
+func _claim_contested() -> void:
+	var i := _focus_contested()
+	if i < 0:
+		status = "No contested hubs."
+		return
+	if not sim.contested_claimable(i):
+		status = "%s: standing %d/%d — court it more before claiming." % [String(sim.contested_name(i)), sim.contested_player_influence(i), sim.contested_claim_threshold()]
+		return
+	var msg := String(sim.claim_contested_colony(i))
+	if msg != "":
+		ascend_flash = 1.0
+		status = msg
+	else:
+		status = "Can't claim %s." % String(sim.contested_name(i))
 
 
 ## Defend the holdings against a great-power coalition strike (the empire layer, E3).
@@ -2303,6 +2356,9 @@ func _build_empire_view() -> void:
 	ops.add_child(_make_op_button("⚙ DOCTRINE", _cycle_doctrine))
 	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
 	ops.add_child(_make_op_button("🤝 COURT", _court_company))
+	# Contested hubs (early game): gather influence over a fought-over colony, then claim it.
+	ops.add_child(_make_op_button("◎ COURT HUB", _court_contested))
+	ops.add_child(_make_op_button("◎ CLAIM HUB", _claim_contested))
 	v.add_child(UiKit.rule())
 
 	# The master-table: holdings + acquirable targets.
@@ -2414,6 +2470,30 @@ func _refresh_empire() -> void:
 		var name2 := String(sim.colony_name(i))
 		var fac2 := _faction_name(sim.colony_faction(i))
 		t += "[color=#e0b0b0]⚔ %s[/color]  (%s)  ·  garrison %d\n" % [name2, fac2, sim.colony_garrison(i)]
+	# Contested hubs — the major colonies the powers fight over (early game). A gauge
+	# of each power's grip + your own standing toward claiming it (the Ganymede conflict).
+	if sim.contested_count() > 0:
+		t += "\n[color=#9fb0c0]── CONTESTED HUBS  (the powers fight over these) ──[/color]\n"
+		var sel := _focus_contested()
+		for i in sim.contested_count():
+			var cb := sim.contested_body(i)
+			# Skip ones you've already claimed (they show under YOUR HOLDINGS).
+			var claimed := false
+			for j in sim.colony_count():
+				if sim.colony_controlled(j) and sim.colony_body(j) == cb:
+					claimed = true
+					break
+			if claimed:
+				continue
+			var marker := "▸ " if i == sel else "  "
+			var lead: int = sim.contested_leader(i)
+			t += "[color=#cfd8e0]%s%s[/color]  —  led by [color=%s]%s[/color]\n" % [marker, String(sim.contested_name(i)), _FAC_COL[lead], _faction_name(lead)]
+			t += "     " + _influence_bar(i) + "\n"
+			var pi: int = sim.contested_player_influence(i)
+			var thr: int = sim.contested_claim_threshold()
+			var pcol := "#78e68c" if pi >= thr else "#e6c860"
+			var claim := "  ·  [color=#78e68c]CLAIMABLE[/color]" if pi >= thr else ""
+			t += "     [color=#7a8696]your standing[/color] [color=%s]%d/%d[/color]%s\n" % [pcol, pi, thr, claim]
 	# Independent companies — the negotiable actors (E8). Macro diplomacy.
 	if sim.company_count() > 0:
 		t += "\n[color=#9fb0c0]── INDEPENDENT RELATIONS  (Influence %d) ──[/color]\n" % sim.influence()
@@ -2431,6 +2511,30 @@ func _faction_name(f: int) -> String:
 		1: return "Mars"
 		2: return "Belt/OPA"
 		_: return "Independent"
+
+
+# Per-faction bbcode colours (Earth blue · Mars red · Belt ochre · Independent grey).
+const _FAC_COL := ["#5b8fd6", "#d6604f", "#d6a24f", "#9fb0c0"]
+
+
+## A compact influence gauge for contested colony `i`: a 20-cell bar coloured by which
+## power holds each slice (so a glance shows whose grip is tightening — Earth vs Mars).
+func _influence_bar(i: int) -> String:
+	var total := 0
+	for f in 4:
+		total += sim.contested_influence(i, f)
+	if total <= 0:
+		return ""
+	var cells := 20
+	var bar := ""
+	var pcts := PackedStringArray()
+	for f in 4:
+		var inf: int = sim.contested_influence(i, f)
+		var n: int = int(round(float(inf) * cells / float(total)))
+		for _k in n:
+			bar += "[color=%s]▰[/color]" % _FAC_COL[f]
+		pcts.append("[color=%s]%s %d%%[/color]" % [_FAC_COL[f], _faction_name(f), inf * 100 / total])
+	return bar + "   " + "  ".join(pcts)
 
 
 func _notification(what: int) -> void:
@@ -2523,7 +2627,10 @@ func _refresh_systems() -> void:
 	if sim.miner_count() > 0:
 		mtxt = "   ·   ⛏ %d miner(s)" % sim.miner_count()
 	if _focus_body > 0 and sim.body_kind(_focus_body) != 5:
-		mtxt += "   ·   mine %s here yields %s" % [String(sim.body_name(_focus_body)), String(sim.body_mineral_name(_focus_body))]
+		if sim.can_mine_body(_focus_body):
+			mtxt += "   ·   mine %s here yields %s" % [String(sim.body_name(_focus_body)), String(sim.body_mineral_name(_focus_body))]
+		else:
+			mtxt += "   ·   %s: off-limits to miners (Earth/Mars AO)" % String(sim.body_name(_focus_body))
 	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%%s" % [sim.tier_name(), hold_txt, sim.gate_progress_pct(), mtxt]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
