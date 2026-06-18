@@ -20,6 +20,10 @@ pub struct Colony {
     /// Whether this outpost is a full **trading market** (a frontier hub) or just
     /// a settled marker. The major hubs trade; lesser outposts are flavour (§17).
     pub is_market: bool,
+    /// Whether this is a **major hub** the great powers openly fight over (early game):
+    /// the jovian/cronian markets + the belt's big stations (Eros/Pallas/Vesta/Tycho).
+    /// Drives the contest layer (`sim::contest`) — independent of whether it trades.
+    pub hub: bool,
 }
 
 /// The frontier's standing colonies, spread across all four powers so the outer
@@ -29,33 +33,41 @@ pub struct Colony {
 pub fn default_colonies() -> Vec<Colony> {
     use Faction::*;
     let bodies = default_system();
-    let on = |moon: &str, faction: Faction, name: &'static str, is_market: bool| -> Colony {
-        let body = bodies
-            .iter()
-            .position(|b| b.name == moon)
-            .unwrap_or_else(|| panic!("no body named {moon}"));
-        Colony {
-            body,
-            faction,
-            name,
-            is_market,
-        }
-    };
+    let on =
+        |moon: &str, faction: Faction, name: &'static str, is_market: bool, hub: bool| -> Colony {
+            let body = bodies
+                .iter()
+                .position(|b| b.name == moon)
+                .unwrap_or_else(|| panic!("no body named {moon}"));
+            Colony {
+                body,
+                faction,
+                name,
+                is_market,
+                hub,
+            }
+        };
     vec![
-        on("Luna", Earth, "Luna Dock", false),
-        on("Europa", Mars, "Europa Deep", true),
-        on("Ganymede", Independents, "Ganymede Free Port", true),
-        on("Callisto", Independents, "Callisto Yards", false),
+        on("Luna", Earth, "Luna Dock", false, false),
+        on("Europa", Mars, "Europa Deep", true, true),
+        on("Ganymede", Independents, "Ganymede Free Port", true, true),
+        on("Callisto", Independents, "Callisto Yards", false, false),
         // Saturn's settled moons — the OPA frontier with Earth/Mars footholds.
-        on("Titan", Belt, "Titan Station (OPA)", true),
-        on("Rhea", Belt, "Rhea Hold (OPA)", false),
-        on("Dione", Mars, "Dione Garrison", false),
-        on("Enceladus", Independents, "Enceladus Wells", false),
-        on("Iapetus", Belt, "Iapetus Watch (OPA)", false),
-        on("Tethys", Earth, "Tethys Relay", false),
+        on("Titan", Belt, "Titan Station (OPA)", true, true),
+        on("Rhea", Belt, "Rhea Hold (OPA)", false, false),
+        on("Dione", Mars, "Dione Garrison", false, false),
+        on("Enceladus", Independents, "Enceladus Wells", false, false),
+        on("Iapetus", Belt, "Iapetus Watch (OPA)", false, false),
+        on("Tethys", Earth, "Tethys Relay", false, false),
         // The deep frontier.
-        on("Triton", Independents, "Triton Outpost", false),
-        on("Charon", Belt, "Charon Watch (OPA)", false),
+        on("Triton", Independents, "Triton Outpost", false, false),
+        on("Charon", Belt, "Charon Watch (OPA)", false, false),
+        // The asteroid belt's major stations — the OPA heartland, openly contested by
+        // the inners (major hubs, not full markets). Eros is the iconic OPA station.
+        on("Eros", Belt, "Eros Station (OPA)", false, true),
+        on("Pallas", Belt, "Pallas Yards (OPA)", false, true),
+        on("Vesta", Belt, "Vesta Mine (OPA)", false, true),
+        on("Tycho", Independents, "Tycho Station", false, true),
     ]
 }
 
@@ -88,6 +100,7 @@ pub fn far_side_market_colonies() -> Vec<Colony> {
             faction: Independents,
             name,
             is_market: true,
+            hub: false,
         }
     };
     vec![
