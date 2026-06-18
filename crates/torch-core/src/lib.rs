@@ -908,14 +908,7 @@ impl TorchSim {
     /// A one-line title for dilemma `i` (e.g. "ReactorFuel shortage at Ceres Yards").
     #[func]
     fn decision_title(&self, i: i64) -> GString {
-        match self.sim.decisions().get(i as usize) {
-            Some(d) => {
-                let c = self.sim.markets()[d.market].defs()[d.commodity].name;
-                let m = self.sim.markets()[d.market].name();
-                GString::from(format!("{c} shortage at {m}"))
-            }
-            None => GString::new(),
-        }
+        GString::from(self.sim.decision_title(i.max(0) as usize))
     }
 
     /// How many options dilemma `i` offers.

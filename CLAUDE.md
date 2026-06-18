@@ -179,6 +179,30 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase A cont.: wreck + raid dilemmas on the same framework (§15/§13).** Two more
+  `DecisionKind`s on the Phase-A plumbing, so the act-now menu spans the whole event stream, not
+  just shortages. **Wreck** (auto-raised on `WreckSighted`): **Strip Hull** (+1400 cr scrap,
+  certain) / **Mine Data** (+45 research, certain) / **Reverse-Engineer** (risky — ~50% a
+  recovered blueprint, else consolation data). The yield follows the *choice*, not the wreck's
+  pre-rolled reward (resolve `claim`s the derelict, then applies the chosen extraction). **Raid**
+  (auto-raised on a `ThreatForecast{Piracy}`): **Hunt Them** (~60% → bounty + calms the piracy
+  gauge; else they slip) / **Hire Escorts** (pay 2500 cr, sure relief) / **Set an Ambush** (~38%
+  → double bounty + bigger calm; else a loss). Added `PressureSystem::relieve(kind, amount)` so a
+  raid answer mechanically *eases the gauge*. Generalized `Decision` with `target`(wreck id) +
+  `magnitude`(bounty base); `push_decision` dedups **per kind** (shortage by market/commodity,
+  wreck by id, raid one-at-a-time) under the 3-cap; `decision_title`/`decision_options`/
+  `resolve_decision` dispatch by kind. **The shell needed *zero* changes** — the dilemma panel is
+  generic over the `decision_*` bindings, so wreck/raid render through the same path (verified:
+  "Raiders inbound" with the three risk/reward options). **Determinism:** raising touches no
+  rng/economy (pure event read → push); the resolve RNG (reverse-engineer / hunt / ambush rolls)
+  only fires on a *player* choice, so the §7c gate + 190 cargo tests + 17 GUT hold and the QA
+  review is **fully byte-identical** (no new bindings this round). *Test lesson:* the 3-decision
+  cap means ambient **shortage** dilemmas often hold index 0, so a wreck/raid test must **find its
+  decision by kind** (`position(|d| d.kind == …)`) and resolve that index — not assume index 0 —
+  *and* drive the real auto-raise path (step until the kind appears) rather than `push_decision`
+  into a crowded queue. *Borrow:* `super::pressure::X` doesn't resolve inside the `mod tests`
+  scope — use the full `crate::sim::pressure::X` path.
+
 - **2026-06-18 — Phase A: act-now dilemmas (decisions with trade-offs), §0.4.** The QA review's
   measured #1 fun gap was **Agency** (avg 42/100) — the world raised act-now exceptions but the
   player's pressable menu was one button (`exploit_shortage`). New `sim::decisions`: an act-now

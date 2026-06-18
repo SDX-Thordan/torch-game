@@ -13,7 +13,9 @@ use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
 use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
 use super::decisions::{
-    Decision, DecisionKind, DecisionOption, DecisionOutcome, DEAL_QTY, DECISION_TTL, MAX_DECISIONS,
+    Decision, DecisionKind, DecisionOption, DecisionOutcome, AMBUSH_CHANCE_BP, DEAL_QTY,
+    DECISION_TTL, ESCORT_FEE, HUNT_CHANCE_BP, MAX_DECISIONS, RAID_RELIEF, REVENG_CHANCE_BP,
+    WRECK_DATA, WRECK_SCRAP,
 };
 use super::diplomacy::{Diplomacy, Stance};
 use super::economy::{default_markets, Market};
@@ -812,18 +814,30 @@ impl Sim {
 
     // ---- Phase A: player dilemmas (act-now decisions with trade-offs) ----------
 
-    /// Raise a dilemma for a fresh act-now exception, deduped and capped to a small
-    /// menu. (Today only [`DecisionKind::Shortage`].)
-    fn raise_decision(&mut self, kind: DecisionKind, market: usize, commodity: usize, now: u64) {
+    /// Raise a dilemma for a fresh act-now exception, deduped per kind and capped to a
+    /// small menu (no backlog anxiety).
+    fn push_decision(
+        &mut self,
+        kind: DecisionKind,
+        market: usize,
+        commodity: usize,
+        target: u64,
+        magnitude: i64,
+        now: u64,
+    ) {
         if self.decisions.len() >= MAX_DECISIONS {
             return;
         }
-        if self
-            .decisions
-            .iter()
-            .any(|d| d.kind == kind && d.market == market && d.commodity == commodity)
-        {
-            return; // already pending for this market/commodity
+        let dup = self.decisions.iter().any(|x| {
+            x.kind == kind
+                && match kind {
+                    DecisionKind::Shortage => x.market == market && x.commodity == commodity,
+                    DecisionKind::Wreck => x.target == target,
+                    DecisionKind::RaidThreat => true, // one inbound-raid dilemma at a time
+                }
+        });
+        if dup {
+            return;
         }
         let id = self.next_decision_id;
         self.next_decision_id += 1;
@@ -832,8 +846,34 @@ impl Sim {
             kind,
             market,
             commodity,
+            target,
+            magnitude,
             deadline_tick: now + DECISION_TTL,
         });
+    }
+
+    /// A one-line title for the dilemma at `idx` (for the shell header).
+    pub fn decision_title(&self, idx: usize) -> String {
+        let Some(d) = self.decisions.get(idx) else {
+            return String::new();
+        };
+        match d.kind {
+            DecisionKind::Shortage => {
+                let c = self.markets[d.market].defs()[d.commodity].name;
+                format!("{c} shortage at {}", self.markets[d.market].name())
+            }
+            DecisionKind::Wreck => {
+                let name = self
+                    .salvage
+                    .wrecks()
+                    .iter()
+                    .find(|w| w.id == d.target)
+                    .map(|w| w.name)
+                    .unwrap_or("Derelict");
+                format!("Derelict sighted — {name}")
+            }
+            DecisionKind::RaidThreat => "Raiders inbound on the lanes".to_string(),
+        }
     }
 
     /// The pending dilemmas (the act-now menu, §0.4).
@@ -862,7 +902,68 @@ impl Sim {
         };
         match d.kind {
             DecisionKind::Shortage => self.shortage_options(d),
+            DecisionKind::Wreck => Self::wreck_options(),
+            DecisionKind::RaidThreat => Self::raid_options(d.magnitude),
         }
+    }
+
+    fn wreck_options() -> Vec<DecisionOption> {
+        vec![
+            DecisionOption {
+                label: "Strip Hull",
+                summary: format!("Cut it up for scrap. +{WRECK_SCRAP} cr, certain."),
+                est_credits: WRECK_SCRAP,
+                rep_delta: 0,
+                risky: false,
+            },
+            DecisionOption {
+                label: "Mine Data",
+                summary: format!("Pull the data core. +{WRECK_DATA} research, certain."),
+                est_credits: 0,
+                rep_delta: 0,
+                risky: false,
+            },
+            DecisionOption {
+                label: "Reverse-Engineer",
+                summary: "Crack the tech. ~50%: a recovered blueprint; else only salvage data."
+                    .to_string(),
+                est_credits: 0,
+                rep_delta: 0,
+                risky: true,
+            },
+        ]
+    }
+
+    fn raid_options(mag: i64) -> Vec<DecisionOption> {
+        vec![
+            DecisionOption {
+                label: "Hunt Them",
+                summary: format!(
+                    "Run the raiders off. ~60%: +{mag} cr bounty + calm; else they slip you."
+                ),
+                est_credits: mag,
+                rep_delta: 0,
+                risky: true,
+            },
+            DecisionOption {
+                label: "Hire Escorts",
+                summary: format!("Pay {ESCORT_FEE} cr for protection — the threat eases, no risk."),
+                est_credits: -ESCORT_FEE,
+                rep_delta: 0,
+                risky: false,
+            },
+            DecisionOption {
+                label: "Set an Ambush",
+                summary: format!(
+                    "Bait a trap. ~38%: +{} cr + calm; else a {} cr loss.",
+                    mag * 2,
+                    mag / 2
+                ),
+                est_credits: mag * 2,
+                rep_delta: 0,
+                risky: true,
+            },
+        ]
     }
 
     fn shortage_options(&self, d: &Decision) -> Vec<DecisionOption> {
@@ -919,11 +1020,143 @@ impl Sim {
             return Err(TradeError::InsufficientStock);
         };
         let outcome = match d.kind {
-            DecisionKind::Shortage => self.resolve_shortage_decision(&d, opt)?,
+            DecisionKind::Shortage => {
+                let o = self.resolve_shortage_decision(&d, opt)?;
+                self.feed.resolve_shortage(d.market, d.commodity);
+                o
+            }
+            DecisionKind::Wreck => self.resolve_wreck_decision(&d, opt)?,
+            DecisionKind::RaidThreat => self.resolve_raid_decision(&d, opt),
         };
         self.decisions.retain(|x| x.id != d.id);
-        self.feed.resolve_shortage(d.market, d.commodity);
         Ok(outcome)
+    }
+
+    fn resolve_wreck_decision(
+        &mut self,
+        d: &Decision,
+        opt: usize,
+    ) -> Result<DecisionOutcome, TradeError> {
+        // Claim (remove) the derelict regardless of method; the yield depends on the
+        // *choice*, not the pre-rolled reward.
+        if self.salvage.claim(d.target).is_none() {
+            return Err(TradeError::InsufficientStock);
+        }
+        self.complete_op(); // any salvage is an operation on the climb (§0)
+        let outcome = match opt {
+            0 => {
+                self.corp.credit(WRECK_SCRAP);
+                DecisionOutcome {
+                    credits: WRECK_SCRAP,
+                    rep_delta: 0,
+                    backfired: false,
+                    message: format!("Stripped the hull: +{WRECK_SCRAP} cr of scrap."),
+                }
+            }
+            1 => {
+                self.progression.research.add_points(WRECK_DATA);
+                self.reveal_gate_beat(); // data may seed the gate mystery (§15→§0.1)
+                DecisionOutcome {
+                    credits: 0,
+                    rep_delta: 0,
+                    backfired: false,
+                    message: format!("Mined the data core: +{WRECK_DATA} research."),
+                }
+            }
+            2 => {
+                // Reverse-engineer: a gamble — a blueprint on success, else consolation data.
+                if self.rng.chance_bp(REVENG_CHANCE_BP) {
+                    let i = (d.target as usize) % self.progression.blueprints.known_count().max(1);
+                    self.progression.blueprints.reverse_engineer(i);
+                    self.reveal_gate_beat();
+                    DecisionOutcome {
+                        credits: 0,
+                        rep_delta: 0,
+                        backfired: false,
+                        message: "Cracked it — a recovered blueprint is yours.".to_string(),
+                    }
+                } else {
+                    self.progression.research.add_points(WRECK_DATA / 2);
+                    DecisionOutcome {
+                        credits: 0,
+                        rep_delta: 0,
+                        backfired: true,
+                        message: format!(
+                            "The tech resisted — salvaged +{} research instead.",
+                            WRECK_DATA / 2
+                        ),
+                    }
+                }
+            }
+            _ => return Err(TradeError::InsufficientStock),
+        };
+        self.events.push(Event::WreckSalvaged { id: d.target });
+        Ok(outcome)
+    }
+
+    fn resolve_raid_decision(&mut self, d: &Decision, opt: usize) -> DecisionOutcome {
+        let mag = d.magnitude.max(0);
+        match opt {
+            // Hunt: gamble for a bounty; success calms piracy, failure costs nothing but
+            // the chance (they slip away — the ambient raid still preys on NPC traffic).
+            0 => {
+                if self.rng.chance_bp(HUNT_CHANCE_BP) {
+                    self.corp.credit(mag);
+                    self.pressure.relieve(PressureKind::Piracy, RAID_RELIEF);
+                    self.complete_op();
+                    DecisionOutcome {
+                        credits: mag,
+                        rep_delta: 0,
+                        backfired: false,
+                        message: format!("Ran the raiders off: +{mag} cr bounty, the lanes calm."),
+                    }
+                } else {
+                    DecisionOutcome {
+                        credits: 0,
+                        rep_delta: 0,
+                        backfired: true,
+                        message: "The raiders slipped the net — no bounty.".to_string(),
+                    }
+                }
+            }
+            // Hire escorts: a sure thing — pay the fee, the threat eases.
+            1 => {
+                self.corp.debit(ESCORT_FEE.min(self.corp.credits()));
+                self.pressure.relieve(PressureKind::Piracy, RAID_RELIEF);
+                DecisionOutcome {
+                    credits: -ESCORT_FEE,
+                    rep_delta: 0,
+                    backfired: false,
+                    message: format!("Hired escorts for {ESCORT_FEE} cr — the threat eases."),
+                }
+            }
+            // Ambush: longer odds, double bounty on success, a loss on failure.
+            _ => {
+                if self.rng.chance_bp(AMBUSH_CHANCE_BP) {
+                    self.corp.credit(mag * 2);
+                    self.pressure.relieve(PressureKind::Piracy, RAID_RELIEF * 2);
+                    self.complete_op();
+                    DecisionOutcome {
+                        credits: mag * 2,
+                        rep_delta: 0,
+                        backfired: false,
+                        message: format!(
+                            "The trap sprang shut: +{} cr, the lanes go quiet.",
+                            mag * 2
+                        ),
+                    }
+                } else {
+                    let loss = (mag / 2).min(self.corp.credits());
+                    self.corp.debit(loss);
+                    DecisionOutcome {
+                        credits: -loss,
+                        rep_delta: 0,
+                        backfired: true,
+                        message: format!("The ambush failed — lost {loss} cr."),
+                    }
+                }
+            }
+        }
     }
 
     fn resolve_shortage_decision(
@@ -1872,19 +2105,32 @@ impl Sim {
         }
         // Gauges ebb each tick — biting-but-recoverable (§13).
         self.pressure.decay();
-        // Phase A: surface each fresh act-now shortage as a player dilemma (a menu of
+        // Phase A: surface fresh act-now exceptions as player dilemmas (menus of
         // trade-off options), and drop any that timed out.
         let now = self.tick;
-        let fresh: Vec<(usize, usize)> = self
-            .events
-            .iter()
-            .filter_map(|e| match e {
-                Event::Scarcity { market, commodity } => Some((*market, *commodity)),
-                _ => None,
-            })
-            .collect();
-        for (m, c) in fresh {
-            self.raise_decision(DecisionKind::Shortage, m, c, now);
+        let mut shortages: Vec<(usize, usize)> = Vec::new();
+        let mut wrecks: Vec<u64> = Vec::new();
+        let mut raid = false;
+        for e in &self.events {
+            match e {
+                Event::Scarcity { market, commodity } => shortages.push((*market, *commodity)),
+                Event::WreckSighted { id } => wrecks.push(*id),
+                Event::ThreatForecast {
+                    kind: PressureKind::Piracy,
+                    ..
+                } => raid = true,
+                _ => {}
+            }
+        }
+        for (m, c) in shortages {
+            self.push_decision(DecisionKind::Shortage, m, c, 0, 0, now);
+        }
+        for id in wrecks {
+            self.push_decision(DecisionKind::Wreck, 0, 0, id, 0, now);
+        }
+        if raid {
+            let mag = 1500 + self.pressure.level(PressureKind::Piracy) as i64 * 30;
+            self.push_decision(DecisionKind::RaidThreat, 0, 0, 0, mag, now);
         }
         self.decisions.retain(|d| d.deadline_tick > now);
         self.returned = self.events.len();
@@ -3616,7 +3862,7 @@ mod tests {
         // Speculate: profits, leaves reputation untouched.
         let mut a = Sim::new(0);
         let rep0 = a.relations().standing(owner);
-        a.raise_decision(DecisionKind::Shortage, ceres, rf, a.tick());
+        a.push_decision(DecisionKind::Shortage, ceres, rf, 0, 0, a.tick());
         assert_eq!(
             a.decision_options(0).len(),
             3,
@@ -3633,7 +3879,7 @@ mod tests {
 
         // Profiteer: out-earns speculating (no fine at neutral standing) but sours the owner.
         let mut b = Sim::new(0);
-        b.raise_decision(DecisionKind::Shortage, ceres, rf, b.tick());
+        b.push_decision(DecisionKind::Shortage, ceres, rf, 0, 0, b.tick());
         let prof = b.resolve_decision(0, 1).unwrap();
         assert!(
             prof.credits > spec.credits,
@@ -3646,7 +3892,7 @@ mod tests {
 
         // Relief Run: the reputation play — owner standing rises, profit is forgone.
         let mut c = Sim::new(0);
-        c.raise_decision(DecisionKind::Shortage, ceres, rf, c.tick());
+        c.push_decision(DecisionKind::Shortage, ceres, rf, 0, 0, c.tick());
         let relief = c.resolve_decision(0, 2).unwrap();
         assert!(
             c.relations().standing(owner) > rep0,
@@ -3655,6 +3901,74 @@ mod tests {
         assert!(
             relief.credits < prof.credits,
             "relief forgoes the gouge profit"
+        );
+    }
+
+    #[test]
+    fn a_wreck_dilemma_chooses_what_to_extract() {
+        // A sighted derelict auto-raises a dilemma: strip for credits, mine data, or
+        // gamble on reverse-engineering — the yield follows the *choice*.
+        let mut sim = Sim::new(3);
+        let mut idx = None;
+        for _ in 0..4_000 {
+            sim.step();
+            if let Some(i) = sim
+                .decisions()
+                .iter()
+                .position(|d| d.kind == DecisionKind::Wreck)
+            {
+                idx = Some(i);
+                break;
+            }
+        }
+        let i = idx.expect("a wreck dilemma should be raised within the run");
+        let id = sim.decisions()[i].target;
+        assert_eq!(sim.decision_options(i).len(), 3);
+        let credits0 = sim.corp().credits();
+        let out = sim.resolve_decision(i, 0).unwrap(); // strip for scrap
+        assert!(
+            out.credits > 0 && sim.corp().credits() > credits0,
+            "stripping pays credits"
+        );
+        assert!(
+            sim.wrecks().iter().all(|w| w.id != id),
+            "the wreck is consumed"
+        );
+    }
+
+    #[test]
+    fn a_raid_dilemma_eases_the_threat_when_answered() {
+        // A telegraphed raid auto-raises a dilemma; hiring escorts is the sure play —
+        // pay the fee, the piracy gauge eases.
+        let mut sim = Sim::new(0);
+        let mut idx = None;
+        for _ in 0..2_000 {
+            sim.step();
+            if let Some(i) = sim
+                .decisions()
+                .iter()
+                .position(|d| d.kind == DecisionKind::RaidThreat)
+            {
+                idx = Some(i);
+                break;
+            }
+        }
+        let i = idx.expect("a raid dilemma should be raised within the run");
+        assert_eq!(sim.decision_options(i).len(), 3);
+        let before = sim.corp().credits();
+        let piracy0 = sim
+            .pressure()
+            .level(crate::sim::pressure::PressureKind::Piracy);
+        let out = sim.resolve_decision(i, 1).unwrap(); // hire escorts
+        assert!(
+            out.credits < 0 && sim.corp().credits() < before,
+            "the fee was paid"
+        );
+        assert!(
+            sim.pressure()
+                .level(crate::sim::pressure::PressureKind::Piracy)
+                <= piracy0,
+            "answering eases the piracy gauge"
         );
     }
 

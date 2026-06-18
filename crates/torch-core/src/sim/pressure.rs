@@ -157,6 +157,12 @@ impl PressureSystem {
         self.levels[kind as usize]
     }
 
+    /// Ease a gauge (a player answering a threat — Phase A raid dilemma). Floored at 0.
+    pub fn relieve(&mut self, kind: PressureKind, amount: i32) {
+        let l = &mut self.levels[kind as usize];
+        *l = (*l - amount).max(0);
+    }
+
     /// The loudest gauge — the shell's overall threat read (§23c audio state).
     pub fn peak_level(&self) -> i32 {
         *self.levels.iter().max().unwrap_or(&0)

@@ -6,20 +6,28 @@
 //! Decisions are **transient** (like the act-now alerts they shadow): they expire if
 //! unanswered and are not persisted — a reload re-derives them from the live world.
 
-/// What kind of exception a decision answers. (Shortage today; wreck/raid to come.)
+/// What kind of exception a decision answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecisionKind {
     /// A market is short of a commodity (price spiked): speculate / gouge / relieve.
     Shortage,
+    /// A derelict drifts in (§15): strip for scrap / mine data / reverse-engineer.
+    Wreck,
+    /// Raiders are telegraphed inbound (§13): hunt / hire escorts / set an ambush.
+    RaidThreat,
 }
 
-/// A pending dilemma the player can answer until `deadline_tick`.
+/// A pending dilemma the player can answer until `deadline_tick`. Fields are reused
+/// per kind: Shortage uses `market`+`commodity`; Wreck uses `target` (wreck id);
+/// RaidThreat uses `magnitude` (a severity/bounty base).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
     pub id: u64,
     pub kind: DecisionKind,
     pub market: usize,
     pub commodity: usize,
+    pub target: u64,
+    pub magnitude: i64,
     pub deadline_tick: u64,
 }
 
@@ -53,3 +61,13 @@ pub const DECISION_TTL: u64 = 72;
 pub const MAX_DECISIONS: usize = 3;
 /// The standard deal size a dilemma trades.
 pub const DEAL_QTY: i64 = 20;
+/// Wreck yields: scrap credits, data research points, and the reverse-engineer odds.
+pub const WRECK_SCRAP: i64 = 1400;
+pub const WRECK_DATA: i64 = 45;
+pub const REVENG_CHANCE_BP: u32 = 5000; // 50% to recover a blueprint
+/// Raid dilemma: the protection fee (hire escorts), and intercept/ambush odds.
+pub const ESCORT_FEE: i64 = 2500;
+pub const HUNT_CHANCE_BP: u32 = 6000; // 60% base to run the raiders off
+pub const AMBUSH_CHANCE_BP: u32 = 3800; // 38% — riskier, bigger payoff
+/// How much a successful raid response calms the piracy gauge.
+pub const RAID_RELIEF: i32 = 30;
