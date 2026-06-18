@@ -3058,11 +3058,18 @@ impl Sim {
             .unwrap_or(0)
     }
 
-    /// Refit ship `idx` to the player's **best-owned** weapons (Phase B): swaps its
-    /// guns to your latest production, charges a yard fee, and puts the hull **in the
-    /// yard** for a refit period (it can't move or fight until done). Must be docked at
-    /// the home yard and not already refitting.
-    pub fn refit_ship(&mut self, idx: usize) -> Result<(), RefitError> {
+    /// Refit ship `idx` to **chosen** weapon models per kind (Phase B): swaps its guns,
+    /// charges a yard fee, and puts the hull **in the yard** for a refit period (it can't
+    /// move or fight until done). An unowned/invalid model id falls back to best-owned
+    /// (so passing `usize::MAX` for all three is "refit to best"). Must be docked at the
+    /// home yard and not already refitting.
+    pub fn refit_ship(
+        &mut self,
+        idx: usize,
+        pdc_model: usize,
+        torp_model: usize,
+        rail_model: usize,
+    ) -> Result<(), RefitError> {
         let now = self.tick;
         let home = self.markets[0].body();
         let fleet = self.corp.fleet();
@@ -3080,10 +3087,10 @@ impl Sim {
             return Err(RefitError::CantAfford);
         }
         let crew_quality = ship.loadout.crew().quality;
-        // Rebuild the loadout with the best-owned models (railgun/torpedo/pdc).
-        let pdc = self.best_weapon_def(WeaponKind::Pdc);
-        let torp = self.best_weapon_def(WeaponKind::Torpedo);
-        let rail = self.best_weapon_def(WeaponKind::Railgun);
+        // Rebuild the loadout with the chosen models (fall back to best-owned).
+        let pdc = self.chosen_weapon_def(WeaponKind::Pdc, pdc_model);
+        let torp = self.chosen_weapon_def(WeaponKind::Torpedo, torp_model);
+        let rail = self.chosen_weapon_def(WeaponKind::Railgun, rail_model);
         let new_loadout =
             self.catalog
                 .loadout_with(class, &pdc, &torp, &rail, crew_quality, &mut self.rng);
@@ -4195,7 +4202,8 @@ mod tests {
             "the old hull still has its original screen"
         );
         let credits0 = sim.corp().credits();
-        sim.refit_ship(0).unwrap();
+        sim.refit_ship(0, usize::MAX, usize::MAX, usize::MAX)
+            .unwrap(); // refit to best
         assert!(sim.corp().credits() < credits0, "refit charges a yard fee");
         assert!(
             sim.corp().fleet()[0].is_refitting(sim.tick()),

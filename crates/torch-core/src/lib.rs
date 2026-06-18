@@ -2036,11 +2036,24 @@ impl TorchSim {
         }
     }
 
-    /// Refit fleet ship `idx` to your best-owned weapons (Phase B). Returns a feedback
-    /// message (empty on failure — not docked / can't afford / already refitting).
+    /// Refit fleet ship `idx` to the chosen weapon **models** per kind (Phase B). A
+    /// negative model id means "best-owned" (so `-1, -1, -1` is refit-to-best). Returns
+    /// a feedback message (empty on failure — not docked / can't afford / refitting).
     #[func]
-    fn refit_ship(&mut self, idx: i64) -> GString {
-        match self.sim.refit_ship(idx.max(0) as usize) {
+    fn refit_ship(
+        &mut self,
+        idx: i64,
+        pdc_model: i64,
+        torp_model: i64,
+        rail_model: i64,
+    ) -> GString {
+        let m = |x: i64| if x < 0 { usize::MAX } else { x as usize };
+        match self.sim.refit_ship(
+            idx.max(0) as usize,
+            m(pdc_model),
+            m(torp_model),
+            m(rail_model),
+        ) {
             Ok(()) => GString::from("Refit underway — the hull is in the yard."),
             Err(_) => GString::new(),
         }

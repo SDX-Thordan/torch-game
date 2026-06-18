@@ -179,6 +179,20 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase B cont.: per-model refit + a FLEET refit bay (§8a).** Refit was "to
+  best-owned" only; now you **choose the model per kind** for a *specific* hull. `Sim::refit_ship`
+  gained `pdc_model/torp_model/rail_model` ids (via `chosen_weapon_def` — an unowned/invalid id
+  falls back to best, so `usize::MAX×3` is "refit to best"); the binding maps a **negative id →
+  best**, so the batch `REFIT FLEET` op-button passes `-1,-1,-1` and the per-ship bay passes the
+  picks. Shell: a **Refit bay** row in the FLEET view — a target-ship picker (`◂ name ▸`) + three
+  compact per-kind model pickers (`P/T/R ‹ name ›`) + a `⚒ REFIT` button; rebuilds the docked
+  hull's loadout, charges the yard fee, and benches it (`refit_until`) until done. *Layout lesson:*
+  `_make_op_button` defaults to **104px wide**, so a row of single-char cycle buttons overflows the
+  panel — added `_tiny_btn` (26×26) for the bay's `◂▸‹›`; render-verified it fits on one row.
+  **Determinism:** personas never refit, so the QA *gameplay* body is byte-identical (only the
+  UI-wiring facet moved). 193 cargo + 17 GUT green. **The fleet-loadout loop is complete:** produce
+  models → pick per slot when commissioning *or* refitting a chosen hull to a chosen loadout.
+
 - **2026-06-18 — Phase B cont.: per-slot weapon-model loadouts (macro>micro, §8/§8a).** Player
   call: drop B3 live mid-fight commands (too micro) — **fleet loadouts** are the macro decision
   that matters. So the BUILD designer now picks **which in-service weapon model arms each kind's

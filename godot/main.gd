@@ -187,6 +187,9 @@ var _des_burn := 100        # remass load, percent of tankage
 var _des_vals := {}         # kind -> value Label (updated each refresh)
 var _des_model_i := {0: 0, 1: 0, 2: 0}   # kind -> index into owned models (per-slot pick)
 var _des_model_lbl := {}    # kind -> model-name Label
+var _refit_target := 0      # fleet index targeted by the refit bay
+var _refit_model_i := {0: 0, 1: 0, 2: 0}  # refit-bay model choice per kind
+var _refit_lbl := {}        # "target"/0/1/2 -> Label for the refit bay
 var _design_lbl: Label
 var _arsenal_box: VBoxContainer               # weapon-crafting list (Phase B)
 var _scrap_lbl: Label
@@ -972,12 +975,43 @@ func _refuel_fleet() -> void:
 func _refit_fleet() -> void:
 	var n := 0
 	for i in sim.fleet_size():
-		if String(sim.refit_ship(i)) != "":
+		if String(sim.refit_ship(i, -1, -1, -1)) != "":   # -1 = best-owned
 			n += 1
 	if n > 0:
 		status = "Refitting %d hull(s) to your latest weapons — they're in the yard." % n
 	else:
 		status = "No hull to refit (need docked ships + a better weapon in service)."
+
+
+## Refit one ship to the refit bay's chosen models (Phase B per-model refit).
+func _refit_selected_ship() -> void:
+	if sim.fleet_size() <= 0:
+		status = "No ship to refit."
+		return
+	var tgt: int = clampi(_refit_target, 0, sim.fleet_size() - 1)
+	var msg := String(sim.refit_ship(
+		tgt, _refit_model_id(0), _refit_model_id(1), _refit_model_id(2)))
+	status = msg if msg != "" else "Can't refit — dock the ship at the yard, or own the models."
+
+
+## The model id chosen in the refit bay for `kind` (0 PDC, 1 TORP, 2 RAIL).
+func _refit_model_id(kind: int) -> int:
+	var nn := sim.owned_model_count(kind)
+	if nn <= 0:
+		return -1
+	return sim.owned_model_id(kind, clampi(int(_refit_model_i[kind]), 0, nn - 1))
+
+
+func _cycle_refit_target(delta: int) -> void:
+	var n := sim.fleet_size()
+	if n > 0:
+		_refit_target = (_refit_target + delta + n) % n
+
+
+func _cycle_refit_model(kind: int, delta: int) -> void:
+	var n := sim.owned_model_count(kind)
+	if n > 0:
+		_refit_model_i[kind] = (int(_refit_model_i[kind]) + delta + n) % n
 
 
 ## Transit the open ring-gate into the endgame (§0.1/§17) — the climax of the climb.
@@ -1477,6 +1511,23 @@ func _build_fleet_view() -> void:
 	cmd.add_child(_make_op_button("RETREAT", _cycle_retreat))
 	cmd.add_child(_make_op_button("FIRE", _cycle_fire))
 	cmd.add_child(_make_op_button("◆ ENGAGE", _engage_raiders))
+	# Refit bay (Phase B): pick a docked hull + a model per slot, then refit it (fee +
+	# time in the yard). Batch "REFIT FLEET" (best-owned) lives on the op deck below.
+	var rb := HBoxContainer.new()
+	rb.add_theme_constant_override("separation", 5)
+	v.add_child(rb)
+	rb.add_child(UiKit.kicker("Refit bay"))
+	rb.add_child(_tiny_btn("◂", func() -> void: _cycle_refit_target(-1)))
+	var rt := UiKit.label("—", 11, UiKit.TEXT_HI)
+	rt.custom_minimum_size = Vector2(112, 0)
+	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rb.add_child(rt)
+	_refit_lbl["target"] = rt
+	rb.add_child(_tiny_btn("▸", func() -> void: _cycle_refit_target(1)))
+	rb.add_child(_make_refit_picker(0, "P"))
+	rb.add_child(_make_refit_picker(1, "T"))
+	rb.add_child(_make_refit_picker(2, "R"))
+	rb.add_child(_make_op_button("⚒ REFIT", _refit_selected_ship))
 	v.add_child(UiKit.rule())
 	# Header row + grid.
 	var sc := ScrollContainer.new()
@@ -1752,6 +1803,28 @@ func _make_model_picker(kind: int, label: String) -> Control:
 	hb.add_child(nm)
 	_des_model_lbl[kind] = nm
 	hb.add_child(_make_op_button(">", func() -> void: _cycle_model(kind, 1)))
+	return hb
+
+
+## A small single-char cycle button (compact, for the refit bay row).
+func _tiny_btn(txt: String, cb: Callable) -> Button:
+	var b := _make_op_button(txt, cb)
+	b.custom_minimum_size = Vector2(26, 26)
+	return b
+
+
+## A compact refit-bay model picker for `kind`: [label] ‹ name › — cycles owned models.
+func _make_refit_picker(kind: int, label: String) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hb.add_child(UiKit.label(label, 10, UiKit.TEXT_DIM))
+	hb.add_child(_tiny_btn("‹", func() -> void: _cycle_refit_model(kind, -1)))
+	var nm := UiKit.label("—", 10, UiKit.TEXT_HI)
+	nm.custom_minimum_size = Vector2(86, 0)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(nm)
+	_refit_lbl[kind] = nm
+	hb.add_child(_tiny_btn("›", func() -> void: _cycle_refit_model(kind, 1)))
 	return hb
 
 
@@ -2468,6 +2541,21 @@ func _queue_row(kind: String, desc: String) -> Control:
 
 
 func _refresh_fleet() -> void:
+	# Refit bay readout (Phase B): target ship + chosen model per kind.
+	if _refit_lbl.has("target"):
+		var fsz0 := sim.fleet_size()
+		if fsz0 > 0:
+			_refit_target = clampi(_refit_target, 0, fsz0 - 1)
+			var nm := String(sim.ship_name(_refit_target))
+			if sim.ship_refitting(_refit_target):
+				nm += " ⏳"
+			(_refit_lbl["target"] as Label).text = nm
+		else:
+			(_refit_lbl["target"] as Label).text = "—"
+		for kind in [0, 1, 2]:
+			if _refit_lbl.has(kind):
+				var mid := _refit_model_id(kind)
+				(_refit_lbl[kind] as Label).text = "—" if mid < 0 else String(sim.weapon_name(mid))
 	for c in _fleet_grid.get_children():
 		c.queue_free()
 	for h in ["SHIP", "STATUS", "TYPE", "LOCATION", "ASSIGNMENT", "FUEL/AMMO"]:
