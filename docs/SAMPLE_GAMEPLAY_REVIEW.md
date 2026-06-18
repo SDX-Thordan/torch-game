@@ -207,25 +207,25 @@ _Answers the act-now feed — speculates shortages, strips wrecks, hunts raiders
 
 | metric | value |
 | --- | --- |
-| treasury | 50000 → 106611 cr (+56611, ~2×) |
-| actions | 124 over 2% of ticks |
+| treasury | 50000 → 106069 cr (+56069, ~2×) |
+| actions | 136 over 3% of ticks |
 | pacing | 28 ticks pending · longest idle 71 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 1135 (~47 days) |
-| CEO level | 25 · techs 0 |
+| gate reached | tick 961 (~40 days) |
+| CEO level | 28 · techs 0 |
 | traffic | 166 flew, 137 arrived, 28 cut, 28 shortages |
-| act-now alerts | 28 raised, 124 answered |
+| act-now alerts | 28 raised, 136 answered |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 97 → Sol & the Cold War @ 385 → The Gate @ 1135
+**Ascents:** The Region @ 97 → Sol & the Cold War @ 343 → The Gate @ 961
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1135 (~47 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 106611 cr (+56611, ~2×).
-- **[GOOD]** _Agency_ — Acted on 2% of ticks (124 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 71 ticks (~2 days, ~2 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
-- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 124 of 28 act-now shortages.
+- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 961 (~40 days).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 106069 cr (+56069, ~2×).
+- **[GOOD]** _Agency_ — Acted on 3% of ticks (136 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 71 ticks (~2 days, ~2 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 136 of 28 act-now shortages.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 
 ## Developer
@@ -273,7 +273,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | Warlord | **50** | 33 | 100 | 19 | 23 | 67 | 72 |
 | Tycoon | **98** | 100 | 100 | 100 | 100 | 100 | 86 |
 | Expansionist | **87** | 100 | 99 | 60 | 100 | 68 | 92 |
-| Responder | **90** | 100 | 99 | 100 | 100 | 40 | 92 |
+| Responder | **90** | 100 | 99 | 100 | 100 | 42 | 92 |
 | Developer | **38** | 33 | 71 | 19 | 23 | 22 | 66 |
 
 **Per-style read (overall + weakest link):**
@@ -285,7 +285,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 - **Warlord** █████····· 50/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/9 act-now shortages
 - **Tycoon** ██████████ 98/100 — weakest is _Variety_ (86/100): 7 of 9 event kinds; 4 tier(s) of scope
 - **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/16 act-now shortages
-- **Responder** █████████· 90/100 — weakest is _Stakes_ (40/100): treasury dip 7%, 0 ships lost, rep low 0, pressure peak 29
+- **Responder** █████████· 90/100 — weakest is _Stakes_ (42/100): treasury dip 8%, 0 ships lost, rep low 0, pressure peak 29
 - **Developer** ████······ 38/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/29 act-now shortages
 
 **What the comparison says about fun:**

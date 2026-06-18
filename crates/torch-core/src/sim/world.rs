@@ -15,7 +15,7 @@ use super::corp::{Corp, OwnedShip};
 use super::decisions::{
     Decision, DecisionKind, DecisionOption, DecisionOutcome, AMBUSH_CHANCE_BP, DEAL_QTY,
     DECISION_TTL, ESCORT_FEE, HUNT_CHANCE_BP, MAX_DECISIONS, RAID_RELIEF, REVENG_CHANCE_BP,
-    WRECK_DATA, WRECK_SCRAP,
+    WAR_REROUTE_COST, WAR_RUN_CHANCE_BP, WAR_SIDE_REP, WAR_STAKE, WRECK_DATA, WRECK_SCRAP,
 };
 use super::diplomacy::{Diplomacy, Stance};
 use super::economy::{default_markets, Market};
@@ -623,6 +623,9 @@ pub struct Sim {
     shipyard_body: usize,
     /// Deployed mining ships (early industry) — each extracts a body's raw per tick.
     miners: Vec<Miner>,
+    /// Tick the next Earth/Mars war flashpoint fires (player collateral). Fires more in
+    /// the early game and dwindles as you climb the tiers.
+    next_war_flashpoint: u64,
     /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
     /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
     /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
@@ -728,6 +731,7 @@ impl Sim {
             shipyard_tier: 0,
             shipyard_body: 0,
             miners: Vec::new(),
+            next_war_flashpoint: 100,
             faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
@@ -1008,6 +1012,7 @@ impl Sim {
                     DecisionKind::Shortage => x.market == market && x.commodity == commodity,
                     DecisionKind::Wreck => x.target == target,
                     DecisionKind::RaidThreat => true, // one inbound-raid dilemma at a time
+                    DecisionKind::WarCollateral => true, // one war flashpoint at a time
                 }
         });
         if dup {
@@ -1047,6 +1052,7 @@ impl Sim {
                 format!("Derelict sighted — {name}")
             }
             DecisionKind::RaidThreat => "Raiders inbound on the lanes".to_string(),
+            DecisionKind::WarCollateral => "Earth–Mars flashpoint on your lanes".to_string(),
         }
     }
 
@@ -1078,6 +1084,7 @@ impl Sim {
             DecisionKind::Shortage => self.shortage_options(d),
             DecisionKind::Wreck => Self::wreck_options(),
             DecisionKind::RaidThreat => Self::raid_options(d.magnitude),
+            DecisionKind::WarCollateral => self.war_options(d.magnitude),
         }
     }
 
@@ -1138,6 +1145,99 @@ impl Sim {
                 risky: true,
             },
         ]
+    }
+
+    fn war_options(&self, stake: i64) -> Vec<DecisionOption> {
+        let (fav, riv) = self.favored_inner();
+        vec![
+            DecisionOption {
+                label: "Reroute",
+                summary: format!("Take the long way around. −{WAR_REROUTE_COST} cr, but safe."),
+                est_credits: -WAR_REROUTE_COST,
+                rep_delta: 0,
+                risky: false,
+            },
+            DecisionOption {
+                label: "Run It",
+                summary: format!(
+                    "Run the blockade. ~55%: through clean; else −{} cr and an inner sours.",
+                    stake * 2
+                ),
+                est_credits: 0,
+                rep_delta: 0,
+                risky: true,
+            },
+            DecisionOption {
+                label: "Pick a Side",
+                summary: format!(
+                    "Side with {}: waved through (+rep), but {} won't forget (−rep).",
+                    fav.name(),
+                    riv.name()
+                ),
+                est_credits: 0,
+                rep_delta: WAR_SIDE_REP,
+                risky: false,
+            },
+        ]
+    }
+
+    fn resolve_war_decision(&mut self, d: &Decision, opt: usize) -> DecisionOutcome {
+        let stake = d.magnitude.max(0);
+        let (fav, riv) = self.favored_inner();
+        match opt {
+            // Reroute: a sure toll to stay out of the crossfire (the safe play).
+            0 => {
+                let cost = WAR_REROUTE_COST.min(self.corp.credits());
+                self.corp.debit(cost);
+                DecisionOutcome {
+                    credits: -cost,
+                    rep_delta: 0,
+                    backfired: false,
+                    message: format!("Rerouted around the flashpoint: −{cost} cr, cargo safe."),
+                }
+            }
+            // Run it: gamble on slipping the blockade; caught means a loss + a soured inner.
+            1 => {
+                if self.rng.chance_bp(WAR_RUN_CHANCE_BP) {
+                    self.complete_op();
+                    DecisionOutcome {
+                        credits: 0,
+                        rep_delta: 0,
+                        backfired: false,
+                        message: "Slipped the blockade clean — no toll, no scratch.".to_string(),
+                    }
+                } else {
+                    let loss = (stake * 2).min(self.corp.credits());
+                    self.corp.debit(loss);
+                    self.relations.adjust(riv, -WAR_SIDE_REP / 2);
+                    DecisionOutcome {
+                        credits: -loss,
+                        rep_delta: -WAR_SIDE_REP / 2,
+                        backfired: true,
+                        message: format!(
+                            "Caught in the crossfire — lost {loss} cr and soured {}.",
+                            riv.name()
+                        ),
+                    }
+                }
+            }
+            // Pick a side: free passage + favour with one inner, resentment from the rival.
+            _ => {
+                self.relations.adjust(fav, WAR_SIDE_REP);
+                self.relations.adjust(riv, -WAR_SIDE_REP);
+                self.complete_op();
+                DecisionOutcome {
+                    credits: 0,
+                    rep_delta: WAR_SIDE_REP,
+                    backfired: false,
+                    message: format!(
+                        "Sided with {} — waved through, but {} won't forget.",
+                        fav.name(),
+                        riv.name()
+                    ),
+                }
+            }
+        }
     }
 
     fn shortage_options(&self, d: &Decision) -> Vec<DecisionOption> {
@@ -1201,6 +1301,7 @@ impl Sim {
             }
             DecisionKind::Wreck => self.resolve_wreck_decision(&d, opt)?,
             DecisionKind::RaidThreat => self.resolve_raid_decision(&d, opt),
+            DecisionKind::WarCollateral => self.resolve_war_decision(&d, opt),
         };
         self.decisions.retain(|x| x.id != d.id);
         // A2: answering an act-now exception is itself a player **operation** — every
@@ -1592,6 +1693,51 @@ impl Sim {
         self.miners.push(Miner { body, commodity });
         self.complete_op();
         Ok(())
+    }
+
+    // ---- the great-power war (Earth/Mars conflict that haunts the early game) ----
+
+    /// Ticks between Earth/Mars war flashpoints — frequent early, dwindling as you climb
+    /// the tiers (the inners' grip on Sol wanes once you're a power, §0).
+    fn war_flashpoint_interval(&self) -> u64 {
+        match self.campaign.tier() {
+            Tier::Station | Tier::Region => 130,
+            Tier::Sol => 240,
+            _ => 460, // Gate/Beyond — Earth & Mars influence dwindles
+        }
+    }
+
+    /// The two inners by your standing: the one you favour, and their rival.
+    fn favored_inner(&self) -> (Faction, Faction) {
+        if self.relations.standing(Faction::Earth) >= self.relations.standing(Faction::Mars) {
+            (Faction::Earth, Faction::Mars)
+        } else {
+            (Faction::Mars, Faction::Earth)
+        }
+    }
+
+    /// The ambient Earth/Mars conflict (the early-game "weather"): on a flashpoint, if the
+    /// lanes you work are exposed, catch the player in the crossfire as a dilemma.
+    fn run_war(&mut self) {
+        if self.tick < self.next_war_flashpoint {
+            return;
+        }
+        self.next_war_flashpoint = self.tick + self.war_flashpoint_interval();
+        if self.haulers.is_empty()
+            || self
+                .decisions
+                .iter()
+                .any(|d| d.kind == DecisionKind::WarCollateral)
+        {
+            return; // no exposure, or a war dilemma is already open
+        }
+        let tick = self.tick;
+        self.push_decision(DecisionKind::WarCollateral, 0, 0, 0, WAR_STAKE, tick);
+        self.feed.announce(
+            "The Inners",
+            "An Earth–Mars flashpoint flares across your lanes — mind your cargo.".to_string(),
+            tick,
+        );
     }
 
     /// Deposit each miner's haul into the warehouse. No-op without miners (byte-identical).
@@ -2330,6 +2476,7 @@ impl Sim {
             shipyard_tier: self.shipyard_tier,
             shipyard_body: self.shipyard_body,
             miners: self.miners.clone(),
+            next_war_flashpoint: self.next_war_flashpoint,
             faction_alarm: self.faction_alarm,
             influence: self.influence,
             company_relations: self.diplomacy.relations(),
@@ -2463,6 +2610,9 @@ impl Sim {
         self.shipyard_tier = s.shipyard_tier;
         self.shipyard_body = s.shipyard_body;
         self.miners = s.miners.clone();
+        if s.next_war_flashpoint > 0 {
+            self.next_war_flashpoint = s.next_war_flashpoint;
+        }
         // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
         self.faction_alarm = s.faction_alarm;
         for a in &mut self.faction_alarm {
@@ -2512,6 +2662,7 @@ impl Sim {
         self.run_weapon_production();
         self.run_shipyard_upkeep();
         self.run_miners();
+        self.run_war();
         self.run_holdings();
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
@@ -4762,6 +4913,33 @@ mod tests {
                 .level(crate::sim::pressure::PressureKind::Piracy)
                 <= piracy0,
             "answering eases the piracy gauge"
+        );
+    }
+
+    #[test]
+    fn an_earth_mars_flashpoint_catches_the_player_in_the_crossfire() {
+        // The great-power war is a hazard you live under: a flashpoint raises a dilemma,
+        // and rerouting around it costs a sure toll to keep your cargo safe.
+        let mut sim = Sim::new(0);
+        let mut idx = None;
+        for _ in 0..800 {
+            sim.step();
+            if let Some(i) = sim
+                .decisions()
+                .iter()
+                .position(|d| d.kind == DecisionKind::WarCollateral)
+            {
+                idx = Some(i);
+                break;
+            }
+        }
+        let i = idx.expect("an Earth–Mars flashpoint should fire within the run");
+        assert_eq!(sim.decision_options(i).len(), 3);
+        let before = sim.corp().credits();
+        let out = sim.resolve_decision(i, 0).unwrap(); // reroute
+        assert!(
+            out.credits < 0 && sim.corp().credits() < before,
+            "rerouting around the war costs a toll"
         );
     }
 

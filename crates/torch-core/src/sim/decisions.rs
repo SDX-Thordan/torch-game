@@ -15,6 +15,9 @@ pub enum DecisionKind {
     Wreck,
     /// Raiders are telegraphed inbound (§13): hunt / hire escorts / set an ambush.
     RaidThreat,
+    /// An Earth/Mars flashpoint catches you in the crossfire: reroute / run it / pick a
+    /// side. The great powers' war as a hazard you live under (haunts the early game).
+    WarCollateral,
 }
 
 /// A pending dilemma the player can answer until `deadline_tick`. Fields are reused
@@ -71,3 +74,9 @@ pub const HUNT_CHANCE_BP: u32 = 6000; // 60% base to run the raiders off
 pub const AMBUSH_CHANCE_BP: u32 = 3800; // 38% — riskier, bigger payoff
 /// How much a successful raid response calms the piracy gauge.
 pub const RAID_RELIEF: i32 = 30;
+/// War-collateral dilemma (Earth/Mars crossfire): the reroute cost, the run-it odds + the
+/// loss if it goes wrong, the rep swing for picking a side, and the credit stake.
+pub const WAR_REROUTE_COST: i64 = 1_500;
+pub const WAR_STAKE: i64 = 3_000;
+pub const WAR_RUN_CHANCE_BP: u32 = 5500; // 55% to slip the blockade clean
+pub const WAR_SIDE_REP: i64 = 60;

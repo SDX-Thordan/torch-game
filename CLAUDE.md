@@ -179,6 +179,26 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — The great-power war that haunts the early game (player collateral).** Second
+  half of the player's "both, miners first" vision: *the early game is still haunted by
+  Earth/Mars/OPA conflicts that have collateral for the player.* The `FactionWar` gauge existed
+  but had no player consequence. Now an ambient **war flashpoint** fires on a tick schedule that
+  **dwindles as you climb** (130t at Station/Region → 240 at Sol → 460 at Gate/Beyond — the
+  inners' grip wanes once you're a power, per the vision), and when your lanes are exposed
+  (haulers in flight) it catches you in the crossfire as a new **`DecisionKind::WarCollateral`**
+  dilemma — *reusing the Phase-A framework, so the shell needed **zero** changes* (the generic
+  dilemma panel renders it). Three options: **Reroute** (sure −1500 cr toll, safe — the
+  Responder's pick), **Run It** (~55% slip free; else −6000 cr + an inner sours), **Pick a Side**
+  (side with the inner you stand better with: +rep with them, −rep with the rival — the political
+  collateral). `favored_inner()` names the two dynamically. **Determinism:** the flashpoint
+  schedule is tick-based (no rng) and raising touches nothing measured, so non-Responder personas
+  are byte-identical; only the **Responder** shifts (it reroutes around flashpoints, paying tolls
+  — treasury 56611→56069, Stakes 40→42), an honest regenerate. Voiced via `feed.announce("The
+  Inners", …)` to dodge a new `Event` variant. Persisted (`next_war_flashpoint`). 198 cargo + 17
+  GUT green; test `an_earth_mars_flashpoint_catches_the_player_in_the_crossfire`. *Lesson:* the
+  dilemma framework is now the universal vehicle for "macro decision with stakes" — a whole new
+  hazard (the inners' war) landed as one `DecisionKind` + a tick schedule, no UI work.
+
 - **2026-06-18 — Early-game industry: functional miners (the progression vision's "first
   step").** Player vision: the early game is *setting up an industrial empire — first step
   acquiring miners for the starting station*. Miners were only a ship **model** (A4) + a build

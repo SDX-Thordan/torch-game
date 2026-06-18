@@ -129,6 +129,9 @@ pub struct SaveState {
     /// Deployed mining ships (early industry).
     #[serde(default)]
     pub miners: Vec<super::world::Miner>,
+    /// Tick the next Earth/Mars war flashpoint fires.
+    #[serde(default)]
+    pub next_war_flashpoint: u64,
     /// Per-faction alarm at the player's expansion (E3/E7), by `Faction` index; all-0
     /// for a fresh game / old saves. The coalition schedule re-arms from it on load.
     #[serde(default)]
