@@ -174,6 +174,14 @@ pub fn default_system() -> Vec<Body> {
         moon("Oberon", 8, 380_000, 323, 150_000),
         moon("Triton", 9, 280_000, 141, 0),
         moon("Charon", 10, 110_000, 153, 0),
+        // The asteroid belt's major bodies — the OPA heartland (the contested hubs).
+        // Appended after the moons so every existing index (planets/gate/moons + the
+        // markets/colonies that reference them) is unmoved; far-side bodies (pushed
+        // below) resolve by name, so shifting them is safe. Dwarf bodies ⇒ mineable belt.
+        planet("Vesta", 2362, 363, 40_000, DwarfPlanet),
+        planet("Eros", 2150, 304, 160_000, DwarfPlanet),
+        planet("Pallas", 2900, 494, 280_000, DwarfPlanet),
+        planet("Tycho", 3100, 546, 330_000, DwarfPlanet),
     ];
     // ---- The far side of the gate (§17 endgame) ----
     // Appended last, so every existing index (planets/gate/moons, and the markets +

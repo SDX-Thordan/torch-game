@@ -756,7 +756,7 @@ impl Sim {
             contested: default_colonies()
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.is_market)
+                .filter(|(_, c)| c.hub)
                 .map(|(i, c)| ContestedColony::seed(i, c.faction))
                 .collect(),
             next_contest_flare: contest::FLARE_INTERVAL,

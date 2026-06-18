@@ -2421,6 +2421,32 @@ func _refresh_empire() -> void:
 
 	# Build the holdings + targets table.
 	var t := ""
+	# Contested hubs first — the early-game focus: the major colonies the powers fight
+	# over, a gauge of each power's grip + your standing toward claiming it (the Ganymede
+	# conflict). Eros/Pallas/Vesta/Tycho (belt) + Europa/Ganymede/Titan (jovian/cronian).
+	if sim.contested_count() > 0:
+		t += "[color=#9fb0c0]── CONTESTED HUBS  (the powers fight over these) ──[/color]\n"
+		var sel := _focus_contested()
+		for i in sim.contested_count():
+			var cb := sim.contested_body(i)
+			# Skip ones you've already claimed (they show under YOUR HOLDINGS).
+			var claimed := false
+			for j in sim.colony_count():
+				if sim.colony_controlled(j) and sim.colony_body(j) == cb:
+					claimed = true
+					break
+			if claimed:
+				continue
+			var marker := "▸ " if i == sel else "  "
+			var lead: int = sim.contested_leader(i)
+			t += "[color=#cfd8e0]%s%s[/color]  —  led by [color=%s]%s[/color]\n" % [marker, String(sim.contested_name(i)), _FAC_COL[lead], _faction_name(lead)]
+			t += "     " + _influence_bar(i) + "\n"
+			var pi: int = sim.contested_player_influence(i)
+			var thr: int = sim.contested_claim_threshold()
+			var pcol := "#78e68c" if pi >= thr else "#e6c860"
+			var claim := "  ·  [color=#78e68c]CLAIMABLE[/color]" if pi >= thr else ""
+			t += "     [color=#7a8696]your standing[/color] [color=%s]%d/%d[/color]%s\n" % [pcol, pi, thr, claim]
+		t += "\n"
 	t += "[color=#9fb0c0]── YOUR HOLDINGS ──[/color]\n"
 	var any_held := false
 	for i in sim.colony_count():
@@ -2470,30 +2496,6 @@ func _refresh_empire() -> void:
 		var name2 := String(sim.colony_name(i))
 		var fac2 := _faction_name(sim.colony_faction(i))
 		t += "[color=#e0b0b0]⚔ %s[/color]  (%s)  ·  garrison %d\n" % [name2, fac2, sim.colony_garrison(i)]
-	# Contested hubs — the major colonies the powers fight over (early game). A gauge
-	# of each power's grip + your own standing toward claiming it (the Ganymede conflict).
-	if sim.contested_count() > 0:
-		t += "\n[color=#9fb0c0]── CONTESTED HUBS  (the powers fight over these) ──[/color]\n"
-		var sel := _focus_contested()
-		for i in sim.contested_count():
-			var cb := sim.contested_body(i)
-			# Skip ones you've already claimed (they show under YOUR HOLDINGS).
-			var claimed := false
-			for j in sim.colony_count():
-				if sim.colony_controlled(j) and sim.colony_body(j) == cb:
-					claimed = true
-					break
-			if claimed:
-				continue
-			var marker := "▸ " if i == sel else "  "
-			var lead: int = sim.contested_leader(i)
-			t += "[color=#cfd8e0]%s%s[/color]  —  led by [color=%s]%s[/color]\n" % [marker, String(sim.contested_name(i)), _FAC_COL[lead], _faction_name(lead)]
-			t += "     " + _influence_bar(i) + "\n"
-			var pi: int = sim.contested_player_influence(i)
-			var thr: int = sim.contested_claim_threshold()
-			var pcol := "#78e68c" if pi >= thr else "#e6c860"
-			var claim := "  ·  [color=#78e68c]CLAIMABLE[/color]" if pi >= thr else ""
-			t += "     [color=#7a8696]your standing[/color] [color=%s]%d/%d[/color]%s\n" % [pcol, pi, thr, claim]
 	# Independent companies — the negotiable actors (E8). Macro diplomacy.
 	if sim.company_count() > 0:
 		t += "\n[color=#9fb0c0]── INDEPENDENT RELATIONS  (Influence %d) ──[/color]\n" % sim.influence()
