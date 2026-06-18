@@ -179,6 +179,23 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Early-game industry: functional miners (the progression vision's "first
+  step").** Player vision: the early game is *setting up an industrial empire — first step
+  acquiring miners for the starting station*. Miners were only a ship **model** (A4) + a build
+  recipe — not a mechanic. Now `Sim::buy_miner(body)` deploys a cheap (9k) civilian miner from
+  Tycho (no shipyard needed) at a chosen body; `run_miners()` deposits `MINER_OUTPUT_PER_TICK`
+  of that **body's mineral** into the warehouse each tick — the bootstrap before you can afford
+  colonies/refineries. *Where* you deploy decides *what* you get: `body_mineral(body)` hashes the
+  body index → Ice/Ore/Volatiles, so positioning is a choice. Capped (`MAX_MINERS=12`); rejects
+  the sun/gate. **Byte-identical:** `miners` starts empty, `run_miners` no-ops without any, and
+  personas don't mine, so the §7c gate + QA *gameplay* body are byte-identical (only the
+  UI-wiring facet moved). Persisted (`miners: Vec<Miner>`, `#[serde(default)]`). Shell: a
+  `⛏ MINE` op-button (deploys at the focused orrery body) + a miner-count / "mine X here yields
+  Y" readout. 197 cargo + 17 GUT green; test
+  `a_deployed_miner_stocks_the_warehouse_with_the_bodys_mineral`. *Next (per the player's "both,
+  miners first"):* the ambient **Earth/Mars/OPA conflict with player collateral** that "haunts"
+  the early game (the `FactionWar` gauge exists but has no player consequence yet).
+
 - **2026-06-18 — Ship sourcing reframe: Tycho buys vs. your own shipyard (§8/§5).** Player call:
   you **can't freely build warships**. Civilians + (with **OPA standing ≥ 250**) **corvettes**
   come from **Tycho**; **Destroyer/Cruiser/Battleship** need your **own shipyard** (tier 1/2/3),

@@ -1649,6 +1649,47 @@ impl TorchSim {
         self.sim.commission_ship(warship_class(class)).is_ok()
     }
 
+    // ---- early-game mining --------------------------------------------------
+
+    /// Number of deployed miners.
+    #[func]
+    fn miner_count(&self) -> i64 {
+        self.sim.miners().len() as i64
+    }
+
+    /// The body miner `i` is stationed at (for the orrery / readout).
+    #[func]
+    fn miner_body(&self, i: i64) -> i64 {
+        self.sim
+            .miners()
+            .get(i.max(0) as usize)
+            .map(|m| m.body as i64)
+            .unwrap_or(-1)
+    }
+
+    /// The raw mineral mining `body` would yield (commodity name) — the deploy hint.
+    #[func]
+    fn body_mineral_name(&self, body: i64) -> GString {
+        let c = self.sim.body_mineral(body.max(0) as usize);
+        GString::from(self.sim.markets()[0].defs()[c].name)
+    }
+
+    /// Buy + deploy a miner at `body`. Returns a feedback message (empty on failure).
+    #[func]
+    fn buy_miner(&mut self, body: i64) -> GString {
+        let b = body.max(0) as usize;
+        match self.sim.buy_miner(b) {
+            Ok(()) => {
+                let c = self.sim.body_mineral(b);
+                GString::from(format!(
+                    "Miner deployed — mining {} for your warehouse.",
+                    self.sim.markets()[0].defs()[c].name
+                ))
+            }
+            Err(_) => GString::new(),
+        }
+    }
+
     // ---- shipyards: where warships come from (Phase B+) ---------------------
 
     /// The player's shipyard tier (0 = none; 1/2/3 → Destroyer/Cruiser/Battleship).

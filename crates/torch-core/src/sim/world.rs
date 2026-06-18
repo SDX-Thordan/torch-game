@@ -188,6 +188,24 @@ pub enum CraftError {
     CantAfford,
 }
 
+/// A deployed mining ship (early industry): stationed at a body, it extracts the body's
+/// raw mineral into your warehouse each tick. Cheap + civilian (from Tycho).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Miner {
+    pub body: usize,
+    pub commodity: usize,
+}
+
+/// Why a miner could not be deployed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MinerError {
+    /// You've deployed the maximum number of miners.
+    Full,
+    /// Can't mine here (the sun or the gate).
+    BadSite,
+    CantAfford,
+}
+
 /// Why a shipyard action failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShipyardError {
@@ -275,6 +293,12 @@ const COLONY_TRIBUTE_OUTPOST: i64 = 16;
 /// Raw units a controlled colony produces into your warehouse each tick (EP1) — the
 /// supply that integrates holdings into your production/logistics chain.
 const COLONY_OUTPUT_PER_TICK: i64 = 3;
+/// Early-game **mining** (the first industrial step): a cheap civilian miner bought from
+/// Tycho, deployed at a body, extracts that body's raw into your warehouse each tick —
+/// the bootstrap before you can afford colonies/refineries.
+const MINER_COST: i64 = 9_000;
+const MINER_OUTPUT_PER_TICK: i64 = 2;
+const MAX_MINERS: usize = 12;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -597,6 +621,8 @@ pub struct Sim {
     /// (corvettes need it *or* OPA standing). Very expensive to build + maintain.
     shipyard_tier: i64,
     shipyard_body: usize,
+    /// Deployed mining ships (early industry) — each extracts a body's raw per tick.
+    miners: Vec<Miner>,
     /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
     /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
     /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
@@ -701,6 +727,7 @@ impl Sim {
             dev_doctrine: DevDoctrine::default(),
             shipyard_tier: 0,
             shipyard_body: 0,
+            miners: Vec::new(),
             faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
@@ -1529,6 +1556,55 @@ impl Sim {
         }
     }
 
+    // ---- early-game mining: bootstrap the industrial empire -----------------
+
+    /// The deployed miners (early industry).
+    pub fn miners(&self) -> &[Miner] {
+        &self.miners
+    }
+
+    /// The raw mineral a body yields when mined (0 Ice / 1 Ore / 2 Volatiles) —
+    /// deterministic by the body, so *where* you deploy decides *what* you extract.
+    pub fn body_mineral(&self, body: usize) -> usize {
+        body.wrapping_mul(2_654_435_761) % 3
+    }
+
+    /// Buy + deploy a miner at `body` (a civilian bought from Tycho — no shipyard needed).
+    /// It mines that body's raw into your warehouse each tick. Cheap; the first step.
+    pub fn buy_miner(&mut self, body: usize) -> Result<(), MinerError> {
+        if self.miners.len() >= MAX_MINERS {
+            return Err(MinerError::Full);
+        }
+        let bodies = super::orbit::default_system();
+        match bodies.get(body) {
+            Some(b)
+                if !matches!(
+                    b.kind,
+                    super::orbit::BodyKind::Star | super::orbit::BodyKind::Gate
+                ) => {}
+            _ => return Err(MinerError::BadSite),
+        }
+        if self.corp.credits() < MINER_COST {
+            return Err(MinerError::CantAfford);
+        }
+        self.corp.debit(MINER_COST);
+        let commodity = self.body_mineral(body);
+        self.miners.push(Miner { body, commodity });
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Deposit each miner's haul into the warehouse. No-op without miners (byte-identical).
+    fn run_miners(&mut self) {
+        if self.miners.is_empty() {
+            return;
+        }
+        let deposits: Vec<usize> = self.miners.iter().map(|m| m.commodity).collect();
+        for c in deposits {
+            self.corp.store(c, MINER_OUTPUT_PER_TICK);
+        }
+    }
+
     /// Drain the shipyard's per-tick maintenance (expensive to keep). No-op without one.
     fn run_shipyard_upkeep(&mut self) {
         if self.shipyard_tier > 0 {
@@ -2253,6 +2329,7 @@ impl Sim {
             dev_doctrine: self.dev_doctrine,
             shipyard_tier: self.shipyard_tier,
             shipyard_body: self.shipyard_body,
+            miners: self.miners.clone(),
             faction_alarm: self.faction_alarm,
             influence: self.influence,
             company_relations: self.diplomacy.relations(),
@@ -2385,6 +2462,7 @@ impl Sim {
         self.dev_doctrine = s.dev_doctrine;
         self.shipyard_tier = s.shipyard_tier;
         self.shipyard_body = s.shipyard_body;
+        self.miners = s.miners.clone();
         // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
         self.faction_alarm = s.faction_alarm;
         for a in &mut self.faction_alarm {
@@ -2433,6 +2511,7 @@ impl Sim {
         self.run_contracts();
         self.run_weapon_production();
         self.run_shipyard_upkeep();
+        self.run_miners();
         self.run_holdings();
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
@@ -5394,6 +5473,31 @@ mod tests {
             sim.found_shipyard(home),
             Err(ShipyardError::AlreadyBuilt)
         ));
+    }
+
+    #[test]
+    fn a_deployed_miner_stocks_the_warehouse_with_the_bodys_mineral() {
+        // Early industry: a miner bought from Tycho and stationed at a body extracts
+        // that body's raw into your warehouse each tick — the bootstrap before colonies.
+        let mut sim = Sim::new(0);
+        let body = sim.markets()[0].body(); // the home body (Ceres)
+        let mineral = sim.body_mineral(body);
+        let before = sim.corp().cargo(mineral);
+        let credits0 = sim.corp().credits();
+        sim.buy_miner(body).unwrap();
+        assert_eq!(sim.miners().len(), 1);
+        assert!(
+            sim.corp().credits() < credits0,
+            "buying a miner costs credits"
+        );
+        assert!(matches!(sim.buy_miner(0), Err(MinerError::BadSite))); // not the sun
+        for _ in 0..30 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().cargo(mineral) >= before + 30 * MINER_OUTPUT_PER_TICK,
+            "the miner stocked the warehouse with the body's mineral"
+        );
     }
 
     #[test]

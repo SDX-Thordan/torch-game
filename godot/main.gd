@@ -713,6 +713,7 @@ func _build_systems_view() -> void:
 	fo.offset_right = -250
 	fo.offset_bottom = -94
 	root.add_child(fo)
+	fo.add_child(_make_op_button("⛏ MINE", _deploy_miner))
 	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
 	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
 	fo.add_child(_make_op_button("⚒ REFIT FLEET", _refit_fleet))
@@ -865,6 +866,16 @@ func _resolve_decision(opt: int) -> void:
 	status = msg if msg != "" else "Couldn't act on that — nothing to source."
 	_dec_shown = ""                             # force a rebuild for any next dilemma
 	_refresh_decisions()
+
+
+## Buy + deploy a miner at the focused body (early-game industry) — it mines that body's
+## raw into your warehouse. Tap a body first to choose where (and what) to mine.
+func _deploy_miner() -> void:
+	if _focus_body <= 0 or sim.body_kind(_focus_body) == 5:
+		status = "Tap a body first (an asteroid/moon), then ⛏ MINE its mineral."
+		return
+	var msg := String(sim.buy_miner(_focus_body))
+	status = msg if msg != "" else "Can't deploy a miner — need 9,000 cr (or the miner cap is reached)."
 
 
 ## Send every docked warship on a committed trajectory to the focused world (§6).
@@ -2491,7 +2502,12 @@ func _refresh_systems() -> void:
 	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
 	if _defend_holdings_btn:
 		_defend_holdings_btn.visible = sim.coalition_strike_pending()
-	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%" % [sim.tier_name(), hold_txt, sim.gate_progress_pct()]
+	var mtxt := ""
+	if sim.miner_count() > 0:
+		mtxt = "   ·   ⛏ %d miner(s)" % sim.miner_count()
+	if _focus_body > 0 and sim.body_kind(_focus_body) != 5:
+		mtxt += "   ·   mine %s here yields %s" % [String(sim.body_name(_focus_body)), String(sim.body_mineral_name(_focus_body))]
+	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%%s" % [sim.tier_name(), hold_txt, sim.gate_progress_pct(), mtxt]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
 		c.queue_free()
