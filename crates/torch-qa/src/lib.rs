@@ -17,12 +17,14 @@
 //! print!("{report}");
 //! ```
 
+pub mod early;
 pub mod engagement;
 pub mod harness;
 pub mod review;
 pub mod strategy;
 pub mod ui;
 
+pub use early::{audit_opening, run_newcomer, EarlyReport};
 pub use engagement::{assess, assess_fun, EngagementProfile, Facet};
 pub use harness::{run, Sample, Transcript};
 pub use review::{design_review, render_report, review, Finding, Severity};
@@ -185,6 +187,43 @@ mod tests {
             findings.iter().any(|f| f.area.starts_with("UI ·")),
             "every finding is a UI dimension"
         );
+    }
+
+    /// The early-game audit drives a Newcomer through the opening and captures a
+    /// well-formed onboarding report (deterministically), with the opening
+    /// objective + gate carrot present from tick 0.
+    #[test]
+    fn the_early_game_loop_is_audited() {
+        let (r, findings) = early::audit_opening(7);
+        assert!(
+            r.gate_carrot,
+            "the gate carrot should show from tick 0 (§0.1)"
+        );
+        assert!(!r.now_goal.is_empty(), "the opening should name a now-goal");
+        assert!(
+            r.missions_total >= 5,
+            "the opening-mission chain should exist"
+        );
+        // Every timing that fired sits inside the window.
+        for tick in [
+            r.first_action,
+            r.first_profit,
+            r.first_route,
+            r.first_industry,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(tick <= r.window, "{tick} outside the opening window");
+        }
+        assert!(!findings.is_empty());
+        assert!(findings.iter().all(|f| f.area.starts_with("Early ·")));
+
+        // Deterministic: same seed ⇒ same opening.
+        let b = early::run_newcomer(7);
+        assert_eq!(r.missions_done, b.missions_done);
+        assert_eq!(r.first_ascent, b.first_ascent);
+        assert_eq!(r.peak_pressure, b.peak_pressure);
     }
 
     /// The transcript's event tally matches the raw event stream (the harness

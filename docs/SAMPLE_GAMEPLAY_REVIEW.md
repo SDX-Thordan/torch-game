@@ -260,6 +260,32 @@ _Acquires a couple of colonies, then grows them tall by developing — does the 
 - **[NOTE]** _Empire · overextension_ — Expansion stayed under the coalition threshold (alarm peaked 90/1000) — the great powers watched but never struck. A more aggressive expander would test the cap harder.
 - **[GOOD]** _Empire · security_ — The trade empire drew piracy — 44 raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.
 
+## Early-game loop audit
+
+_An explicit look at the **opening**: a Newcomer (a reasonable new player following the opening-mission beats) driven through the first 720 ticks (~30 in-game days). The other lenses average over a whole run; a game lives or dies in its first session._
+
+| opening beat | when |
+| --- | --- |
+| first action | tick 0 |
+| first profit | tick 1 |
+| first standing route | tick 25 |
+| first industrial step (miner) | tick 49 |
+| first lane cut | tick 26 |
+| first promotion | tick 49 |
+| opening missions | 4/5 |
+| peak pressure (window) | 29/100 |
+| longest dead stretch | 29 ticks |
+
+**Findings:**
+
+- **[GOOD]** _Early · direction_ — From tick 0 the player has an explicit first objective ("First Light — Buy a commodity cheap at one market and sell it dear at another.") and the now-goal "Disrupt the lanes and prove the operation.", with the ring-gate already foreshadowed — direction from minute one (§0.1/§16).
+- **[GOOD]** _Early · first reward_ — First profit by tick 1 — the loop pays off quickly, before a new player's patience runs out.
+- **[GOOD]** _Early · onboarding_ — 4/5 opening missions completed in the first 720 ticks (~30 in-game days), at [1, 25, 26, 49] — the chain teaches the core verbs in a first session (§16). The one left open is "Stand Up a Hull — Commission your first warship at the Yards (you'll need crew + credits)." — check it's reachable from the opening state, not gated behind later unlocks.
+- **[GOOD]** _Early · first build_ — The early industrial step is reachable: a miner was affordable and deployed by tick 49 (the §3.1 first move from the 50000cr starting float).
+- **[GOOD]** _Early · pacing_ — The opening stays pressable: the longest dead stretch is 29 ticks (4% of the window) — no early lull a new player would quit in.
+- **[GOOD]** _Early · calm runway_ — The opening is a genuine runway: pressure peaked at only 29/100 and the player answered 8/9 early shortages — onboarding happens before the world bites (§13).
+- **[GOOD]** _Early · first ascent_ — The first promotion lands at tick 49 — the §0.3 fanfare fires inside the opening session, closing the first arc.
+
 ## Engagement & fun assessment
 
 _These are **structural proxies** for engagement, not a measure of subjective fun — a deterministic bot can flag aimlessness, dead air, flat stakes, a starved reward cadence, and dominant strategies, but it can't feel delight. Read the scores as "where is fun at risk?", not "how fun is it?"._
