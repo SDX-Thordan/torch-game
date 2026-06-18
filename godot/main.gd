@@ -452,14 +452,16 @@ func _build_asteroid_belt() -> void:
 # Apparent display radii (world units). Not true scale — at 1 AU = 1 unit the real
 # bodies would be invisible specks — but the *relative* sizes are honest (Jupiter
 # dwarfs the terrestrials, moons are tiny), so the system reads more to scale (§21).
+# Sized so the inner orbits clear the sun: Mercury orbits at 0.387 units, so the
+# sun stays well under that (0.26) while still reading as the largest body.
 const _RADII := {
-	"Sol": 0.55,
-	"Mercury": 0.045, "Venus": 0.105, "Earth": 0.11, "Mars": 0.062,
-	"Jupiter": 0.42, "Saturn": 0.36, "Uranus": 0.21, "Neptune": 0.20,
-	"Ceres": 0.05, "Pluto": 0.046,
-	"Ganymede": 0.05, "Titan": 0.05, "Callisto": 0.046, "Io": 0.04, "Europa": 0.038,
-	"Luna": 0.046, "Triton": 0.042, "Titania": 0.034, "Oberon": 0.033,
-	"Rhea": 0.03, "Iapetus": 0.03, "Vesta": 0.028, "Pallas": 0.026,
+	"Sol": 0.26,
+	"Mercury": 0.026, "Venus": 0.048, "Earth": 0.05, "Mars": 0.034,
+	"Jupiter": 0.17, "Saturn": 0.145, "Uranus": 0.10, "Neptune": 0.095,
+	"Ceres": 0.02, "Pluto": 0.02,
+	"Ganymede": 0.026, "Titan": 0.026, "Callisto": 0.024, "Io": 0.02, "Europa": 0.018,
+	"Luna": 0.022, "Triton": 0.02, "Titania": 0.016, "Oberon": 0.015,
+	"Rhea": 0.014, "Iapetus": 0.014, "Vesta": 0.014, "Pallas": 0.013,
 }
 # Icy/bright moons (and Pluto-likes) — share the rocky shader tuned pale and ice-rich.
 const _ICY := ["Europa", "Enceladus", "Tethys", "Dione", "Mimas", "Rhea", "Iapetus",
@@ -471,14 +473,14 @@ func _display_radius(name: String, kind: int) -> float:
 	if _RADII.has(name):
 		return float(_RADII[name])
 	match kind:
-		0: return 0.55
-		1: return 0.075
-		2: return 0.30
-		3: return 0.04
-		4: return 0.022
-		6: return 0.18
-		7: return 0.024
-	return 0.06
+		0: return 0.26
+		1: return 0.038
+		2: return 0.14
+		3: return 0.02
+		4: return 0.013
+		6: return 0.12
+		7: return 0.013
+	return 0.03
 
 
 func _make_body_material(name: String, kind: int) -> ShaderMaterial:
@@ -608,17 +610,21 @@ func _build_starfield() -> void:
 
 
 func _build_saturn_rings(saturn: Node3D) -> void:
+	# Ring extent scales with Saturn's display size (~1.2–2.35 planet radii).
+	var R := _display_radius("Saturn", 2)
+	var r_in := R * 1.2
+	var r_out := R * 2.35
 	# The main ring sheet — a flat, banded, Sol-lit annulus (parented to the tilted
 	# planet so the rings sit on Saturn's equator).
 	var ring := MeshInstance3D.new()
-	ring.mesh = _flat_ring_mesh(0.44, 0.82, 120)
-	ring.material_override = PlanetShaders.rings(0.44, 0.82, Color(1.0, 0.95, 0.85))
+	ring.mesh = _flat_ring_mesh(r_in, r_out, 120)
+	ring.material_override = PlanetShaders.rings(r_in, r_out, Color(1.0, 0.95, 0.85))
 	saturn.add_child(ring)
 	# A scatter of ring particles for a touch of depth/sparkle.
 	var amat := PlanetShaders.rocky(Color(0.82, 0.76, 0.62), Color(0.5, 0.46, 0.38), 0.4, 0.0, Color.WHITE)
 	var rock := SphereMesh.new()
-	rock.radius = 0.006
-	rock.height = 0.012
+	rock.radius = 0.004
+	rock.height = 0.008
 	rock.radial_segments = 5
 	rock.rings = 3
 	rock.material = amat
@@ -630,8 +636,8 @@ func _build_saturn_rings(saturn: Node3D) -> void:
 	rng.seed = 17
 	for i in mm.instance_count:
 		var ang := rng.randf() * TAU
-		var rad := rng.randf_range(0.44, 0.82)
-		var pos := Vector3(cos(ang) * rad, rng.randf_range(-0.006, 0.006), sin(ang) * rad)
+		var rad := rng.randf_range(r_in, r_out)
+		var pos := Vector3(cos(ang) * rad, rng.randf_range(-0.005, 0.005), sin(ang) * rad)
 		var s := rng.randf_range(0.5, 2.0)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s)
 		mm.set_instance_transform(i, Transform3D(basis, pos))
@@ -2441,7 +2447,7 @@ func _update_world(delta: float) -> void:
 		_lane_mesh.surface_end()
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
-		var wm := _sphere(0.06, _wreck_mat)
+		var wm := _sphere(0.03, _wreck_mat)
 		_orrery_root.add_child(wm)
 		_wreck_pool.append(wm)
 	for wi in _wreck_pool.size():
