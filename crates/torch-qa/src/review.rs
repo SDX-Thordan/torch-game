@@ -665,6 +665,8 @@ pub fn render_report(seed: u64, ticks: u64) -> String {
         render_persona(&mut out, t);
     }
 
+    crate::early::render_early(&mut out, seed);
+
     crate::engagement::render_engagement(&mut out, &runs);
 
     crate::ui::render_audit(&mut out);

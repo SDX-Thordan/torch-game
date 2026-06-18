@@ -63,14 +63,23 @@ Strategy (persona)  ──act()──►  Sim  ──step()──►  events + s
   can't reach, exceptions with no one-press answer, unsurfaced status, missing
   controls legend, and platform fit (a keyboard-scale control surface on an
   Android-first game).
+- **`early`** — the *onboarding lens*: drives a **Newcomer** (a reasonable new
+  player following the opening-mission beats) through the first 720 ticks and
+  audits the opening loop — a first objective + the gate carrot from tick 0,
+  time-to-first-reward, whether the opening-mission chain actually completes (and
+  *which* one doesn't), the first industrial step's affordability, opening
+  pacing/dead-air, and whether the runway stays calm before the world bites. A
+  game lives or dies in its first session; the other lenses average over a whole
+  run.
 
-## Three questions, three lenses
+## Four questions, four lenses
 
 - **Does it work / is it balanced?** → `review` + `design_review`.
 - **Is it engaging to play?** → `engagement` (read the scores as "where is fun at
   *risk*?", not "how fun is it?").
 - **Can the player see and reach it all?** → `ui` (a static affordance audit of
   the binding ⟷ shell wiring).
+- **Does the *opening* land?** → `early` (an explicit early-game-loop audit).
 
 ## Extending it
 

@@ -161,9 +161,10 @@ Status: [x] done, [~] in progress, [ ] todo.
   **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
   design findings). The §32 counterpart to `cargo test`: tests assert systems
   *work*, this critiques how the game *plays*. Same seed ⇒ same review. Now a
-  **three-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
+  **four-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
   (engaging & fun?) + `ui` (a static affordance audit of the binding ⟷ shell
-  wiring — can the player see & reach it all?).
+  wiring — can the player see & reach it all?) + `early` (an explicit early-game
+  loop audit — does the *opening* land?).
 - [~] **14. Juice & audio pass**, then UX polish. **Playable shell + 3D orrery
   done** (`godot/main.gd`): real-time-with-pause loop (§28), a **3D orrery** (§21:
   lit bodies orbit the sun on the ecliptic, haulers run the lanes, an
@@ -2068,6 +2069,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   `MultiMeshInstance3D` of 600 billboarded unshaded quads on a deterministic shell
   (radius 55–80, seeded RNG) behind the system, so the dark space reads as depth,
   not emptiness. Cheap (one draw), pure shell, render-verified under xvfb.
+- **2026-06-16 — QA gets a fourth lens: the early-game loop (`torch-qa::early`).**
+  The other lenses average over a whole run; this *explicitly audits the opening*
+  — a game lives or dies in its first session. `run_newcomer(seed)` drives a
+  **Newcomer** (a reasonable new player following the opening-mission beats: first
+  trade → freighter+route → a miner → cut a lane → climb) through the first 720
+  ticks (~30 in-game days) and records the onboarding timings (first action /
+  profit / route / industrial step / lane cut / promotion), opening-mission
+  completion, longest dead stretch, peak pressure, and shortages answered;
+  `audit(&report)` turns them into findings. On seed 7 the opening is in great
+  shape — first profit by tick 1, route by 25, **miner (the §3.1 first industrial
+  step) by 49**, first promotion by 49, peak pressure only 29/100, no early dead
+  air — **all Good**, with the one genuinely actionable read: **4/5 opening
+  missions complete; the one left open is "Stand Up a Hull" (commission a
+  warship)** — worth checking it's reachable from the opening state and not gated
+  behind the own-shipyard unlock (#a0a7c7d). *Lesson:* the early-game audit needs
+  its own *intended-path* driver (the broad personas don't model a new player
+  following the mission hints), and naming the **specific** incomplete opening
+  mission is what turns "4/5" into an actionable finding. Deterministic (§27):
+  same seed ⇒ same opening report.
+
 - **2026-06-16 — QA gets a third lens: UI usability (`torch-qa::ui`).** The harness
   asks *does it work* and *is it engaging*; it now also asks *can the player see
   and reach it all?* The Godot shell is GDScript (outside the `cargo test` gate),
