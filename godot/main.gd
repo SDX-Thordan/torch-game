@@ -211,6 +211,7 @@ var _faction_haul_mats: Array[StandardMaterial3D] = []   # per-faction hauler li
 var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
 var _freighter_pool: Array[MeshInstance3D] = []  # §6 player freighters on the lanes
 var _wreck_pool: Array[MeshInstance3D] = []
+var _miner_pool: Array[MeshInstance3D] = []   # deployed miners on the orrery
 var _gate_ring: MeshInstance3D
 var _lane_mesh: ImmediateMesh
 var _hauler_mat: StandardMaterial3D
@@ -218,6 +219,7 @@ var _ship_mat: StandardMaterial3D
 var _freighter_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
 var _wreck_mat: StandardMaterial3D
+var _miner_mat: StandardMaterial3D
 var _gate_mat: StandardMaterial3D
 const FREIGHTER_COL := Color(0.45, 0.78, 0.62)  # muted green — player logistics wing
 
@@ -312,6 +314,7 @@ func _build_world() -> void:
 	_freighter_mat = _emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
 	_select_mat = _emissive_mat(SELECT_COL)
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
+	_miner_mat = _emissive_mat(Color(0.95, 0.6, 0.18))   # industrial amber
 
 	var gate_r := 40.0
 	for b in sim.body_count():
@@ -2247,6 +2250,20 @@ func _update_world(delta: float) -> void:
 			wnode.position = _world3d(sim.body_x(wb), sim.body_y(wb)) + Vector3(0.12 + 0.08 * wi, 0.14, 0)
 		else:
 			wnode.visible = false
+	# Deployed miners — a small amber rig riding above the body it works (early industry).
+	var mn := sim.miner_count()
+	while _miner_pool.size() < mn:
+		var mm := _miner_marker()
+		_orrery_root.add_child(mm)
+		_miner_pool.append(mm)
+	for mi in _miner_pool.size():
+		var mnode := _miner_pool[mi]
+		var mb := sim.miner_body(mi) if mi < mn else -1
+		if mb >= 0:
+			mnode.visible = true
+			mnode.position = _world3d(sim.body_x(mb), sim.body_y(mb)) + Vector3(-0.12 - 0.07 * mi, 0.12, 0.05)
+		else:
+			mnode.visible = false
 	var g: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
 	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
 
@@ -3070,6 +3087,19 @@ func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
 	sm.height = radius * 2.0
 	mi.mesh = sm
 	mi.material_override = mat
+	return mi
+
+
+## A small amber mining-rig glyph (a stubby drum) for the orrery.
+func _miner_marker() -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.05
+	cm.bottom_radius = 0.07
+	cm.height = 0.11
+	cm.radial_segments = 8
+	mi.mesh = cm
+	mi.material_override = _miner_mat
 	return mi
 
 
