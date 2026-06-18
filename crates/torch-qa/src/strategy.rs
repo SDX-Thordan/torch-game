@@ -343,6 +343,39 @@ impl Strategy for Expansionist {
     }
 }
 
+/// Answers the act-now **dilemma** feed — resolves every shortage/wreck/raid the world
+/// surfaces (Phase A / §0.4). The QA lens on the Agency loop: does engaging the
+/// exception menu pay off, and does answering climb the §0 spine (A2)?
+#[derive(Default)]
+pub struct Responder {
+    responses: u64,
+}
+
+impl Strategy for Responder {
+    fn name(&self) -> &'static str {
+        "Responder"
+    }
+    fn intent(&self) -> &'static str {
+        "Answers the act-now feed — speculates shortages, strips wrecks, hunts raiders. Does engaging the exception menu pay off and climb the spine? (Phase A / §0.4)"
+    }
+    fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
+        let mut actions = 0;
+        // Clear the dilemma menu each tick: resolve the top option (Speculate / Strip /
+        // Hunt) until it's empty — every answer is also a §0 operation (A2).
+        while !sim.decisions().is_empty() && actions < 4 {
+            if sim.resolve_decision(0, 0).is_err() {
+                break;
+            }
+            self.responses += 1;
+            actions += 1;
+        }
+        actions
+    }
+    fn responses(&self) -> u64 {
+        self.responses
+    }
+}
+
 /// The full roster the report runs.
 pub fn roster() -> Vec<Box<dyn Strategy>> {
     vec![
@@ -353,5 +386,6 @@ pub fn roster() -> Vec<Box<dyn Strategy>> {
         Box::new(Warlord),
         Box::new(Tycoon::default()),
         Box::new(Expansionist),
+        Box::new(Responder::default()),
     ]
 }

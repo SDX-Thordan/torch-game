@@ -179,6 +179,28 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase A2: answering pays + a hard-pause on stacked dilemmas + a Responder
+  QA persona.** Three parts closing the Agency loop. **(1) Universal reward (A2):** every
+  resolved dilemma now calls `complete_op` *once, centrally* in `resolve_decision` (removed
+  the scattered per-branch calls) — so answering **any** act-now exception climbs the §0 spine
+  (CEO XP + research + ascent), not just the shortage-trading Tycoon. **(2) Hard-pause:** the
+  shell forces `speed_idx = 0` while `decision_count() >= 2` and won't resume until the menu is
+  **fully cleared** (`== 0`) — stacked demands make the player decide (a lone dilemma still uses
+  the softer auto-pause-on-alert). Speed-change input is swallowed while locked so the
+  indicator doesn't flicker; render-verified (top bar reads ‖ PAUSED with the panel up). **(3)
+  Responder persona** (`torch-qa`): answers the whole dilemma feed each tick (`resolve_decision`
+  on the top option until the menu clears). It **proves A2** — purely by engaging exceptions it
+  profits (+56k, ~2×) and **reaches the gate** (3 ascents, CEO 25), scoring **90 overall /
+  Agency 100**, which lifted the cross-cutting **Agency average 42 → 49** and added a 5th
+  ≥50 play style to the breadth finding. *Determinism:* A2's `complete_op` only fires on
+  `resolve_decision`, which only the Responder calls, so the other 7 personas' review bodies are
+  byte-identical — the new persona + recomputed aggregates are an **honest** review change
+  (regenerated `SAMPLE_GAMEPLAY_REVIEW.md`). 190 cargo + 17 GUT green. *Metric note:* the
+  Responder answers shortages+wrecks+raids, so its `responses` (124) exceeds `act_now_raised`
+  (28 = shortages only) — the engagement Agency calc `clamp100`s the ratio, so "answered 124 of
+  28" reads oddly but scores correctly. **Next: Phase B** (combat purpose — bounties/loot on a
+  won engagement + tie combat to the empire-piracy loop, to lift the Warlord's 49).
+
 - **2026-06-18 — Phase A cont.: wreck + raid dilemmas on the same framework (§15/§13).** Two more
   `DecisionKind`s on the Phase-A plumbing, so the act-now menu spans the whole event stream, not
   just shortages. **Wreck** (auto-raised on `WreckSighted`): **Strip Hull** (+1400 cr scrap,

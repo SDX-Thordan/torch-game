@@ -1029,6 +1029,10 @@ impl Sim {
             DecisionKind::RaidThreat => self.resolve_raid_decision(&d, opt),
         };
         self.decisions.retain(|x| x.id != d.id);
+        // A2: answering an act-now exception is itself a player **operation** — every
+        // dilemma resolved climbs the §0 spine (CEO XP + research + ascent), so the
+        // feed pays off for *every* play style, not only the shortage-trading Tycoon.
+        self.complete_op();
         Ok(outcome)
     }
 
@@ -1042,7 +1046,6 @@ impl Sim {
         if self.salvage.claim(d.target).is_none() {
             return Err(TradeError::InsufficientStock);
         }
-        self.complete_op(); // any salvage is an operation on the climb (§0)
         let outcome = match opt {
             0 => {
                 self.corp.credit(WRECK_SCRAP);
@@ -1103,7 +1106,6 @@ impl Sim {
                 if self.rng.chance_bp(HUNT_CHANCE_BP) {
                     self.corp.credit(mag);
                     self.pressure.relieve(PressureKind::Piracy, RAID_RELIEF);
-                    self.complete_op();
                     DecisionOutcome {
                         credits: mag,
                         rep_delta: 0,
@@ -1135,7 +1137,6 @@ impl Sim {
                 if self.rng.chance_bp(AMBUSH_CHANCE_BP) {
                     self.corp.credit(mag * 2);
                     self.pressure.relieve(PressureKind::Piracy, RAID_RELIEF * 2);
-                    self.complete_op();
                     DecisionOutcome {
                         credits: mag * 2,
                         rep_delta: 0,
@@ -1232,7 +1233,6 @@ impl Sim {
                 self.markets[d.market].add_stock(d.commodity, qty);
                 self.corp.credit(revenue);
                 self.relations.adjust(owner, RELIEF_REP);
-                self.complete_op();
                 Ok(DecisionOutcome {
                     credits: revenue - cost,
                     rep_delta: RELIEF_REP,

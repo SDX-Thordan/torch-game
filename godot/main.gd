@@ -143,6 +143,7 @@ var _dec_layer: CanvasLayer
 var _dec_title: Label
 var _dec_opts: VBoxContainer
 var _dec_shown := ""                          # title currently rendered (rebuild on change)
+var _dilemma_lock := false                    # hard pause until a stacked dilemma menu is cleared
 
 # Fleet view.
 var _fleet_grid: GridContainer
@@ -1813,6 +1814,18 @@ func _reset_view() -> void:
 # ============================================================================
 
 func _process(delta: float) -> void:
+	# Hard-pause when act-now dilemmas stack up (≥2): time can't resume until the whole
+	# menu is cleared — multiple demands force the player to decide (§0.4). A lone
+	# dilemma still uses the softer auto-pause-on-alert path below.
+	if sim.decision_count() >= 2:
+		if not _dilemma_lock:
+			status = "Multiple decisions pending — clear them all to resume."
+		_dilemma_lock = true
+	elif sim.decision_count() == 0:
+		_dilemma_lock = false
+	if _dilemma_lock:
+		speed_idx = 0
+		accum = 0.0
 	var mult: float = SPEEDS[speed_idx]
 	if mult > 0.0:
 		accum += delta * TICKS_PER_SECOND * mult
@@ -2571,6 +2584,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					_reset_view()
 				return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	# While dilemmas are stacked, time is locked — ignore speed changes until cleared.
+	if _dilemma_lock and event.keycode in [KEY_SPACE, KEY_1, KEY_2, KEY_3]:
+		status = "Decisions pending — resolve them all to resume."
 		return
 	match event.keycode:
 		KEY_SPACE:
