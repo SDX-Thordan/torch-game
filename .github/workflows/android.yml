@@ -67,12 +67,41 @@ jobs:
           cargo build -p torch-core   # host lib the editor loads during export
           ls -l godot/bin/android/arm64/ target/debug/libtorch_core.so
 
-      - name: Generate debug keystore (referenced by the export preset)
+      - name: Use a STABLE signing key (so releases are updatable)
         run: |
-          keytool -genkeypair -v -keystore godot/debug.keystore \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
+          # A consistent signing key is what lets one release install *over* a
+          # previous one — Android rejects an update signed with a different key.
+          # The repo ships a committed, stable debug keystore (godot/debug.keystore)
+          # that the export preset references, so every build signs identically.
+          #
+          # To sign with a *private* key instead (e.g. a Play-Store release key),
+          # set the secret ANDROID_KEYSTORE_BASE64 (base64 of your .keystore that
+          # uses alias 'androiddebugkey' + store/key password 'android', or adjust
+          # the preset) and it overrides the committed one — no workflow change.
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "Using ANDROID_KEYSTORE_BASE64 secret for signing."
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > godot/debug.keystore
+          else
+            echo "Using the committed stable keystore (godot/debug.keystore)."
+            test -f godot/debug.keystore || { echo "committed keystore missing"; exit 1; }
+          fi
+          keytool -list -keystore godot/debug.keystore -storepass android 2>/dev/null \
+            | grep -i "SHA-256" || true
+
+      - name: Stamp version from the release tag (versionCode must increase to update)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Derive a strictly-increasing versionCode + human versionName from the
+          # tag (vMAJOR.MINOR.PATCH). Android only treats a build as an *update*
+          # when its versionCode is higher than the installed one.
+          VER="${GITHUB_REF_NAME#v}"
+          MA="${VER%%.*}"; REST="${VER#*.}"; MI="${REST%%.*}"; PA="${REST#*.}"
+          MA="${MA:-0}"; MI="${MI:-0}"; PA="${PA:-0}"
+          CODE=$(( MA * 10000 + MI * 100 + PA ))
+          echo "tag=$GITHUB_REF_NAME -> versionName=$VER versionCode=$CODE"
+          sed -i "s#^version/code=.*#version/code=$CODE#" godot/export_presets.cfg
+          sed -i "s#^version/name=.*#version/name=\"$VER\"#" godot/export_presets.cfg
+          grep -E "^version/(code|name)=" godot/export_presets.cfg
 
       - name: Prepare Godot Android env (templates + editor settings)
         run: |
