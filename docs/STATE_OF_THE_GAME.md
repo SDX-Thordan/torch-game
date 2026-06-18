@@ -98,6 +98,13 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
 - [x] **Mobile readability + map gestures** — HUD magnified for handhelds (window
   `content_scale_factor`), pinch-to-zoom fixed (the content host was eating map touches),
   and map **rotation** added (one-finger drag / two-finger twist / ↺↻ buttons / `,`·`.` keys).
+- [x] **Touch-first UI pass** — dropped the persistent op-button grid for **contextual
+  actions** (only the verbs the tapped body affords) + finger map control; **pause/play**
+  buttons in the top bar; dilemma popups are now a **large centred modal that hard-pauses
+  for every popup**; HUD panels are **drag-to-move**; opens centred/zoomed on the home station.
+- [ ] **Save UX on mobile** — manual save/load buttons were removed in the touch pass;
+  persistence is the *Ironman autosave* toggle. Reinstate a save entry (e.g. a pause-menu
+  item or an always-on periodic autosave decoupled from Ironman's no-reload rule).
 - [ ] **Bundled sci-fi font** — the biggest remaining gap from the UI mockups' feel.
 - [ ] **Deeper console-chrome + richer juice** (§20/§23 minus audio) — the diegetic shell pass.
 - [ ] **Right-sized crew depth** (§11) — optional portraits / light service arcs, kept un-deep

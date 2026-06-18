@@ -304,6 +304,20 @@ Status: [x] done, [~] in progress, [ ] todo.
   `pick(event.position * content_scale_factor)` (a no-op at 1.0, so PC mode is unaffected).
   **Verify headlessly** by `push_input`-ing a click at a body's unproject position (push_input
   applies the same stretch transform a real finger does) and asserting the focus lands.
+- **Drag-to-move a HUD panel:** translate it by shifting **all four offsets** by the drag delta
+  (works under any anchor preset, including anchored-right). Make the panel's *content
+  container* `IGNORE` so empty regions fall through to the panel's `gui_input` while STOP
+  children (toggles) keep working. With `emulate_mouse_from_touch` a touch fires **both**
+  `ScreenDrag` *and* an emulated `MouseMotion` → gate by `pc_mode` (touch ⇒ ScreenDrag only,
+  PC ⇒ MouseMotion only) or the panel translates twice. Drag deltas are canvas-space like the
+  offsets, so — unlike picking — they need **no** content-scale conversion. (`push_input`
+  drag tests are unreliable under content-scale; verify the logic in PC mode at 1.0.)
+- **Touch-first agency:** prefer **contextual actions** (show only the verbs the tapped body
+  affords) over a persistent op-button grid, and make act-now dilemmas a **large centred modal
+  that hard-pauses** (`decision_count() >= 1`) behind a STOP scrim — the popup *is* the moment,
+  not a corner toast. Pause/play live in the top bar (the handheld's spacebar). Open the camera
+  **centred + zoomed on the home station** (focus `market_body(0)`, a tight zoom) — at the
+  orrery scale (`1 AU = 1` world unit) a "zoomed-in" zoom is ~2.2, not 4.
 
 ### 7.5 Render-verify workflow
 

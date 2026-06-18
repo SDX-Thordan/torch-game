@@ -137,6 +137,9 @@ var _bridge_found_btn: Button
 var _bridge_upgrade_btn: Button
 var _defend_btn: Button
 var _defend_holdings_btn: Button
+var _ctx_actions: VBoxContainer            # the contextual-action stack (no persistent buttons)
+var _mine_btn: Button
+var _send_btn: Button
 var _sys_mission: Label
 var _sys_lore: Label
 var _tg_patrol: CheckButton
@@ -248,6 +251,10 @@ func _ready() -> void:
 	_build_diorama()
 	_build_decision_panel()
 	_select_view(V_SYSTEMS)
+	# Open centred + zoomed in on the home station (your starting market), not the wide
+	# system view — the player should see *where they are* first (§0.3).
+	_focus_body = sim.market_body(0)
+	_zoom = 2.2
 	# Default to PC mode on desktop, touch on a handheld (§33). Either can be forced
 	# with F8 — handy for testing the desktop layout on a dev machine.
 	_set_pc_mode(OS.has_feature("pc"))
@@ -703,8 +710,15 @@ func _build_chrome() -> void:
 	var brand := UiKit.label("TORCH", 18, UiKit.TEXT_HI)
 	brand.position = Vector2(14, 8)
 	bar.add_child(brand)
+	# Pause / play controls (touch-first — the handheld replacement for the spacebar).
+	var pp := HBoxContainer.new()
+	pp.add_theme_constant_override("separation", 4)
+	pp.position = Vector2(96, 0)
+	bar.add_child(pp)
+	pp.add_child(_make_map_button("⏸", func(): speed_idx = 0))
+	pp.add_child(_make_map_button("▶", _play_step))
 	_title = UiKit.label("", 13, UiKit.TEXT_DIM)
-	_title.position = Vector2(92, 12)
+	_title.position = Vector2(190, 12)
 	bar.add_child(_title)
 	# Centre: an alert ticker (latest act-now) — visible in every view.
 	_alert_ticker = UiKit.label("", 12, UiKit.BAD)
@@ -839,6 +853,7 @@ func _build_systems_view() -> void:
 	_tg_research = _add_toggle(col, "Auto-research", func(on): sim.toggle_auto_research())
 	_tg_pause = _add_toggle(col, "Auto-pause on alert", func(on): auto_pause = on)
 	_add_toggle(col, "Ironman (autosave, no reloads)", _toggle_ironman)
+	_make_draggable(ctx, col)
 
 	# Bottom-left overlay panel: NOW goal + the active mission + the gate mystery +
 	# the always-visible gate progress (§0.1 — the authored destination pull, §16).
@@ -871,6 +886,7 @@ func _build_systems_view() -> void:
 	gv.add_child(_sys_gate_lbl)
 	_sys_gate = UiKit.gauge(0.0, UiKit.GOLD, 338, 8)
 	gv.add_child(_sys_gate)
+	_make_draggable(goal, gv)
 
 	# Alert feed panel, bottom-centre over the orrery.
 	var feedp := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
@@ -892,83 +908,52 @@ func _build_systems_view() -> void:
 	_feed.add_theme_font_size_override("bold_font_size", 12)
 	_feed.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fv.add_child(_feed)
+	_make_draggable(feedp, fv)
 
-	# Map controls (mobile-friendly), bottom-right corner of the orrery region.
-	var mc := HBoxContainer.new()
-	mc.add_theme_constant_override("separation", 6)
-	mc.set_anchors_preset(Control.PRESET_FULL_RECT)
-	mc.anchor_left = 1
-	mc.anchor_top = 1
-	mc.offset_left = -560
-	mc.offset_top = -176
-	mc.offset_right = -322
-	mc.offset_bottom = -132
-	root.add_child(mc)
-	_map_controls = mc
-	mc.add_child(_make_map_button("+", func(): _zoom_by(0.8)))
-	mc.add_child(_make_map_button("–", func(): _zoom_by(1.25)))
-	mc.add_child(_make_map_button("↺", func(): _rotate_by(-ROT_STEP)))
-	mc.add_child(_make_map_button("↻", func(): _rotate_by(ROT_STEP)))
-	mc.add_child(_make_map_button("◉", _reset_view))
-
-	# Fleet ops (§6): send the docked warships to the focused world, or refuel them.
-	var fo := HBoxContainer.new()
-	fo.add_theme_constant_override("separation", 6)
+	# Contextual actions — no persistent button grid; only the verbs relevant to what you
+	# tapped appear here (and the conditional endgame verbs), bottom-right over the orrery.
+	# Map zoom/rotate is fingers-only now (pinch / drag / twist); save is autosave (Ironman).
+	var fo := VBoxContainer.new()
+	fo.add_theme_constant_override("separation", 5)
 	fo.set_anchors_preset(Control.PRESET_FULL_RECT)
 	fo.anchor_left = 1
 	fo.anchor_top = 1
-	fo.offset_left = -470
-	fo.offset_top = -126
-	fo.offset_right = -250
-	fo.offset_bottom = -94
+	fo.offset_left = -300
+	fo.offset_top = -210
+	fo.offset_right = -8
+	fo.offset_bottom = -140
+	fo.alignment = BoxContainer.ALIGNMENT_END
 	root.add_child(fo)
-	fo.add_child(_make_op_button("⛏ MINE", _deploy_miner))
-	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
-	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
-	fo.add_child(_make_op_button("⚒ REFIT FLEET", _refit_fleet))
-	# The empire layer (E1): buy out an independent frontier colony. Mobile-friendly
-	# one-press expansion — takes the cheapest acquirable colony.
-	fo.add_child(_make_op_button("⊕ ACQUIRE COLONY", _acquire_colony))
-	# The empire layer (E4): diplomatically annex an independent colony (Influence +
-	# good standing, a gentler political cost than a buyout).
-	fo.add_child(_make_op_button("⊕ ANNEX (DIPLO)", _annex_colony))
-	# The empire layer (E5): seize a colony by force — the aggressive path.
-	fo.add_child(_make_op_button("⚔ SEIZE COLONY", _seize_colony))
+	_ctx_actions = fo
+	# Deploy a miner on the tapped body (early industry) — lit only on a mineable site.
+	_mine_btn = _make_op_button("⛏ Deploy Miner", _deploy_miner)
+	_mine_btn.visible = false
+	fo.add_child(_mine_btn)
+	# Send the docked fleet to the tapped world — lit only with a world focused + ships home.
+	_send_btn = _make_op_button("🚀 Send Fleet", _dispatch_fleet_to_focus)
+	_send_btn.visible = false
+	fo.add_child(_send_btn)
 	# The empire layer (E3): answer a great-power coalition strike on your holdings —
 	# lit only while the inners are moving on you.
-	_defend_holdings_btn = _make_op_button("⚔ DEFEND HOLDINGS", _defend_holdings)
+	_defend_holdings_btn = _make_op_button("⚔ Defend Holdings", _defend_holdings)
 	_defend_holdings_btn.visible = false
 	fo.add_child(_defend_holdings_btn)
 	# The climactic endgame verb (§0.1/§17) — only lit when standing at the open gate.
-	_transit_btn = _make_op_button("⟁ TRANSIT GATE", _transit_gate)
+	_transit_btn = _make_op_button("⟁ Transit Gate", _transit_gate)
 	_transit_btn.visible = false
 	fo.add_child(_transit_btn)
 	# Far-side endgame verbs (§17, G3) — only lit once through the ring.
-	_bridge_found_btn = _make_op_button("⛓ FOUND BRIDGEHEAD", _found_bridgehead)
+	_bridge_found_btn = _make_op_button("⛓ Found Bridgehead", _found_bridgehead)
 	_bridge_found_btn.visible = false
 	fo.add_child(_bridge_found_btn)
-	_bridge_upgrade_btn = _make_op_button("⛓ REINFORCE", _upgrade_bridgehead)
+	_bridge_upgrade_btn = _make_op_button("⛓ Reinforce", _upgrade_bridgehead)
 	_bridge_upgrade_btn.visible = false
 	fo.add_child(_bridge_upgrade_btn)
 	# The act-now far-side defense (§17, G4) — lit only while an incursion presses.
-	_defend_btn = _make_op_button("⚔ DEFEND BRIDGEHEAD", _defend_bridgehead)
+	_defend_btn = _make_op_button("⚔ Defend Bridgehead", _defend_bridgehead)
 	_defend_btn.visible = false
 	fo.add_child(_defend_btn)
 
-	# Archive (§30): numbered save slots + load. (Ironman toggle lives in settings.)
-	var ar := HBoxContainer.new()
-	ar.add_theme_constant_override("separation", 6)
-	ar.set_anchors_preset(Control.PRESET_FULL_RECT)
-	ar.anchor_left = 1
-	ar.anchor_top = 1
-	ar.offset_left = -470
-	ar.offset_top = -88
-	ar.offset_right = -120
-	ar.offset_bottom = -56
-	root.add_child(ar)
-	ar.add_child(_make_op_button("SLOT", _cycle_slot))
-	ar.add_child(_make_op_button("SAVE", _do_save))
-	ar.add_child(_make_op_button("LOAD", _do_load))
 
 
 func _add_toggle(col: VBoxContainer, text: String, cb: Callable) -> CheckButton:
@@ -991,6 +976,31 @@ func _make_map_button(label: String, cb: Callable) -> Button:
 	btn.add_theme_color_override("font_color", UiKit.ACCENT)
 	btn.pressed.connect(cb)
 	return btn
+
+
+## Make a HUD panel draggable with a finger (or mouse) — translate it by the drag delta,
+## which works regardless of its anchors (shift all four offsets together). Empty panel
+## areas drag it; interactive children (toggles/buttons, which stay STOP) keep working,
+## because the panel's content container is set IGNORE so empty regions fall through to it.
+func _make_draggable(panel: Control, content: Control) -> void:
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.gui_input.connect(func(e: InputEvent) -> void:
+		# Touch uses ScreenDrag; the mouse uses MouseMotion. Gate by mode so a touch
+		# device's emulated mouse events don't double-translate the panel.
+		var rel := Vector2.ZERO
+		if e is InputEventScreenDrag and not pc_mode:
+			rel = e.relative
+		elif e is InputEventMouseMotion and pc_mode and (e.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			rel = e.relative
+		else:
+			return
+		panel.offset_left += rel.x
+		panel.offset_right += rel.x
+		panel.offset_top += rel.y
+		panel.offset_bottom += rel.y
+		panel.accept_event()
+	)
 
 
 ## A wider labelled touch button for fleet ops (§6).
@@ -1018,23 +1028,32 @@ func _build_decision_panel() -> void:
 	_dec_layer.layer = 50
 	_dec_layer.visible = false
 	add_child(_dec_layer)
+	# A dim full-screen scrim behind the popup so it reads as a modal "stop and decide"
+	# moment (the game is hard-paused while it's up), and so stray taps don't hit the map.
+	var scrim := ColorRect.new()
+	scrim.color = Color(0.0, 0.0, 0.0, 0.55)
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dec_layer.add_child(scrim)
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", UiKit.panel_box(Color(0.05, 0.07, 0.11, 0.96), UiKit.ACCENT, 10, 2))
-	panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	panel.offset_left = -300
-	panel.offset_right = 300
-	panel.offset_top = -250
-	panel.offset_bottom = -96
+	panel.add_theme_stylebox_override("panel", UiKit.panel_box(Color(0.05, 0.07, 0.11, 0.98), UiKit.ACCENT, 12, 2))
+	# A large centred card — the popup is the main event, not a corner toast.
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -420
+	panel.offset_right = 420
+	panel.offset_top = -230
+	panel.offset_bottom = 230
 	_dec_layer.add_child(panel)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
+	box.add_theme_constant_override("separation", 12)
 	panel.add_child(box)
 	box.add_child(UiKit.kicker("⚠ Act Now — Your Call"))
-	_dec_title = UiKit.label("", 16, UiKit.TEXT_HI)
+	_dec_title = UiKit.label("", 24, UiKit.TEXT_HI)
+	_dec_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_dec_title)
 	box.add_child(UiKit.rule())
 	_dec_opts = VBoxContainer.new()
-	_dec_opts.add_theme_constant_override("separation", 5)
+	_dec_opts.add_theme_constant_override("separation", 10)
 	box.add_child(_dec_opts)
 
 
@@ -1059,12 +1078,14 @@ func _refresh_decisions() -> void:
 		var risky := sim.decision_option_risky(0, opt)
 		var label := String(sim.decision_option_label(0, opt))
 		var btn := _make_op_button(("⚠ " if risky else "") + label, _resolve_decision.bind(opt))
-		btn.custom_minimum_size = Vector2(120, 40)
+		btn.custom_minimum_size = Vector2(190, 56)
+		btn.add_theme_font_size_override("font_size", 16)
 		row.add_child(btn)
-		var desc := UiKit.label(String(sim.decision_option_desc(0, opt)), 12, UiKit.TEXT)
+		var desc := UiKit.label(String(sim.decision_option_desc(0, opt)), 15, UiKit.TEXT)
 		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		desc.custom_minimum_size = Vector2(440, 0)
+		desc.custom_minimum_size = Vector2(560, 0)
 		desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		desc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		row.add_child(desc)
 		_dec_opts.add_child(row)
 
@@ -2342,6 +2363,12 @@ func _rotate_by(d: float) -> void:
 	_yaw = wrapf(_yaw + d, -PI, PI)
 
 
+## The ▶ button: resume from pause to 1×, then step the time-compression up (1→2→3).
+## (A pending dilemma re-pauses every frame, so this can't override "answer the popup".)
+func _play_step() -> void:
+	speed_idx = clampi(speed_idx + 1, 1, SPEEDS.size() - 1)
+
+
 func _two_finger_dist() -> float:
 	var pts := _touches.values()
 	if pts.size() < 2:
@@ -2370,14 +2397,13 @@ func _reset_view() -> void:
 # ============================================================================
 
 func _process(delta: float) -> void:
-	# Hard-pause when act-now dilemmas stack up (≥2): time can't resume until the whole
-	# menu is cleared — multiple demands force the player to decide (§0.4). A lone
-	# dilemma still uses the softer auto-pause-on-alert path below.
-	if sim.decision_count() >= 2:
+	# Hard-pause on *every* act-now dilemma (§0.4): time can't resume until the popup is
+	# answered. Each decision is a deliberate stop — the player resolves it, then plays on.
+	if sim.decision_count() >= 1:
 		if not _dilemma_lock:
-			status = "Multiple decisions pending — clear them all to resume."
+			status = "A decision needs you — answer the popup to resume."
 		_dilemma_lock = true
-	elif sim.decision_count() == 0:
+	else:
 		_dilemma_lock = false
 	if _dilemma_lock:
 		speed_idx = 0
@@ -2860,6 +2886,11 @@ func _refresh_systems() -> void:
 	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
 	if _defend_holdings_btn:
 		_defend_holdings_btn.visible = sim.coalition_strike_pending()
+	# Contextual map verbs — shown only for what the tapped body affords (no persistent grid).
+	if _mine_btn:
+		_mine_btn.visible = _focus_body > 0 and sim.can_mine_body(_focus_body)
+	if _send_btn:
+		_send_btn.visible = _focus_body > 0 and sim.fleet_size() > 0
 	var mtxt := ""
 	if sim.miner_count() > 0:
 		mtxt = "   ·   ⛏ %d miner(s)" % sim.miner_count()
