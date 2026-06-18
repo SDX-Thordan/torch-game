@@ -174,31 +174,31 @@ _Buys frontier colonies and holds them — does expansion pay off, and do admini
 
 | metric | value |
 | --- | --- |
-| treasury | 50000 → 164660 cr (+114660, ~3×) |
-| actions | 177 over 4% of ticks |
-| pacing | 3560 ticks pending · longest idle 78 ticks |
+| treasury | 50000 → 142712 cr (+92712, ~2×) |
+| actions | 184 over 4% of ticks |
+| pacing | 3556 ticks pending · longest idle 82 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 2251 (~93 days) |
+| gate reached | tick 2161 (~90 days) |
 | CEO level | 13 · techs 0 |
-| traffic | 166 flew, 147 arrived, 16 cut, 16 shortages |
-| act-now alerts | 16 raised, 0 answered |
-| battles | 3 fought, 2 won |
+| traffic | 166 flew, 146 arrived, 19 cut, 19 shortages |
+| act-now alerts | 19 raised, 0 answered |
+| battles | 2 fought, 1 won |
 | empire | 13 holding(s) at peak · coalition alarm peak 1000 |
 | standings (E/M/B/I) | -392 / -392 / 17 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 91 → Sol & the Cold War @ 401 → The Gate @ 2251
+**Ascents:** The Region @ 91 → Sol & the Cold War @ 361 → The Gate @ 2161
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2251 (~93 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 164660 cr (+114660, ~3×).
-- **[GOOD]** _Agency_ — Acted on 4% of ticks (177 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 78 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
-- **[NOTE]** _Alert feed_ — 16 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[GOOD]** _Pressure_ — Incoming raids were telegraphed 105 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
+- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2161 (~90 days).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 142712 cr (+92712, ~2×).
+- **[GOOD]** _Agency_ — Acted on 4% of ticks (184 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 82 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[NOTE]** _Alert feed_ — 19 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[GOOD]** _Pressure_ — Incoming raids were telegraphed 107 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 - **[GOOD]** _Empire_ — Expansion-by-acquisition is reachable and exercised: grew to 13 holding(s) at peak (ending at 13). The §0 spine now has a territorial dimension.
 - **[GOOD]** _Empire · overextension_ — Growth provoked the great-power coalition (alarm peaked 1000/1000), answered by the fleet. The political cap on reckless expansion bites — careful growth is a real decision.
-- **[GOOD]** _Empire · security_ — The trade empire drew piracy — 39 raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.
+- **[GOOD]** _Empire · security_ — The trade empire drew piracy — 41 raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.
 - **[GOOD]** _Empire · enforcement_ — Souring the great powers brought customs enforcement — 11 inspection sweeps fined the empire's shipping (EP4). Trading in hostile space is taxed; repairing relations is the counter.
 
 ## Responder
@@ -272,7 +272,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | Privateer | **90** | 100 | 100 | 60 | 100 | 100 | 79 |
 | Warlord | **50** | 33 | 100 | 19 | 23 | 67 | 72 |
 | Tycoon | **98** | 100 | 100 | 100 | 100 | 100 | 86 |
-| Expansionist | **87** | 100 | 99 | 60 | 100 | 68 | 92 |
+| Expansionist | **87** | 100 | 98 | 60 | 100 | 68 | 92 |
 | Responder | **90** | 100 | 99 | 100 | 100 | 42 | 92 |
 | Developer | **38** | 33 | 71 | 19 | 23 | 22 | 66 |
 
@@ -284,7 +284,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 - **Privateer** █████████· 90/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/166 act-now shortages
 - **Warlord** █████····· 50/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/9 act-now shortages
 - **Tycoon** ██████████ 98/100 — weakest is _Variety_ (86/100): 7 of 9 event kinds; 4 tier(s) of scope
-- **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/16 act-now shortages
+- **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/19 act-now shortages
 - **Responder** █████████· 90/100 — weakest is _Stakes_ (42/100): treasury dip 8%, 0 ships lost, rep low 0, pressure peak 29
 - **Developer** ████······ 38/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/29 act-now shortages
 
@@ -292,7 +292,7 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 
 - **[GOOD]** _Fun · breadth_ — Several distinct play styles are engaging (["Logistician", "Privateer", "Warlord", "Tycoon", "Expansionist", "Responder"] all score ≥50/100). Depth-of-decision survives the choice of approach — no single dominant strategy starves the others.
 - **[NOTE]** _Fun · weakest link_ — Across all play styles, **Agency** is the weakest engagement dimension (avg 46/100) — the experience's biggest fun gap to invest in next.
-- **[GOOD]** _Fun · strength_ — **Flow** is the strongest dimension (avg 91/100) — the experience leans on it well.
+- **[GOOD]** _Fun · strength_ — **Flow** is the strongest dimension (avg 90/100) — the experience leans on it well.
 - **[GOOD]** _Fun · watchability_ — Hands fully off, the world scores 61/100 on flow+variety — the measure of whether it's worth watching before you act (§28).
 
 ## UI usability audit
@@ -321,7 +321,7 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 What the comparison of play styles reveals about the design as it stands:
 
 - **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon", "Expansionist", "Responder", "Developer"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
-- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 6 fleet engagements fought (4 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
+- **[GOOD]** _Combat_ — Combat is reachable from the live loop: 5 fleet engagements fought (3 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
 - **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (113888 cr by hand vs 107159 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
 - **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~2× (≈113888 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.
 - **[GOOD]** _Logistics_ — The standing-order layer is a *table* now (Sim::routes): many routes run concurrently against a shared freighter pool, each with its own params and idle/in-transit exception — the spreadsheet-sim master-table the influence model wants, not a single Option.

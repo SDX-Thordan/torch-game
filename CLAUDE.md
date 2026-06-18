@@ -179,6 +179,24 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Belt's major hubs added to the contest (Eros/Pallas/Vesta/Tycho).** Player ask:
+  also make the iconic **asteroid-belt** stations contested major hubs. Added four belt bodies to
+  `orbit::default_system` (Vesta/Eros/Pallas/Tycho, `DwarfPlanet` ⇒ mineable belt), **appended after
+  the moons** so every existing index (planets/gate/moons + the markets/colonies referencing them)
+  is unmoved (far-side bodies resolve by name, so shifting them is safe). Gave each a `frontier`
+  colony (Eros/Pallas/Vesta = Belt/OPA, Tycho = Independents). To make a colony *contested* without
+  making it a *tradeable market* (which would perturb the economy), added a **`hub: bool`** field to
+  `Colony` (decoupling "fought-over" from "trades") and switched the contest builder from
+  `is_market` → `hub`; the existing 3 jovian/cronian markets + the 4 belt stations are now the 7
+  contested hubs. The shell's CONTESTED HUBS gauge moved to the **top** of the EMPIRE table (the
+  early-game focus, was buried under a now-long master-table). **Not byte-identical this round** —
+  adding bodies grows `body_count()`, which **reseeds the §15 salvage RNG** → the QA review shifts
+  benignly (traffic timing/treasury/battle outcomes move; **no new concerns**, §7c gate holds) — the
+  same documented precedent as the G1 far-side bodies. Regenerated `SAMPLE_GAMEPLAY_REVIEW.md`. 201
+  cargo green. *Lesson:* a new `hub` flag is the clean way to add contested hubs without touching the
+  delicate market economy — and adding orbital bodies is an honest QA-shifting change (salvage
+  reseed), not something to chase byte-identity on.
+
 - **2026-06-18 — Early-game focus, part 2: contested colonies (the Ganymede conflict) + miner AO.**
   Two parts. **(1) Contested colonies** (`sim::contest`) — the major frontier hubs (the
   `is_market` colonies: Europa, Ganymede, Titan) are now openly **fought over** by the great
