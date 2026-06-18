@@ -95,6 +95,9 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   texture detail.
 
 ### P4 — UX / juice polish *(incremental)*
+- [x] **Mobile readability + map gestures** — HUD magnified for handhelds (window
+  `content_scale_factor`), pinch-to-zoom fixed (the content host was eating map touches),
+  and map **rotation** added (one-finger drag / two-finger twist / ↺↻ buttons / `,`·`.` keys).
 - [ ] **Bundled sci-fi font** — the biggest remaining gap from the UI mockups' feel.
 - [ ] **Deeper console-chrome + richer juice** (§20/§23 minus audio) — the diegetic shell pass.
 - [ ] **Right-sized crew depth** (§11) — optional portraits / light service arcs, kept un-deep
