@@ -1210,12 +1210,18 @@ impl Sim {
                     let loss = (stake * 2).min(self.corp.credits());
                     self.corp.debit(loss);
                     self.relations.adjust(riv, -WAR_SIDE_REP / 2);
+                    // Collateral on your space assets: a stray round takes out a miner.
+                    let asset = if self.miners.pop().is_some() {
+                        " A miner was lost in the shooting."
+                    } else {
+                        ""
+                    };
                     DecisionOutcome {
                         credits: -loss,
                         rep_delta: -WAR_SIDE_REP / 2,
                         backfired: true,
                         message: format!(
-                            "Caught in the crossfire — lost {loss} cr and soured {}.",
+                            "Caught in the crossfire — lost {loss} cr and soured {}.{asset}",
                             riv.name()
                         ),
                     }

@@ -179,6 +179,22 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Early-game focus, part 1: visible miners + war collateral on space assets.** Two
+  of the three early-game asks. **(1) Visible miners on the orrery** — deployed miners (the §A4
+  industrial bootstrap) were a count + a warehouse drip with no map presence. The shell now pools
+  amber `_miner_marker()` drums (industrial `Color(0.95, 0.6, 0.18)`) and parks one per miner above
+  its body (`miner_body(i)` → `body_x/y`), fanned with a small per-index offset so a cluster at one
+  body reads as several rigs. Pure shell + one already-exposed binding now *wired* — so the QA
+  *gameplay* body is **byte-identical** (only the UI-wiring facet moved, 214→215 wired). **(2) War
+  collateral damages space assets** — the player's "the inners' war has collateral" vision was only
+  a credit/rep hit. Now the **Run It** option's *failure* branch (the ~45% you don't slip the
+  blockade) also `self.miners.pop()`s — a stray round takes out a deployed miner, appended to the
+  outcome message. **Determinism:** the Responder QA persona resolves war dilemmas with option 0
+  (Reroute), never Run It, so it never pops a miner → QA *gameplay* byte-identical. 198 cargo + 17
+  GUT green. *Next (early-game part 2):* **contested colonies** — the major jovian/cronian/belt
+  colonies fought over by all four powers, with an **influence gauge** and Earth/Mars actively
+  shifting control (the Ganymede conflict as the model).
+
 - **2026-06-18 — The great-power war that haunts the early game (player collateral).** Second
   half of the player's "both, miners first" vision: *the early game is still haunted by
   Earth/Mars/OPA conflicts that have collateral for the player.* The `FactionWar` gauge existed
