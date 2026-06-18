@@ -2069,6 +2069,27 @@ Status: [x] done, [~] in progress, [ ] todo.
   `MultiMeshInstance3D` of 600 billboarded unshaded quads on a deterministic shell
   (radius 55–80, seeded RNG) behind the system, so the dark space reads as depth,
   not emptiness. Cheap (one draw), pure shell, render-verified under xvfb.
+
+- **2026-06-18 — Slow the climb ~3× (the spine progressed too fast).** Player call,
+  corroborated by the QA early/pacing lenses: the campaign `ops_to_advance`
+  thresholds (Station 3 / Region 10 / Sol 25) cleared the Station in ~1–2 in-game
+  days and opened the Gate in ~40, which read as rushing the journey. Raised them
+  to **8 / 30 / 75** (~3×, the player's chosen magnitude via AskUserQuestion). The
+  QA harness measured the before/after: first promotion **tick 49 → 318** (~2 →
+  ~13 in-game days), the Gate **~913–2161 → ~2713–2931 ticks** for active play
+  (~38–90 → ~113–122 in-game days). Each tier is now a *stay*, not a checkpoint,
+  without becoming a grind. **Tests:** six world-test + three campaign-test
+  "climb to the gate" loops hard-coded `3 + 10 + 25` — replaced the fixed counts
+  with a robust `0..200` upper bound (and updated the two unit tests that asserted
+  the literal Station target of 3 → 8). The QA reviews regenerate honestly (slower
+  climbers like the Logistician/Expansionist now reach only Sol within a 4000-tick
+  run — fair). Also taught `torch-qa::early` to **guard the concern**: the first
+  promotion finding now flags a Note if it lands under 72 ticks (~3 days) — so a
+  future threshold regression that re-rushes the opening shows up in the audit.
+  *Lesson:* the pacing tuning is one constant block (`ops_to_advance`), and the
+  QA framework that surfaced the problem is the same one that proves the fix and
+  guards against backsliding.
+
 - **2026-06-16 — QA gets a fourth lens: the early-game loop (`torch-qa::early`).**
   The other lenses average over a whole run; this *explicitly audits the opening*
   — a game lives or dies in its first session. `run_newcomer(seed)` drives a

@@ -5202,7 +5202,7 @@ mod tests {
         );
         assert!(!sim.transit_gate());
         // Climb the whole spine to the open gate.
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             sim.complete_op();
         }
         assert_eq!(sim.campaign().tier(), Tier::Gate);
@@ -5948,7 +5948,7 @@ mod tests {
             "no foothold before the ring"
         );
         // Climb + transit into the Beyond.
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             sim.complete_op();
         }
         assert!(sim.transit_gate());
@@ -5983,7 +5983,7 @@ mod tests {
         assert!(!sim.incursion_pending());
         assert!(!sim.pressure().endgame());
         // Climb, transit, found the foothold.
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             sim.complete_op();
         }
         assert!(sim.transit_gate());
@@ -6014,7 +6014,7 @@ mod tests {
         // the bridgehead takes no damage.
         let mut sim = Sim::new(11);
         yard(&mut sim);
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             sim.complete_op();
         }
         assert!(sim.transit_gate());
@@ -6054,7 +6054,7 @@ mod tests {
         // *and* has weathered the required incursions — a genuine victory state.
         let mut sim = Sim::new(11);
         yard(&mut sim);
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             sim.complete_op();
         }
         assert!(sim.transit_gate());
@@ -6101,7 +6101,7 @@ mod tests {
     fn the_endgame_is_lost_if_the_bridgehead_is_overrun() {
         // §17/G5: an undefended bridgehead ground to zero is the loss ending.
         let mut sim = Sim::new(5);
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             sim.complete_op();
         }
         assert!(sim.transit_gate());

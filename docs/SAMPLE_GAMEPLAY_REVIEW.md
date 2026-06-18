@@ -62,19 +62,19 @@ _Fills a small route table, then leaves — does the policy→execute→exceptio
 | treasury | 24000 → 107159 cr (+83159, ~4×) |
 | actions | 0 over 0% of ticks |
 | pacing | 2232 ticks pending · longest idle 977 ticks |
-| campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 1973 (~82 days) |
+| campaign | Sol & the Cold War · gate 66% · 2 ascent(s) |
+| gate reached | — |
 | CEO level | 17 · techs 0 |
 | traffic | 166 flew, 131 arrived, 31 cut, 31 shortages |
 | act-now alerts | 31 raised, 0 answered |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 60 → Sol & the Cold War @ 640 → The Gate @ 1973
+**Ascents:** The Region @ 353 → Sol & the Cold War @ 1973
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 1973 (~82 days).
+- **[INFO]** _Pacing_ — Climbed to Sol & the Cold War (2 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
 - **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 24000 → 107159 cr (+83159, ~4×).
 - **[GOOD]** _Watchability_ — Hands fully off, the world stayed alive: 166 convoys flew, 31 cut on the lanes, 31 shortages voiced. There is something to watch before there is something to do.
 - **[NOTE]** _Alert feed_ — 31 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
@@ -91,18 +91,18 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 | actions | 174 over 4% of ticks |
 | pacing | 3976 ticks pending · longest idle 24 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 913 (~38 days) |
+| gate reached | tick 2713 (~113 days) |
 | CEO level | 34 · techs 0 |
 | traffic | 166 flew, 0 arrived, 166 cut, 166 shortages |
 | act-now alerts | 166 raised, 0 answered |
 | standings (E/M/B/I) | -1000 / 1000 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 73 → Sol & the Cold War @ 313 → The Gate @ 913
+**Ascents:** The Region @ 193 → Sol & the Cold War @ 913 → The Gate @ 2713
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 913 (~38 days).
+- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2713 (~113 days).
 - **[NOTE]** _Economy_ — Active all run but treasury never moved — the loop found no work (e.g. a standing order idle below its margin). That idle state is the exception the feed should surface.
 - **[GOOD]** _Agency_ — Acted on 4% of ticks (174 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 24 ticks (~1 days, ~1 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
 - **[NOTE]** _Alert feed_ — 166 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
@@ -128,7 +128,7 @@ _Earns a war chest, stands up its own shipyard, then builds warships and fights 
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 37
+**Ascents:** The Region @ 91
 
 **Findings:**
 
@@ -148,18 +148,18 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 | actions | 3108 over 74% of ticks |
 | pacing | 83 ticks pending · longest idle 7 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 994 (~41 days) |
+| gate reached | tick 2881 (~120 days) |
 | CEO level | 33 · techs 6 |
 | traffic | 166 flew, 80 arrived, 84 cut, 84 shortages |
 | act-now alerts | 84 raised, 84 answered |
 | standings (E/M/B/I) | -1000 / 288 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 60 → Sol & the Cold War @ 337 → The Gate @ 994
+**Ascents:** The Region @ 193 → Sol & the Cold War @ 994 → The Gate @ 2881
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 994 (~41 days).
+- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2881 (~120 days).
 - **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 37000 → 120200 cr (+83200, ~3×).
 - **[INFO]** _Agency_ — Issued 3108 actions across 74% of ticks.
 - **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 84 of 84 act-now shortages.
@@ -174,30 +174,30 @@ _Buys frontier colonies and holds them — does expansion pay off, and do admini
 
 | metric | value |
 | --- | --- |
-| treasury | 50000 → 142712 cr (+92712, ~2×) |
-| actions | 184 over 4% of ticks |
-| pacing | 3556 ticks pending · longest idle 82 ticks |
-| campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 2161 (~90 days) |
-| CEO level | 13 · techs 0 |
-| traffic | 166 flew, 146 arrived, 19 cut, 19 shortages |
-| act-now alerts | 19 raised, 0 answered |
+| treasury | 50000 → 156602 cr (+106602, ~3×) |
+| actions | 123 over 3% of ticks |
+| pacing | 3249 ticks pending · longest idle 82 ticks |
+| campaign | Sol & the Cold War · gate 66% · 2 ascent(s) |
+| gate reached | — |
+| CEO level | 12 · techs 0 |
+| traffic | 166 flew, 146 arrived, 16 cut, 16 shortages |
+| act-now alerts | 16 raised, 0 answered |
 | battles | 2 fought, 1 won |
-| empire | 13 holding(s) at peak · coalition alarm peak 1000 |
+| empire | 11 holding(s) at peak · coalition alarm peak 990 |
 | standings (E/M/B/I) | -392 / -392 / 17 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 91 → Sol & the Cold War @ 361 → The Gate @ 2161
+**Ascents:** The Region @ 251 → Sol & the Cold War @ 2341
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2161 (~90 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 142712 cr (+92712, ~2×).
-- **[GOOD]** _Agency_ — Acted on 4% of ticks (184 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 82 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
-- **[NOTE]** _Alert feed_ — 19 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
-- **[GOOD]** _Pressure_ — Incoming raids were telegraphed 107 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
-- **[GOOD]** _Empire_ — Expansion-by-acquisition is reachable and exercised: grew to 13 holding(s) at peak (ending at 13). The §0 spine now has a territorial dimension.
-- **[GOOD]** _Empire · overextension_ — Growth provoked the great-power coalition (alarm peaked 1000/1000), answered by the fleet. The political cap on reckless expansion bites — careful growth is a real decision.
+- **[INFO]** _Pacing_ — Climbed to Sol & the Cold War (2 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 156602 cr (+106602, ~3×).
+- **[GOOD]** _Agency_ — Acted on 3% of ticks (123 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 82 ticks (~3 days, ~3 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[NOTE]** _Alert feed_ — 16 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
+- **[GOOD]** _Pressure_ — Incoming raids were telegraphed 98 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
+- **[GOOD]** _Empire_ — Expansion-by-acquisition is reachable and exercised: grew to 11 holding(s) at peak (ending at 9). The §0 spine now has a territorial dimension.
+- **[GOOD]** _Empire · overextension_ — Growth provoked the great-power coalition (alarm peaked 990/1000), which pried a holding loose. The political cap on reckless expansion bites — careful growth is a real decision.
 - **[GOOD]** _Empire · security_ — The trade empire drew piracy — 41 raids landed when escorts on station fell short of the holdings. A bigger empire needs a bigger navy (EP3): real, but counterable.
 - **[GOOD]** _Empire · enforcement_ — Souring the great powers brought customs enforcement — 11 inspection sweeps fined the empire's shipping (EP4). Trading in hostile space is taxed; repairing relations is the counter.
 
@@ -207,25 +207,25 @@ _Answers the act-now feed — speculates shortages, strips wrecks, hunts raiders
 
 | metric | value |
 | --- | --- |
-| treasury | 50000 → 106069 cr (+56069, ~2×) |
-| actions | 136 over 3% of ticks |
+| treasury | 50000 → 106476 cr (+56476, ~2×) |
+| actions | 142 over 3% of ticks |
 | pacing | 28 ticks pending · longest idle 71 ticks |
 | campaign | The Gate · gate 100% · 3 ascent(s) |
-| gate reached | tick 961 (~40 days) |
-| CEO level | 28 · techs 0 |
+| gate reached | tick 2931 (~122 days) |
+| CEO level | 29 · techs 0 |
 | traffic | 166 flew, 137 arrived, 28 cut, 28 shortages |
-| act-now alerts | 28 raised, 136 answered |
+| act-now alerts | 28 raised, 142 answered |
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 97 → Sol & the Cold War @ 343 → The Gate @ 961
+**Ascents:** The Region @ 217 → Sol & the Cold War @ 919 → The Gate @ 2931
 
 **Findings:**
 
-- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 961 (~40 days).
-- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 106069 cr (+56069, ~2×).
-- **[GOOD]** _Agency_ — Acted on 3% of ticks (136 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 71 ticks (~2 days, ~2 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
-- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 136 of 28 act-now shortages.
+- **[GOOD]** _Pacing_ — Opened the ring-gate at tick 2931 (~122 days).
+- **[GOOD]** _Economy_ — Turned a profit hands-on/over time: 50000 → 106476 cr (+56476, ~2×).
+- **[GOOD]** _Agency_ — Acted on 3% of ticks (142 actions), but the dead time is fast-forwardable: the longest stretch with nothing pending was 71 ticks (~2 days, ~2 s at 24×). With time-compression + auto-pause-on-exception (§28), the player compresses the quiet and is stopped only when an act-now alert fires.
+- **[GOOD]** _Alert feed_ — Closed the alert→verb loop: answered 142 of 28 act-now shortages.
 - **[GOOD]** _Pressure_ — Incoming raids were telegraphed 55 times across the run (§13 forecasting) — threats arrive foreseen, not out of nowhere, and the pacing governor holds spikes apart.
 
 ## Developer
@@ -237,7 +237,7 @@ _Acquires a couple of colonies, then grows them tall by developing — does the 
 | treasury | 5000 → 128590 cr (+123590, ~25×) |
 | actions | 490 over 12% of ticks |
 | pacing | 2088 ticks pending · longest idle 1193 ticks |
-| campaign | The Region · gate 33% · 1 ascent(s) |
+| campaign | The Station · gate 0% · 0 ascent(s) |
 | gate reached | — |
 | CEO level | 2 · techs 0 |
 | traffic | 166 flew, 135 arrived, 29 cut, 29 shortages |
@@ -246,11 +246,9 @@ _Acquires a couple of colonies, then grows them tall by developing — does the 
 | standings (E/M/B/I) | 0 / 0 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 31
-
 **Findings:**
 
-- **[INFO]** _Pacing_ — Climbed to The Region (1 ascent(s)) but did not reach the gate within 4000 ticks (~166 days).
+- **[NOTE]** _Pacing_ — Never advanced the campaign — this play style completed no operations (a cut, a commissioned ship, a founded station, or a delivered route), so it never drew the gate closer.
 - **[CONCERN]** _Economy_ — Treasury ran away: 5000 → 128590 cr (~25×) with no wealth-scaled sink. Repeated arbitrage compounds without bound, so trading stops being a decision and becomes a faucet.
 - **[INFO]** _Agency_ — Issued 490 actions across 12% of ticks.
 - **[NOTE]** _Alert feed_ — 29 act-now shortages were raised but none were acted on. The ExploitShortage verb needs matching cargo already on hand to exercise — there's no one-press path from the alert to the trade.
@@ -271,7 +269,7 @@ _An explicit look at the **opening**: a Newcomer (a reasonable new player follow
 | first standing route | tick 25 |
 | first industrial step (miner) | tick 49 |
 | first lane cut | tick 26 |
-| first promotion | tick 49 |
+| first promotion | tick 318 |
 | opening missions | 4/5 |
 | peak pressure (window) | 29/100 |
 | longest dead stretch | 29 ticks |
@@ -280,11 +278,11 @@ _An explicit look at the **opening**: a Newcomer (a reasonable new player follow
 
 - **[GOOD]** _Early · direction_ — From tick 0 the player has an explicit first objective ("First Light — Buy a commodity cheap at one market and sell it dear at another.") and the now-goal "Disrupt the lanes and prove the operation.", with the ring-gate already foreshadowed — direction from minute one (§0.1/§16).
 - **[GOOD]** _Early · first reward_ — First profit by tick 1 — the loop pays off quickly, before a new player's patience runs out.
-- **[GOOD]** _Early · onboarding_ — 4/5 opening missions completed in the first 720 ticks (~30 in-game days), at [1, 25, 26, 49] — the chain teaches the core verbs in a first session (§16). The one left open is "Stand Up a Hull — Commission your first warship at the Yards (you'll need crew + credits)." — check it's reachable from the opening state, not gated behind later unlocks.
+- **[GOOD]** _Early · onboarding_ — 4/5 opening missions completed in the first 720 ticks (~30 in-game days), at [1, 25, 26, 318] — the chain teaches the core verbs in a first session (§16). The one left open is "Stand Up a Hull — Commission your first warship at the Yards (you'll need crew + credits)." — check it's reachable from the opening state, not gated behind later unlocks.
 - **[GOOD]** _Early · first build_ — The early industrial step is reachable: a miner was affordable and deployed by tick 49 (the §3.1 first move from the 50000cr starting float).
 - **[GOOD]** _Early · pacing_ — The opening stays pressable: the longest dead stretch is 29 ticks (4% of the window) — no early lull a new player would quit in.
 - **[GOOD]** _Early · calm runway_ — The opening is a genuine runway: pressure peaked at only 29/100 and the player answered 8/9 early shortages — onboarding happens before the world bites (§13).
-- **[GOOD]** _Early · first ascent_ — The first promotion lands at tick 49 — the §0.3 fanfare fires inside the opening session, closing the first arc.
+- **[GOOD]** _Early · first ascent_ — The first promotion lands at tick 318 (~13 in-game days) — a deliberate Station tier, and the §0.3 fanfare still fires inside the opening session to close the first arc.
 
 ## Engagement & fun assessment
 
@@ -294,30 +292,30 @@ _These are **structural proxies** for engagement, not a measure of subjective fu
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Spectator | **22** | 0 | 74 | 0 | 0 | 22 | 49 |
 | Arbitrageur | **28** | 0 | 100 | 0 | 0 | 30 | 49 |
-| Logistician | **76** | 100 | 76 | 60 | 100 | 25 | 86 |
+| Logistician | **58** | 66 | 76 | 39 | 66 | 25 | 76 |
 | Privateer | **90** | 100 | 100 | 60 | 100 | 100 | 79 |
 | Warlord | **50** | 33 | 100 | 19 | 23 | 67 | 72 |
 | Tycoon | **98** | 100 | 100 | 100 | 100 | 100 | 86 |
-| Expansionist | **87** | 100 | 98 | 60 | 100 | 68 | 92 |
+| Expansionist | **69** | 66 | 98 | 39 | 66 | 68 | 82 |
 | Responder | **90** | 100 | 99 | 100 | 100 | 42 | 92 |
-| Developer | **38** | 33 | 71 | 19 | 23 | 22 | 66 |
+| Developer | **22** | 0 | 71 | 0 | 0 | 22 | 56 |
 
 **Per-style read (overall + weakest link):**
 
 - **Spectator** ███······· 22/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
 - **Arbitrageur** ███······· 28/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
-- **Logistician** ████████·· 76/100 — weakest is _Stakes_ (25/100): treasury dip 1%, 0 ships lost, rep low 0, pressure peak 29
+- **Logistician** ██████···· 58/100 — weakest is _Stakes_ (25/100): treasury dip 1%, 0 ships lost, rep low 0, pressure peak 29
 - **Privateer** █████████· 90/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/166 act-now shortages
 - **Warlord** █████····· 50/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/9 act-now shortages
 - **Tycoon** ██████████ 98/100 — weakest is _Variety_ (86/100): 7 of 9 event kinds; 4 tier(s) of scope
-- **Expansionist** █████████· 87/100 — weakest is _Agency_ (60/100): advanced 3/3 tiers by its own operations; answered 0/19 act-now shortages
+- **Expansionist** ███████··· 69/100 — weakest is _Agency_ (39/100): advanced 2/3 tiers by its own operations; answered 0/16 act-now shortages
 - **Responder** █████████· 90/100 — weakest is _Stakes_ (42/100): treasury dip 8%, 0 ships lost, rep low 0, pressure peak 29
-- **Developer** ████······ 38/100 — weakest is _Agency_ (19/100): advanced 1/3 tiers by its own operations; answered 0/29 act-now shortages
+- **Developer** ███······· 22/100 — weakest is _Direction_ (0/100): reached The Station (0% to the gate)
 
 **What the comparison says about fun:**
 
 - **[GOOD]** _Fun · breadth_ — Several distinct play styles are engaging (["Logistician", "Privateer", "Warlord", "Tycoon", "Expansionist", "Responder"] all score ≥50/100). Depth-of-decision survives the choice of approach — no single dominant strategy starves the others.
-- **[NOTE]** _Fun · weakest link_ — Across all play styles, **Agency** is the weakest engagement dimension (avg 46/100) — the experience's biggest fun gap to invest in next.
+- **[NOTE]** _Fun · weakest link_ — Across all play styles, **Agency** is the weakest engagement dimension (avg 39/100) — the experience's biggest fun gap to invest in next.
 - **[GOOD]** _Fun · strength_ — **Flow** is the strongest dimension (avg 90/100) — the experience leans on it well.
 - **[GOOD]** _Fun · watchability_ — Hands fully off, the world scores 61/100 on flow+variety — the measure of whether it's worth watching before you act (§28).
 
@@ -346,7 +344,7 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 
 What the comparison of play styles reveals about the design as it stands:
 
-- **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon", "Expansionist", "Responder", "Developer"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
+- **[GOOD]** _Retention spine_ — The spine listens to more than raiding: ["Logistician", "Warlord", "Tycoon", "Expansionist", "Responder"] climbed without cutting a single convoy (commissions, founded stations, and delivered routes now count as operations). Pure manual teleport-trade still doesn't climb — by design, it's the degenerate verb.
 - **[GOOD]** _Combat_ — Combat is reachable from the live loop: 5 fleet engagements fought (3 held the field) via Sim::engage_raiders, with losses applied to the fleet and a BattleResolved alert voiced — the §7/§9 resolver is in play, not just demo_duel.
 - **[GOOD]** _Economy_ — Hand-trading no longer dominates the route: a brokerage fee prices the instant verb's free liquidity (113888 cr by hand vs 107159 cr routed), and routing now also climbs the spine — so the two are complementary, not strictly ordered.
 - **[GOOD]** _Economy_ — Wealth-scaled overhead bounds the faucet: the Arbitrageur settled at ~2× (≈113888 cr) instead of compounding without limit — accumulation now hits a sustainable equilibrium where overhead meets income.

@@ -42,11 +42,16 @@ impl Tier {
     /// Player operations needed to climb to the next tier, or `None` at a summit.
     /// The Gate is **not** auto-advanced — crossing it is the deliberate
     /// [`transit`](Campaign::transit) verb, the payoff of the whole climb (§0.1).
+    /// Player operations needed to climb out of this tier (§0.3). Tuned for a
+    /// **deliberate** pace — the early version (3/10/25) cleared the Station in
+    /// ~1–2 in-game days and opened the Gate in ~40, which read as rushing the
+    /// journey. ~3× slower (8/30/75) makes each tier a stay, not a checkpoint,
+    /// without becoming a grind (the gameplay-QA early/pacing audits measure it).
     fn ops_to_advance(self) -> Option<i64> {
         match self {
-            Tier::Station => Some(3),
-            Tier::Region => Some(10),
-            Tier::Sol => Some(25),
+            Tier::Station => Some(8),
+            Tier::Region => Some(30),
+            Tier::Sol => Some(75),
             Tier::Gate | Tier::Beyond => None,
         }
     }
@@ -227,15 +232,16 @@ mod tests {
         assert_eq!(c.gate_progress_bp(), 0);
         assert!(!c.gate_open());
         let (_, progress, target) = c.now_goal();
-        assert_eq!((progress, target), (0, 3));
+        assert_eq!((progress, target), (0, 8));
     }
 
     #[test]
     fn operations_climb_the_tier_and_advance_the_gate() {
         let mut c = Campaign::new();
-        assert_eq!(c.record_op(), None);
-        assert_eq!(c.record_op(), None);
-        // Third op completes Station → ascend to Region (the fanfare).
+        // The Station takes 8 operations; the last one promotes to Region.
+        for _ in 0..7 {
+            assert_eq!(c.record_op(), None);
+        }
         assert_eq!(c.record_op(), Some("The Region"));
         assert_eq!(c.tier(), Tier::Region);
         assert!(c.gate_progress_bp() > 0);
@@ -251,7 +257,7 @@ mod tests {
         assert_eq!((c.station_cap(), c.route_cap()), (4, 4));
         let caps = |c: &Campaign| (c.station_cap(), c.route_cap());
         let mut prev = caps(&c);
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             c.record_op();
             let now = caps(&c);
             assert!(now.0 >= prev.0 && now.1 >= prev.1, "caps must never shrink");
@@ -271,7 +277,7 @@ mod tests {
             c.transit().is_none(),
             "can't transit before reaching the gate"
         );
-        for _ in 0..(3 + 10 + 25) {
+        for _ in 0..200 {
             c.record_op();
         }
         assert_eq!(c.tier(), Tier::Gate);
@@ -311,8 +317,8 @@ mod tests {
     #[test]
     fn the_full_climb_opens_the_gate() {
         let mut c = Campaign::new();
-        // 3 + 10 + 25 ops to climb Station → Region → Sol → Gate.
-        for _ in 0..(3 + 10 + 25) {
+        // Climb Station → Region → Sol → the open Gate (enough ops to summit). Station → Region → Sol → Gate.
+        for _ in 0..200 {
             c.record_op();
         }
         assert_eq!(c.tier(), Tier::Gate);
