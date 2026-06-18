@@ -179,6 +179,38 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Early-game focus, part 2: contested colonies (the Ganymede conflict) + miner AO.**
+  Two parts. **(1) Contested colonies** (`sim::contest`) — the major frontier hubs (the
+  `is_market` colonies: Europa, Ganymede, Titan) are now openly **fought over** by the great
+  powers, the player's literal example being *the Ganymede conflict from The Expanse*. Each carries
+  a per-faction **influence pie** (`[i64;4]` bp, summing to 1000) that drifts under an ambient
+  **Earth↔Mars tug-of-war** (`run_contest`: on a 90-tick flare it shoves influence between the two
+  inners, round-robin over the hubs, alternating who presses — voiced via `feed.announce("The
+  Frontier", …)`, **no new `Event` variant**). The early-game vision's *"slowly gather influence
+  over small colonies"* is the player loop: `court_contested_colony(i)` spends the E4 Influence
+  resource to bank `player_influence` toward a hub; at `CLAIM_THRESHOLD` (600/1000)
+  `claim_contested_colony(i)` takes control (the influence path to a holding — cheaper than a
+  buyout but slow, spiking the inners' alarm like any expansion). **Byte-identical:** the contest
+  is integer + **rng-free** and touches only its own numbers + the feed (never the market RNG), and
+  the court/claim verbs are player-only (personas don't touch them) — so the §7c gate + QA
+  *gameplay* body are **byte-identical** (only the UI-wiring facet moved, 215→226 wired; the 11 new
+  bindings are all wired). On load only `player_influence` is overlaid (a `Vec<i64>`); the ambient
+  influence + flare schedule **replay deterministically** during the re-sim, so they need no
+  persisting. Shell: a **CONTESTED HUBS** gauge in the EMPIRE view — a 20-cell faction-coloured
+  `_influence_bar` (blue Earth / red Mars / ochre Belt / grey Indie) + leader + "your standing
+  N/600", with `◎ COURT HUB` / `◎ CLAIM HUB` verbs acting on the focused (or most-courted) hub.
+  Tests `the_powers_contest_the_major_hubs_and_courting_lets_you_claim_one`,
+  `the_contest_does_not_perturb_the_economy`. **(2) Miner AO restriction** (player call) — player
+  mining is confined to the **asteroid/Kuiper belts** (the dwarf bodies, Ceres & Pluto) and the
+  **rings/moons of the outer systems** (moons whose *parent's kind* is `GasGiant`/`DwarfPlanet`);
+  the **Earth/Mars AO** — the inner planets and their moons (Luna, Phobos, Deimos) — is off-limits.
+  New `can_mine_body(body)` keys off `BodyKind` + the parent's kind (robust, no hard-coded indices),
+  gating `buy_miner` (→ `BadSite`) and the shell's `⛏ MINE` button + hint. 201 cargo green; clippy
+  clean (`step % 2 == 0` → `step.is_multiple_of(2)` per the rust-1.94 lint). *Lesson:* a whole new
+  political layer (the powers' contest) lands byte-identical by keeping it rng-free, additive, and
+  player-driven — the same discipline as the empire/miner/war layers; the only thing that moves in
+  QA is the binding-wiring count.
+
 - **2026-06-18 — Early-game focus, part 1: visible miners + war collateral on space assets.** Two
   of the three early-game asks. **(1) Visible miners on the orrery** — deployed miners (the §A4
   industrial bootstrap) were a count + a warehouse drip with no map presence. The shell now pools

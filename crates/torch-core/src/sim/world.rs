@@ -10,6 +10,7 @@ use super::automation::AutomationPolicy;
 use super::bridgehead::Bridgehead;
 use super::campaign::{Campaign, EndgameOutcome, Tier};
 use super::combat::{self, Band, BattleOutcome, Doctrine, Fleet, TargetPriority};
+use super::contest::{self, ContestedColony};
 use super::contracts::ContractBoard;
 use super::corp::{Corp, OwnedShip};
 use super::decisions::{
@@ -278,6 +279,19 @@ pub enum AcquireError {
     /// You already control it.
     AlreadyControlled,
     CantAfford,
+}
+
+/// Why courting or claiming a contested colony could not proceed (early game).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContestError {
+    /// No such contested colony.
+    NoSuchColony,
+    /// You already control it.
+    AlreadyControlled,
+    /// Not enough Influence to court it (the statecraft resource).
+    NotEnoughInfluence,
+    /// Your standing isn't strong enough to claim it yet (court it more).
+    NotStrongEnough,
 }
 
 /// Price to buy out an independent **market** colony (a producing frontier hub).
@@ -626,6 +640,13 @@ pub struct Sim {
     /// Tick the next Earth/Mars war flashpoint fires (player collateral). Fires more in
     /// the early game and dwindles as you climb the tiers.
     next_war_flashpoint: u64,
+    /// The major frontier hubs the great powers fight over (early game): per-colony
+    /// faction influence + the player's accumulated standing. Ambient Earth/Mars flares
+    /// shift the balance; the player courts a colony to claim it. Touches only its own
+    /// numbers + the feed, so the economy is byte-identical.
+    contested: Vec<ContestedColony>,
+    /// Tick the next ambient great-power contest flare fires.
+    next_contest_flare: u64,
     /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
     /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
     /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
@@ -732,6 +753,13 @@ impl Sim {
             shipyard_body: 0,
             miners: Vec::new(),
             next_war_flashpoint: 100,
+            contested: default_colonies()
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.is_market)
+                .map(|(i, c)| ContestedColony::seed(i, c.faction))
+                .collect(),
+            next_contest_flare: contest::FLARE_INTERVAL,
             faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
@@ -1676,20 +1704,40 @@ impl Sim {
         body.wrapping_mul(2_654_435_761) % 3
     }
 
+    /// Whether the player may deploy a miner at `body`. Player mining is confined to
+    /// the **asteroid/Kuiper belts** (the dwarf bodies, Ceres & Pluto) and the **rings
+    /// and moons of the outer systems** (moons of the gas giants + outer dwarfs). The
+    /// **Earth and Mars AO** — the inner planets and their moons (Luna, Phobos, Deimos)
+    /// — is off-limits to player miners.
+    pub fn can_mine_body(&self, body: usize) -> bool {
+        use super::orbit::BodyKind;
+        let bodies = super::orbit::default_system();
+        let Some(b) = bodies.get(body) else {
+            return false;
+        };
+        match b.kind {
+            // The belts: Ceres (main belt) and Pluto (Kuiper) are workable dwarf bodies.
+            BodyKind::DwarfPlanet => true,
+            // Moons/rings — but only of the *outer* systems. A moon of a Planet
+            // (Earth/Mars) is inner-system AO; a moon of a GasGiant/DwarfPlanet is fair.
+            BodyKind::Moon => matches!(
+                bodies.get(b.parent).map(|p| p.kind),
+                Some(BodyKind::GasGiant | BodyKind::DwarfPlanet)
+            ),
+            // Stars, gates, the inner/gas-giant surfaces themselves, the far side: no.
+            _ => false,
+        }
+    }
+
     /// Buy + deploy a miner at `body` (a civilian bought from Tycho — no shipyard needed).
     /// It mines that body's raw into your warehouse each tick. Cheap; the first step.
+    /// Restricted to the belts + the outer moons/rings (not the Earth/Mars AO).
     pub fn buy_miner(&mut self, body: usize) -> Result<(), MinerError> {
         if self.miners.len() >= MAX_MINERS {
             return Err(MinerError::Full);
         }
-        let bodies = super::orbit::default_system();
-        match bodies.get(body) {
-            Some(b)
-                if !matches!(
-                    b.kind,
-                    super::orbit::BodyKind::Star | super::orbit::BodyKind::Gate
-                ) => {}
-            _ => return Err(MinerError::BadSite),
+        if !self.can_mine_body(body) {
+            return Err(MinerError::BadSite);
         }
         if self.corp.credits() < MINER_COST {
             return Err(MinerError::CantAfford);
@@ -1742,6 +1790,41 @@ impl Sim {
         self.feed.announce(
             "The Inners",
             "An Earth–Mars flashpoint flares across your lanes — mind your cargo.".to_string(),
+            tick,
+        );
+    }
+
+    // ---- contested colonies (the great powers fight over the major hubs) ----
+
+    /// The ambient great-power contest over the major frontier hubs (early-game
+    /// "weather"): on a flare, Earth and Mars shove over one colony, shifting its
+    /// influence balance — voiced via the feed (the Ganymede conflict as the model).
+    /// Pure integer + rng-free + touches only contest numbers, so it's byte-identical.
+    fn run_contest(&mut self) {
+        if self.contested.is_empty() || self.tick < self.next_contest_flare {
+            return;
+        }
+        self.next_contest_flare = self.tick + contest::FLARE_INTERVAL;
+        let tick = self.tick;
+        let step = tick / contest::FLARE_INTERVAL;
+        // Round-robin which colony flares; alternate which inner presses its claim.
+        let which = (step as usize) % self.contested.len();
+        let earth = Faction::Earth.index();
+        let mars = Faction::Mars.index();
+        let (gain, lose) = if step.is_multiple_of(2) {
+            (mars, earth)
+        } else {
+            (earth, mars)
+        };
+        let shift = contest::FLARE_SHIFT.min(self.contested[which].influence[lose]);
+        self.contested[which].influence[lose] -= shift;
+        self.contested[which].influence[gain] += shift;
+        let colony = self.contested[which].colony;
+        let colony_name = self.colonies[colony].name;
+        let winner = Faction::ALL[gain].name();
+        self.feed.announce(
+            "The Frontier",
+            format!("Earth and Mars clash over {colony_name} — {winner} presses its claim."),
             tick,
         );
     }
@@ -2483,6 +2566,7 @@ impl Sim {
             shipyard_body: self.shipyard_body,
             miners: self.miners.clone(),
             next_war_flashpoint: self.next_war_flashpoint,
+            contested_player_influence: self.contested.iter().map(|c| c.player_influence).collect(),
             faction_alarm: self.faction_alarm,
             influence: self.influence,
             company_relations: self.diplomacy.relations(),
@@ -2619,6 +2703,18 @@ impl Sim {
         if s.next_war_flashpoint > 0 {
             self.next_war_flashpoint = s.next_war_flashpoint;
         }
+        // The ambient powers' influence + flare schedule replayed during the re-sim
+        // above; overlay only the player's accumulated standing (player-driven, not
+        // re-simmed). Length-guarded so the contest layout can evolve safely.
+        if s.contested_player_influence.len() == self.contested.len() {
+            for (c, &pi) in self
+                .contested
+                .iter_mut()
+                .zip(s.contested_player_influence.iter())
+            {
+                c.player_influence = pi.clamp(0, contest::CONTEST_TOTAL);
+            }
+        }
         // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
         self.faction_alarm = s.faction_alarm;
         for a in &mut self.faction_alarm {
@@ -2669,6 +2765,7 @@ impl Sim {
         self.run_shipyard_upkeep();
         self.run_miners();
         self.run_war();
+        self.run_contest();
         self.run_holdings();
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
@@ -2948,6 +3045,65 @@ impl Sim {
     /// annexation (E4).
     pub fn influence(&self) -> i64 {
         self.influence
+    }
+
+    // ---- contested colonies (gather influence over the major hubs, early game) ----
+
+    /// The contested major frontier hubs — the powers' tug-of-war state (early game).
+    pub fn contested_colonies(&self) -> &[ContestedColony] {
+        &self.contested
+    }
+
+    /// Number of contested colonies.
+    pub fn contested_count(&self) -> usize {
+        self.contested.len()
+    }
+
+    /// Read contested colony `i` (None out of range).
+    pub fn contested_colony(&self, i: usize) -> Option<&ContestedColony> {
+        self.contested.get(i)
+    }
+
+    /// **Court a contested colony** (the slow early-game gather-influence loop):
+    /// spend Influence to build your standing over it. Reach the claim threshold to
+    /// take it. Counts as a spine op (§0). Fails without enough Influence.
+    pub fn court_contested_colony(&mut self, i: usize) -> Result<(), ContestError> {
+        let cc = self.contested.get(i).ok_or(ContestError::NoSuchColony)?;
+        if self.colony_controlled(cc.colony) {
+            return Err(ContestError::AlreadyControlled);
+        }
+        if self.influence < contest::COURT_COST {
+            return Err(ContestError::NotEnoughInfluence);
+        }
+        self.influence -= contest::COURT_COST;
+        let cc = &mut self.contested[i];
+        cc.player_influence =
+            (cc.player_influence + contest::COURT_GAIN).min(contest::CONTEST_TOTAL);
+        self.complete_op();
+        Ok(())
+    }
+
+    /// **Claim a contested colony** you've built enough standing over — the
+    /// influence path to control (cheaper than a buyout, but slow to earn). Taking a
+    /// hub from the powers spikes the inners' alarm and is a spine op. Fails until your
+    /// standing clears the claim threshold.
+    pub fn claim_contested_colony(&mut self, i: usize) -> Result<(), ContestError> {
+        let cc = self.contested.get(i).ok_or(ContestError::NoSuchColony)?;
+        let colony = cc.colony;
+        if self.colony_controlled(colony) {
+            return Err(ContestError::AlreadyControlled);
+        }
+        if !cc.claimable() {
+            return Err(ContestError::NotStrongEnough);
+        }
+        self.controlled[colony] = true;
+        // Taking a contested hub from the powers is watched as expansion (E3/E7).
+        self.relations.on_player_expand();
+        self.raise_alarm(Faction::Earth, ALARM_PER_ACQUISITION);
+        self.raise_alarm(Faction::Mars, ALARM_PER_ACQUISITION);
+        self.events.push(Event::ColonyAcquired { colony });
+        self.complete_op();
+        Ok(())
     }
 
     // ---- corporate diplomacy with the independent companies (E8) ----
@@ -5675,6 +5831,23 @@ mod tests {
             "buying a miner costs credits"
         );
         assert!(matches!(sim.buy_miner(0), Err(MinerError::BadSite))); // not the sun
+                                                                       // Player mining is confined to the belts + outer moons; the Earth/Mars AO is off-limits.
+        let earth = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Earth")
+            .unwrap();
+        let luna = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Luna")
+            .unwrap();
+        let titan = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Titan")
+            .unwrap();
+        assert!(matches!(sim.buy_miner(earth), Err(MinerError::BadSite)));
+        assert!(matches!(sim.buy_miner(luna), Err(MinerError::BadSite))); // Earth's moon
+        assert!(sim.can_mine_body(titan), "an outer moon is a valid site");
+        assert!(sim.can_mine_body(body), "the belt (Ceres) is a valid site");
         for _ in 0..30 {
             sim.step();
         }
@@ -5682,6 +5855,71 @@ mod tests {
             sim.corp().cargo(mineral) >= before + 30 * MINER_OUTPUT_PER_TICK,
             "the miner stocked the warehouse with the body's mineral"
         );
+    }
+
+    #[test]
+    fn the_powers_contest_the_major_hubs_and_courting_lets_you_claim_one() {
+        // The major frontier hubs are fought over (the Ganymede conflict). Ambient
+        // Earth/Mars flares shift the balance; the player gathers influence to claim one.
+        let mut sim = Sim::new(0);
+        assert!(sim.contested_count() > 0, "major hubs should be contested");
+        // The ambient contest shifts influence over time (Earth/Mars tug-of-war).
+        let before: Vec<[i64; 4]> = sim
+            .contested_colonies()
+            .iter()
+            .map(|c| c.influence)
+            .collect();
+        for _ in 0..contest::FLARE_INTERVAL * 2 + 5 {
+            sim.step();
+        }
+        let after: Vec<[i64; 4]> = sim
+            .contested_colonies()
+            .iter()
+            .map(|c| c.influence)
+            .collect();
+        assert_ne!(
+            before, after,
+            "ambient great-power flares shift the balance"
+        );
+        // Court a colony enough to claim it (the slow gather-influence loop).
+        sim.influence = 100_000; // plenty of statecraft resource
+        let colony = sim.contested_colony(0).unwrap().colony;
+        assert!(!sim.colony_controlled(colony));
+        // Claiming before you've built standing is rejected.
+        assert!(matches!(
+            sim.claim_contested_colony(0),
+            Err(ContestError::NotStrongEnough)
+        ));
+        while !sim.contested_colony(0).unwrap().claimable() {
+            sim.court_contested_colony(0).unwrap();
+        }
+        sim.claim_contested_colony(0).unwrap();
+        assert!(sim.colony_controlled(colony), "claimed the contested hub");
+    }
+
+    #[test]
+    fn the_contest_does_not_perturb_the_economy() {
+        // The contest layer touches only its own numbers + the feed — never the market
+        // RNG — so a world that watches/courts it stays bit-identical in the economy.
+        let mut a = Sim::new(7);
+        let mut b = Sim::new(7);
+        for _ in 0..600 {
+            a.step();
+            // b reads the contest every tick (and the ambient flares fire in both).
+            let _ = b.contested_colonies();
+            b.step();
+        }
+        let stocks_a: Vec<Vec<i64>> = a
+            .markets()
+            .iter()
+            .map(|m| m.stocks().iter().map(|s| s.stock).collect())
+            .collect();
+        let stocks_b: Vec<Vec<i64>> = b
+            .markets()
+            .iter()
+            .map(|m| m.stocks().iter().map(|s| s.stock).collect())
+            .collect();
+        assert_eq!(stocks_a, stocks_b, "the contest never perturbs the economy");
     }
 
     #[test]
