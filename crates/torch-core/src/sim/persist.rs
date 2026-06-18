@@ -132,6 +132,11 @@ pub struct SaveState {
     /// Tick the next Earth/Mars war flashpoint fires.
     #[serde(default)]
     pub next_war_flashpoint: u64,
+    /// The player's accumulated standing over each contested colony (early game), in
+    /// contested-colony order; empty for a fresh game / old saves (the ambient powers'
+    /// influence + flare schedule replay deterministically on load).
+    #[serde(default)]
+    pub contested_player_influence: Vec<i64>,
     /// Per-faction alarm at the player's expansion (E3/E7), by `Faction` index; all-0
     /// for a fresh game / old saves. The coalition schedule re-arms from it on load.
     #[serde(default)]

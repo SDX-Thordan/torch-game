@@ -1674,6 +1674,13 @@ impl TorchSim {
         GString::from(self.sim.markets()[0].defs()[c].name)
     }
 
+    /// Whether the player may mine `body` — the belts + outer moons/rings only (the
+    /// Earth/Mars AO is off-limits). Lets the shell gate the MINE button + its hint.
+    #[func]
+    fn can_mine_body(&self, body: i64) -> bool {
+        self.sim.can_mine_body(body.max(0) as usize)
+    }
+
     /// Buy + deploy a miner at `body`. Returns a feedback message (empty on failure).
     #[func]
     fn buy_miner(&mut self, body: i64) -> GString {
@@ -1686,6 +1693,98 @@ impl TorchSim {
                     self.sim.markets()[0].defs()[c].name
                 ))
             }
+            Err(_) => GString::new(),
+        }
+    }
+
+    // ---- contested colonies: the powers fight over the major hubs (early game) ----
+
+    /// How many major hubs are contested by the great powers.
+    #[func]
+    fn contested_count(&self) -> i64 {
+        self.sim.contested_count() as i64
+    }
+
+    /// The body contested colony `i` sits on (for the orrery marker), −1 out of range.
+    #[func]
+    fn contested_body(&self, i: i64) -> i64 {
+        self.sim
+            .contested_colony(i.max(0) as usize)
+            .map(|c| self.sim.colonies()[c.colony].body as i64)
+            .unwrap_or(-1)
+    }
+
+    /// The contested colony's display name (empty out of range).
+    #[func]
+    fn contested_name(&self, i: i64) -> GString {
+        match self.sim.contested_colony(i.max(0) as usize) {
+            Some(c) => GString::from(self.sim.colonies()[c.colony].name),
+            None => GString::new(),
+        }
+    }
+
+    /// Faction `f`'s influence (basis points) over contested colony `i`, 0 out of range.
+    #[func]
+    fn contested_influence(&self, i: i64, f: i64) -> i64 {
+        self.sim
+            .contested_colony(i.max(0) as usize)
+            .and_then(|c| c.influence.get(f.max(0) as usize).copied())
+            .unwrap_or(0)
+    }
+
+    /// The faction index currently leading the contest for colony `i`, −1 out of range.
+    #[func]
+    fn contested_leader(&self, i: i64) -> i64 {
+        self.sim
+            .contested_colony(i.max(0) as usize)
+            .map(|c| c.leader().index() as i64)
+            .unwrap_or(-1)
+    }
+
+    /// The player's accumulated standing over contested colony `i` (0..1000).
+    #[func]
+    fn contested_player_influence(&self, i: i64) -> i64 {
+        self.sim
+            .contested_colony(i.max(0) as usize)
+            .map(|c| c.player_influence)
+            .unwrap_or(0)
+    }
+
+    /// The player standing needed to claim a contested colony (the threshold).
+    #[func]
+    fn contested_claim_threshold(&self) -> i64 {
+        crate::sim::contest::CLAIM_THRESHOLD
+    }
+
+    /// Whether the player can claim contested colony `i` now (standing ≥ threshold).
+    #[func]
+    fn contested_claimable(&self, i: i64) -> bool {
+        self.sim
+            .contested_colony(i.max(0) as usize)
+            .map(|c| c.claimable())
+            .unwrap_or(false)
+    }
+
+    /// Court contested colony `i` (spend Influence, build standing). Returns a feedback
+    /// message (empty on failure — not enough Influence, or already controlled).
+    #[func]
+    fn court_contested_colony(&mut self, i: i64) -> GString {
+        match self.sim.court_contested_colony(i.max(0) as usize) {
+            Ok(()) => GString::from(format!(
+                "Influence spent — your standing over {} grows.",
+                self.contested_name(i)
+            )),
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Claim contested colony `i` once your standing clears the threshold. Returns a
+    /// feedback message (empty on failure).
+    #[func]
+    fn claim_contested_colony(&mut self, i: i64) -> GString {
+        let name = self.contested_name(i);
+        match self.sim.claim_contested_colony(i.max(0) as usize) {
+            Ok(()) => GString::from(format!("{name} claimed — the powers take note.")),
             Err(_) => GString::new(),
         }
     }
