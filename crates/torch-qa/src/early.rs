@@ -349,12 +349,18 @@ pub fn audit(r: &EarlyReport) -> Vec<Finding> {
         });
     }
 
-    // 7. The first promotion (the §0.3 first fanfare).
+    // 7. The first promotion — present, but not *instant* (a too-fast first tier
+    //    reads as rushing the journey; too slow and the first arc never closes).
     match r.first_ascent {
+        Some(t) if t < 72 => f.push(Finding {
+            severity: Severity::Note,
+            area: "Early · first ascent",
+            message: format!("The first promotion comes very fast — {} (~{} in-game day(s)). The opening tier flips almost instantly; the Station should read as a stay, not a checkpoint (raise its ops threshold).", at(Some(t)), (t / 24).max(1)),
+        }),
         Some(t) => f.push(Finding {
             severity: Severity::Good,
             area: "Early · first ascent",
-            message: format!("The first promotion lands at {} — the §0.3 fanfare fires inside the opening session, closing the first arc.", at(Some(t))),
+            message: format!("The first promotion lands at {} (~{} in-game days) — a deliberate Station tier, and the §0.3 fanfare still fires inside the opening session to close the first arc.", at(Some(t)), t / 24),
         }),
         None => f.push(Finding {
             severity: Severity::Note,
