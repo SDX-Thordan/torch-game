@@ -54,7 +54,6 @@ const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
 ]
-const SPACE_BG := Color(0.02, 0.03, 0.06)
 const HAULER_COL := Color(0.95, 0.7, 0.35)
 const SELECT_COL := Color(1.0, 0.4, 0.2)
 const CHART_COMMS := 4   # commodities tracked in the price-history chart
@@ -278,8 +277,9 @@ func _resolve_commodity_indices() -> void:
 func _build_world() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = SPACE_BG
+	# A procedural deep-space sky (stars + Milky Way + nebulae) at infinity (§21).
+	e.background_mode = Environment.BG_SKY
+	e.sky = PlanetShaders.space_sky()
 	# Bodies are lit in-shader from Sol at the origin (§17), so the scene needs no
 	# engine lights; a faint ambient just keeps the unlit far rims from going pure black.
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
@@ -388,8 +388,6 @@ func _build_world() -> void:
 	lane_mat.albedo_color = Color(0.85, 0.6, 0.35, 0.4)
 	lanes.material_override = lane_mat
 	_orrery_root.add_child(lanes)
-
-	_build_starfield()
 
 
 ## Build one celestial body: a positioned container holding a tilted, spinning,
@@ -580,33 +578,6 @@ func _atmosphere_for(name: String, kind: int, rad: float) -> MeshInstance3D:
 	sm.radial_segments = 28
 	sm.rings = 14
 	return shell
-
-
-func _build_starfield() -> void:
-	var n := 600
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.albedo_color = Color(0.85, 0.88, 1.0)
-	var quad := QuadMesh.new()
-	quad.size = Vector2(1.4, 1.4)
-	quad.material = mat
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = quad
-	mm.instance_count = n
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	for i in n:
-		var dir := Vector3(rng.randfn(), rng.randfn(), rng.randfn())
-		if dir.length() < 0.001:
-			dir = Vector3.UP
-		var pos := dir.normalized() * rng.randf_range(260.0, 420.0)
-		var s := rng.randf_range(0.6, 2.0)
-		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * s), pos))
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	_orrery_root.add_child(mmi)
 
 
 func _build_saturn_rings(saturn: Node3D) -> void:

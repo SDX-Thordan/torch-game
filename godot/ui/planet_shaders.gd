@@ -291,5 +291,86 @@ void fragment() {
 	return m
 
 
+## A realistic deep-space backdrop (a procedural Sky): a multi-scale star field with
+## temperature-coloured stars, the Milky Way band with dust lanes, and faint nebulae.
+## Rendered at infinity so it has no parallax as the camera pans/zooms.
+static func space_sky() -> Sky:
+	var sh := Shader.new()
+	sh.code = """
+shader_type sky;
+
+float hash13(vec3 p) {
+	p = fract(p * 0.3183099 + 0.1);
+	p *= 17.0;
+	return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+vec3 hash33(vec3 p) {
+	p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
+			 dot(p, vec3(269.5, 183.3, 246.1)),
+			 dot(p, vec3(113.5, 271.9, 124.6)));
+	return fract(sin(p) * 43758.5453123);
+}
+float vnoise(vec3 x) {
+	vec3 i = floor(x);
+	vec3 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(hash13(i + vec3(0,0,0)), hash13(i + vec3(1,0,0)), f.x),
+				   mix(hash13(i + vec3(0,1,0)), hash13(i + vec3(1,1,0)), f.x), f.y),
+			   mix(mix(hash13(i + vec3(0,0,1)), hash13(i + vec3(1,0,1)), f.x),
+				   mix(hash13(i + vec3(0,1,1)), hash13(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p) {
+	float a = 0.5;
+	float s = 0.0;
+	for (int i = 0; i < 5; i++) { s += a * vnoise(p); p *= 2.1; a *= 0.5; }
+	return s;
+}
+// One grid layer of stars: ~one jittered, temperature-coloured point per filled cell,
+// with a bright core + soft halo so it reads at a pixel or two.
+vec3 star_layer(vec3 dir, float scale, float thresh, float size) {
+	vec3 p = dir * scale;
+	vec3 id = floor(p);
+	vec3 rnd = hash33(id);
+	if (rnd.x < thresh) { return vec3(0.0); }
+	vec3 off = (hash33(id + 5.0) - 0.5) * 0.6;
+	float d = length(fract(p) - 0.5 - off);
+	float core = smoothstep(size, 0.0, d);
+	float b = core * core + smoothstep(size * 3.0, 0.0, d) * 0.3;
+	float mag = 0.4 + 0.6 * rnd.y;
+	vec3 sc = mix(vec3(0.6, 0.74, 1.0), vec3(1.0, 0.96, 0.86), smoothstep(0.0, 0.6, rnd.z));
+	sc = mix(sc, vec3(1.0, 0.72, 0.55), smoothstep(0.85, 1.0, rnd.z));
+	return sc * b * mag;
+}
+void sky() {
+	vec3 dir = normalize(EYEDIR);
+	vec3 col = vec3(0.012, 0.016, 0.03);   // deep space, faintly blue
+	// Milky Way: a tilted band with cloudy structure and dark dust lanes.
+	vec3 bn = normalize(vec3(0.34, 0.86, 0.38));
+	float band = 1.0 - abs(dot(dir, bn));
+	float bandmask = pow(smoothstep(0.4, 1.0, band), 1.5);
+	float clouds = fbm(dir * 4.5 + vec3(3.0));
+	float dust = fbm(dir * 11.0 + vec3(20.0));
+	vec3 mwcol = mix(vec3(0.05, 0.06, 0.11), vec3(0.26, 0.24, 0.32), clouds);
+	mwcol *= (0.3 + 0.9 * dust);
+	col += mwcol * bandmask * 1.3;
+	// Faint coloured nebulae.
+	col += vec3(0.12, 0.04, 0.16) * smoothstep(0.55, 0.95, fbm(dir * 2.2 + vec3(9.0)));
+	col += vec3(0.02, 0.08, 0.11) * smoothstep(0.58, 0.95, fbm(dir * 3.0 - vec3(30.0))) * 0.7;
+	// Stars at several scales (coarse = big bright, fine = faint dust); the band is richer.
+	float boost = 1.0 + bandmask * 2.5;
+	col += star_layer(dir, 38.0, 0.86, 0.16) * 1.5;
+	col += star_layer(dir, 72.0, 0.90, 0.12) * 1.15;
+	col += star_layer(dir, 135.0, 0.93, 0.09) * 0.9 * boost;
+	col += star_layer(dir, 250.0, 0.95, 0.07) * 0.7 * boost;
+	COLOR = col;
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	var sky := Sky.new()
+	sky.sky_material = mat
+	return sky
+
+
 static func _v(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)

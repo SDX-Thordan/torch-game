@@ -179,6 +179,20 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Orrery follow-ups: sun scale + a realistic deep-space sky (§21).** Two small
+  shell fixes on the beautiful-orrery pass. **(1) Sun scale** — the sun's display radius (0.55)
+  exceeded Mercury's orbit (0.387 world units at 1 AU = 1 unit), so Mercury rendered *inside* the
+  sun; rescaled the sun to 0.26 and the planets proportionally (sun still the largest body) so the
+  inner orbits clear it, and scaled Saturn's rings off its display radius. **(2) Realistic
+  background** — replaced the flat dark fill + 600 billboarded star-quads with a procedural **Sky
+  shader** (`PlanetShaders.space_sky`, `Environment.BG_SKY`): a multi-scale temperature-coloured
+  star field (blue→white→warm) with bright-core + soft-halo points, a tilted **Milky Way** band
+  with cloud structure + dust lanes, and faint coloured **nebulae** — all at infinity, so no
+  parallax as the camera pans/zooms. *Star-sizing lesson:* at fine grid scales the per-cell star
+  was **sub-pixel** (cell ≈ 9px, star radius < 1px) so the field looked empty — lower the grid
+  scales (bigger cells) and give each star a core + 3× halo so it reads at a pixel or two. Pure
+  shell; cargo/QA untouched.
+
 - **2026-06-18 — A beautiful 3D orrery: procedural-shader bodies + Sol-lit day/night + richer
   system (§17/§21/§24).** A big "make the map beautiful" pass, mostly shell + a small orbit-data
   add. **Rust (`orbit.rs`):** a new `BodyKind::Asteroid` (one arm in `lib.rs body_kind`, nothing
