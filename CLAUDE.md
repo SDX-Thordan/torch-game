@@ -5,6 +5,10 @@ the authoritative GDD). Read at the start of every session; update whenever a
 decision is made or a lesson is learned.
 
 **Companion authorities (in `docs/`):**
+- `docs/STATE_OF_THE_GAME.md` — **the single live backlog + status** (consolidated
+  2026-06-18). Start here for *what's left*: the prioritized open work (P1 mid/late-game
+  arc → P2 diplomacy → P3 art → P4 polish) + the explicit **non-goals**. The other plan
+  docs below are completed archives; the inline "Next:/Deferred:" notes in §7 are history.
 - `TORCH_Unified_Design_Document2.md` (root) — the authoritative GDD. **Part VI
   (2026-06-17)** documents the empire-sim re-aim + everything built since.
 - `docs/EMPIRE_LAYER_PLAN.md` / `EMPIRE_PHASE2_PLAN.md` / `EMPIRE_DIPLOMACY_PLAN.md` /
@@ -100,6 +104,11 @@ cd godot && godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit
 
 ## 6. Roadmap (GDD §35 build order → PRs)
 
+> **The live, deduplicated backlog of *open* work is `docs/STATE_OF_THE_GAME.md`.** This
+> section is the historical **build-order** record (steps 1–15, mostly done). For "what's
+> next," read the backlog — not the scattered "Next:/Deferred:" notes in §7 (those are
+> history, several since shipped).
+
 Status: [x] done, [~] in progress, [ ] todo.
 
 - [x] **1. De-risk Rust-on-Android** — gdext hello-world + Android export APK.
@@ -184,6 +193,25 @@ Status: [x] done, [~] in progress, [ ] todo.
   (A1 procedural assembly/baking, A2 voxel diorama) + deeper Tier-3 geopolitics.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-18 — PM pass: consolidated the backlog (`docs/STATE_OF_THE_GAME.md` is now the single
+  source).** Planning had sprawled — a stale `STATE_OF_THE_GAME.md` (Phases A–E listed as todo,
+  all since built), the §6 build-order roadmap, GDD §46, four "✅ done" plan-doc archives, the new
+  story-arc notes, and ~30 inline "Next:/Deferred:" breadcrumbs in this log (several already
+  shipped, e.g. per-slot/per-model weapon loadouts, the wreck/raid dilemmas, Phase C). Rewrote
+  `STATE_OF_THE_GAME.md` as **the one live backlog**: a tight "what's built" snapshot + a
+  **prioritized, deduplicated open list** — **P1** the mid/late-game authored arc (M1–M2/L1–L4,
+  which *subsumes* the old "war as a state" + "narrative onboarding" items), **P2** living
+  diplomacy (D1 payoffs + D2 a Diplomat persona — the one uncovered system), **P3** the art/voxel
+  assembly pipeline (build step #11 + voxel diorama + UV atlas), **P4** UX/juice (font,
+  console-chrome) — plus an explicit **non-goals** section (audio; live mid-fight commands;
+  per-colony micro; voxel-true art; deep crew sim) so dropped ideas stop resurfacing as
+  "unfinished." Pointed the §6 roadmap, GDD §46, and the companion-authorities list at it; the
+  per-area plan docs are now labelled completed archives and the §7 "Next:" notes are explicitly
+  history. No code — a documentation/PM consolidation so future work reads one prioritized list,
+  not a dozen scattered ones. *Lesson:* after a long build run, the breadcrumb-per-PR "Next:" habit
+  accretes into noise — periodically fold it into a single deduped backlog + a non-goals list, or
+  the project *feels* sprawling even when the code is clean.
 
 - **2026-06-18 — Mid/late-game story arc captured as design notes (`docs/MID_LATE_GAME_STORY.md`).**
   Player direction on the *narrative* spine for the middle and end of a run (no code yet — notes).
