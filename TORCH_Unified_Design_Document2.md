@@ -531,6 +531,11 @@ save state (the `&'static str` serde wall).
 
 ## 46. Next Steps (candidate rungs, macro-first)
 
+> **Live tracking has moved to `docs/STATE_OF_THE_GAME.md`** (the consolidated backlog).
+> The list below is preserved as the original design intent; the backlog is where open
+> work is prioritized and ticked (and notes that "war as a state" + the narrative pass are
+> now folded into the mid/late-game arc, `docs/MID_LATE_GAME_STORY.md`).
+
 Sequenced, each a small focused PR in the established style:
 
 - **Living diplomacy payoffs** *(macro):* allied companies route more NPC trade to your
