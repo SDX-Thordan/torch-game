@@ -193,6 +193,7 @@ var _refit_lbl := {}        # "target"/0/1/2 -> Label for the refit bay
 var _design_lbl: Label
 var _arsenal_box: VBoxContainer               # weapon-crafting list (Phase B)
 var _scrap_lbl: Label
+var _yard_lbl: Label                          # shipyard status (Phase B+)
 var _arsenal_sig := ""                         # rebuild the list only when it changes
 
 # Market view.
@@ -1686,6 +1687,17 @@ func _build_build_view() -> void:
 	right.custom_minimum_size = Vector2(230, 0)
 	right.add_theme_constant_override("separation", 5)
 	hb.add_child(right)
+	# Shipyard (Phase B+): warships need your own yard (Tycho sells only civilians +
+	# corvettes). Build it (very expensive) and expand it to lay down bigger hulls.
+	right.add_child(UiKit.kicker("Shipyard"))
+	_yard_lbl = UiKit.label("", 12, UiKit.TEXT)
+	right.add_child(_yard_lbl)
+	var yrow := HBoxContainer.new()
+	yrow.add_theme_constant_override("separation", 5)
+	right.add_child(yrow)
+	yrow.add_child(_make_op_button("⚓ FOUND", _found_shipyard))
+	yrow.add_child(_make_op_button("⬆ EXPAND", _expand_shipyard))
+
 	right.add_child(UiKit.kicker("Construction Queue"))
 	_build_queue = VBoxContainer.new()
 	_build_queue.add_theme_constant_override("separation", 6)
@@ -1775,6 +1787,18 @@ func _refresh_arsenal() -> void:
 		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		d.custom_minimum_size = Vector2(200, 0)
 		_arsenal_box.add_child(d)
+
+
+## Found a shipyard at home (Phase B+) — very expensive; unlocks warship building.
+func _found_shipyard() -> void:
+	var msg := String(sim.found_shipyard_home())
+	status = msg if msg != "" else "Can't found a shipyard — need 60,000 cr (or you already have one)."
+
+
+## Expand the shipyard a tier (unlocks the next hull class).
+func _expand_shipyard() -> void:
+	var msg := String(sim.expand_shipyard())
+	status = msg if msg != "" else "Can't expand — build a yard first, it's maxed, or short on credits."
 
 
 ## Start producing weapon `i` (needs the schematic + scrap + credits + time).
@@ -1895,6 +1919,7 @@ func _commission_selected() -> void:
 		0: status = "%s commissioned to your design." % String(shipyard.class_name(build_pick))
 		1: status = "Can't build — short on credits."
 		2: status = "Can't build — not enough trained crew."
+		4: status = "Need your own shipyard for this hull (Tycho sells only civilians + corvettes)."
 		_: status = "That design won't fit the hull."
 
 
@@ -2650,6 +2675,16 @@ func _refresh_build() -> void:
 	if _ship_pivot:
 		_ship_pivot.rotate_y(get_process_delta_time() * 0.5)
 	_refresh_arsenal()
+	# Shipyard status (Phase B+): tier + what it can build, or the Tycho fallback.
+	if _yard_lbl:
+		var tier := sim.shipyard_tier()
+		if tier <= 0:
+			var corv := "corvettes ✓" if sim.can_buy_corvettes() else "corvettes (need OPA standing)"
+			_yard_lbl.text = "None — Tycho sells civilians + %s.\nFound a yard (60,000 cr) to build warships." % corv
+		else:
+			var ec := sim.expand_shipyard_cost()
+			var more := "  ·  expand → %s cr" % _commas(ec) if ec >= 0 else "  ·  max tier"
+			_yard_lbl.text = "Tier %d — builds up to %s%s" % [tier, String(sim.shipyard_max_hull()), more]
 	# Designer (A2): step values + live fit stats.
 	if _des_vals.has("pdc"):
 		(_des_vals["pdc"] as Label).text = "%d/%d" % [_des_pdc, shipyard.pdc_mounts(build_pick)]

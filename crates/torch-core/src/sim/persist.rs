@@ -121,6 +121,11 @@ pub struct SaveState {
     pub colony_dev: Vec<i64>,
     #[serde(default)]
     pub dev_doctrine: super::world::DevDoctrine,
+    /// The player's shipyard (tier + body).
+    #[serde(default)]
+    pub shipyard_tier: i64,
+    #[serde(default)]
+    pub shipyard_body: usize,
     /// Per-faction alarm at the player's expansion (E3/E7), by `Faction` index; all-0
     /// for a fresh game / old saves. The coalition schedule re-arms from it on load.
     #[serde(default)]

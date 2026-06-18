@@ -24,9 +24,12 @@ func test_time_advances_on_step() -> void:
 
 
 func test_commission_grows_the_fleet_and_spends_credits() -> void:
+	# Warships need your own shipyard now (Phase B+): a fresh hull is gated until one's up.
+	assert_false(sim.commission_ship(1), "a destroyer needs a shipyard you don't have yet")
+	sim.dev_grant_shipyard()
 	var credits0: int = sim.credits()
 	var fleet0: int = sim.fleet_size()
-	assert_true(sim.commission_ship(0), "a frigate is affordable at the start")
+	assert_true(sim.commission_ship(0), "with a yard, a frigate builds")
 	assert_eq(sim.fleet_size(), fleet0 + 1, "the hull joined the fleet")
 	assert_lt(sim.credits(), credits0, "commissioning spent credits")
 

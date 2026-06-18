@@ -128,6 +128,9 @@ pub enum CommissionError {
     MissingParts,
     /// A custom design (A2) that fails the fitting (e.g. over the power budget).
     BadFit,
+    /// This hull needs your own shipyard (of sufficient tier) — only civilians and
+    /// (with OPA standing) corvettes come from Tycho.
+    NeedShipyard,
 }
 
 /// The empire-wide **development doctrine** (Phase C) — a macro tilt on what your
@@ -185,6 +188,18 @@ pub enum CraftError {
     CantAfford,
 }
 
+/// Why a shipyard action failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShipyardError {
+    AlreadyBuilt,
+    NoneBuilt,
+    /// Already at the maximum tier.
+    Maxed,
+    /// Can't build a yard here (the sun or the gate).
+    BadSite,
+    CantAfford,
+}
+
 /// Why a colony could not be developed (Phase C).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DevelopError {
@@ -202,6 +217,8 @@ pub enum RefitError {
     Busy,
     /// Not docked at the home yard (must be on station to refit).
     NotAtYard,
+    /// A capital hull (Cruiser/Battleship) can't be refitted without your own shipyard.
+    NeedShipyard,
     CantAfford,
 }
 
@@ -266,6 +283,16 @@ const COLONY_OUTPUT_PER_TICK: i64 = 3;
 const DEV_BASE: i64 = 1;
 const MAX_DEV: i64 = 5;
 const DEV_COST_BASE: i64 = 8_000;
+/// Your own **shipyard** — the only place to build warships beyond corvettes. Founding
+/// is very expensive and each tier dearer; upkeep scales with tier. Tier gates the
+/// largest hull it can lay down: 1 → Destroyer, 2 → Cruiser, 3 → Battleship. Frigates
+/// (corvettes) need a yard **or** good OPA standing (bought from Tycho).
+const SHIPYARD_FOUND_COST: i64 = 60_000;
+const SHIPYARD_EXPAND_COST: i64 = 50_000; // × current tier
+const SHIPYARD_UPKEEP_PER_TIER: i64 = 50;
+const MAX_SHIPYARD_TIER: i64 = 3;
+/// Belt/OPA standing needed to buy corvettes (Frigates) from Tycho.
+const CORVETTE_STANDING: i64 = 250;
 /// Phase A dilemma tuning: the profiteer's panic premium (bp of the sale), the relief
 /// run's sell margin over cost (bp), and the reputation swing for gouging vs. relieving.
 const GOUGE_BONUS_BP: i64 = 4000; // +40% of the sale, wrung from desperate buyers
@@ -566,6 +593,10 @@ pub struct Sim {
     colony_dev: Vec<i64>,
     /// Empire-wide development doctrine (Phase C) — tilts holding yield. Balanced default.
     dev_doctrine: DevDoctrine,
+    /// The player's shipyard: tier (0 = none) + the body it orbits. Warships need it
+    /// (corvettes need it *or* OPA standing). Very expensive to build + maintain.
+    shipyard_tier: i64,
+    shipyard_body: usize,
     /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
     /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
     /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
@@ -668,6 +699,8 @@ impl Sim {
             controlled: vec![false; default_colonies().len()],
             colony_dev: vec![DEV_BASE; default_colonies().len()],
             dev_doctrine: DevDoctrine::default(),
+            shipyard_tier: 0,
+            shipyard_body: 0,
             faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
@@ -1372,6 +1405,7 @@ impl Sim {
     /// Commission a warship of `class` into the fleet (§5/§8c): pays its build
     /// cost and draws its crew from the trained-crew pool.
     pub fn commission_ship(&mut self, class: ShipClass) -> Result<(), CommissionError> {
+        self.hull_source_ok(class)?;
         let hull = self.catalog.hull(class);
         let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
         if self.corp.credits() < price {
@@ -1385,11 +1419,131 @@ impl Sim {
         Ok(())
     }
 
+    // ---- shipyards: where warships come from --------------------------------
+
+    /// Whether `class` can be built given your shipyard + OPA standing. Civilians come
+    /// from Tycho freely; **corvettes** (Frigates) need a yard *or* good Belt standing;
+    /// **Destroyer/Cruiser/Battleship** need a yard of tier ≥ 1/2/3.
+    fn hull_source_ok(&self, class: ShipClass) -> Result<(), CommissionError> {
+        let need = match class {
+            ShipClass::Frigate => {
+                if self.shipyard_tier >= 1
+                    || self.relations.standing(Faction::Belt) >= CORVETTE_STANDING
+                {
+                    return Ok(());
+                }
+                return Err(CommissionError::NeedShipyard);
+            }
+            ShipClass::Destroyer => 1,
+            ShipClass::Cruiser => 2,
+            ShipClass::Battleship => 3,
+            _ => return Ok(()), // civilians: bought from Tycho
+        };
+        if self.shipyard_tier >= need {
+            Ok(())
+        } else {
+            Err(CommissionError::NeedShipyard)
+        }
+    }
+
+    /// Whether `class` can be sourced right now (shipyard tier / OPA standing) — for the
+    /// shell to show availability before the player tries.
+    pub fn can_commission(&self, class: ShipClass) -> bool {
+        self.hull_source_ok(class).is_ok()
+    }
+
+    /// The player's shipyard tier (0 = none).
+    pub fn shipyard_tier(&self) -> i64 {
+        self.shipyard_tier
+    }
+
+    /// Sandbox/test affordance: a free max-tier shipyard (the gated path is covered by
+    /// the native tests + the personas).
+    pub fn dev_grant_shipyard(&mut self) {
+        self.shipyard_tier = MAX_SHIPYARD_TIER;
+        self.shipyard_body = 1;
+    }
+    /// The body the shipyard orbits (0 if none).
+    pub fn shipyard_body(&self) -> usize {
+        self.shipyard_body
+    }
+    /// The largest hull class the current yard tier can lay down (for the shell).
+    pub fn shipyard_max_hull(&self) -> &'static str {
+        match self.shipyard_tier {
+            0 => "—",
+            1 => "Destroyer",
+            2 => "Cruiser",
+            _ => "Battleship",
+        }
+    }
+
+    /// Found a shipyard at `body` (an asteroid/moon/dwarf or a station body — not the sun
+    /// or the gate). Very expensive; sets tier 1. Errors if you already have one.
+    pub fn found_shipyard(&mut self, body: usize) -> Result<(), ShipyardError> {
+        if self.shipyard_tier > 0 {
+            return Err(ShipyardError::AlreadyBuilt);
+        }
+        let bodies = super::orbit::default_system();
+        match bodies.get(body) {
+            Some(b)
+                if !matches!(
+                    b.kind,
+                    super::orbit::BodyKind::Star | super::orbit::BodyKind::Gate
+                ) => {}
+            _ => return Err(ShipyardError::BadSite),
+        }
+        if self.corp.credits() < SHIPYARD_FOUND_COST {
+            return Err(ShipyardError::CantAfford);
+        }
+        self.corp.debit(SHIPYARD_FOUND_COST);
+        self.shipyard_tier = 1;
+        self.shipyard_body = body;
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Expand the shipyard one tier (unlocks the next hull class). Each tier is dearer.
+    pub fn expand_shipyard(&mut self) -> Result<(), ShipyardError> {
+        if self.shipyard_tier == 0 {
+            return Err(ShipyardError::NoneBuilt);
+        }
+        if self.shipyard_tier >= MAX_SHIPYARD_TIER {
+            return Err(ShipyardError::Maxed);
+        }
+        let cost = SHIPYARD_EXPAND_COST * self.shipyard_tier;
+        if self.corp.credits() < cost {
+            return Err(ShipyardError::CantAfford);
+        }
+        self.corp.debit(cost);
+        self.shipyard_tier += 1;
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Credit cost to expand the yard (−1 if none / maxed).
+    pub fn expand_shipyard_cost(&self) -> i64 {
+        if self.shipyard_tier == 0 || self.shipyard_tier >= MAX_SHIPYARD_TIER {
+            -1
+        } else {
+            SHIPYARD_EXPAND_COST * self.shipyard_tier
+        }
+    }
+
+    /// Drain the shipyard's per-tick maintenance (expensive to keep). No-op without one.
+    fn run_shipyard_upkeep(&mut self) {
+        if self.shipyard_tier > 0 {
+            let upkeep = self.shipyard_tier * SHIPYARD_UPKEEP_PER_TIER;
+            let drain = upkeep.min(self.corp.credits());
+            self.corp.debit(drain);
+        }
+    }
+
     /// Assemble a warship of `class` from the player's **own component stock** (§7d):
     /// consumes the Assembled-tier goods in [`ship_bom`] from the warehouse plus a
     /// small labour fee + crew — far cheaper than buying a finished hull, the payoff
     /// of building out the production chain. Fails if any part or the crew is short.
     pub fn assemble_ship(&mut self, class: ShipClass) -> Result<(), CommissionError> {
+        self.hull_source_ok(class)?;
         let hull = self.catalog.hull(class);
         let fee = hull.dry_mass * ASSEMBLY_FEE_PER_MASS;
         if self.corp.credits() < fee {
@@ -1442,6 +1596,7 @@ impl Sim {
         rail: u32,
         remass_bp: i64,
     ) -> Result<(), CommissionError> {
+        self.hull_source_ok(class)?;
         let hull = self.catalog.hull(class);
         let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
         if self.corp.credits() < price {
@@ -2096,6 +2251,8 @@ impl Sim {
             controlled_colonies: self.controlled.clone(),
             colony_dev: self.colony_dev.clone(),
             dev_doctrine: self.dev_doctrine,
+            shipyard_tier: self.shipyard_tier,
+            shipyard_body: self.shipyard_body,
             faction_alarm: self.faction_alarm,
             influence: self.influence,
             company_relations: self.diplomacy.relations(),
@@ -2226,6 +2383,8 @@ impl Sim {
             self.colony_dev = s.colony_dev.clone();
         }
         self.dev_doctrine = s.dev_doctrine;
+        self.shipyard_tier = s.shipyard_tier;
+        self.shipyard_body = s.shipyard_body;
         // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
         self.faction_alarm = s.faction_alarm;
         for a in &mut self.faction_alarm {
@@ -2273,6 +2432,7 @@ impl Sim {
         self.run_fleet_nav();
         self.run_contracts();
         self.run_weapon_production();
+        self.run_shipyard_upkeep();
         self.run_holdings();
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
@@ -3214,6 +3374,11 @@ impl Sim {
             return Err(RefitError::NotAtYard);
         }
         let class = ship.loadout.hull().class;
+        // A capital hull's refit needs your own shipyard — Tycho only handles the small
+        // ones when you've no yard of your own.
+        if matches!(class, ShipClass::Cruiser | ShipClass::Battleship) && self.shipyard_tier < 1 {
+            return Err(RefitError::NeedShipyard);
+        }
         let mass = ship.loadout.hull().dry_mass;
         let fee = mass * REFIT_FEE_PER_MASS;
         if self.corp.credits() < fee {
@@ -3938,11 +4103,20 @@ mod tests {
     use crate::sim::pressure::Intensity;
     use crate::sim::ships::ShipClass;
 
+    /// Test helper: stand up a max-tier shipyard directly (no cost) so warship-building
+    /// tests can build any hull. The shipyard gate (Phase B+) is tested on its own path.
+    fn yard(sim: &mut Sim) {
+        sim.corp_mut().credit(2_000_000); // cover the yard's upkeep during stepped tests
+        sim.shipyard_tier = MAX_SHIPYARD_TIER;
+        sim.shipyard_body = 1;
+    }
+
     #[test]
     fn a_custom_design_commissions_a_lighter_faster_hull_when_stripped() {
         // A2: commissioning a stripped design (no torpedoes/railgun, less remass) builds
         // a real ship that fits, and a fully-armed one out-guns it — the designer matters.
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         sim.corp_mut().credit(2_000_000);
         // A lean frigate: PDC only, no torpedoes, half tanks (the 60-crew pool affords it).
         assert_eq!(
@@ -3973,6 +4147,7 @@ mod tests {
         // and the ship is positional — it can't be re-tasked mid-flight, and a tank
         // refuels at a dock.
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
         let full = sim.corp().fleet()[0].nav.remass;
         assert!(
@@ -4228,6 +4403,7 @@ mod tests {
         let mut decisive = 0;
         for seed in 0..trials {
             let mut sim = Sim::new(seed);
+            yard(&mut sim);
             for _ in 0..3 {
                 sim.commission_ship(ShipClass::Frigate).unwrap();
             }
@@ -4256,6 +4432,7 @@ mod tests {
         // then tool up a production line that takes time; building a great power's design
         // sours that power. A newly built ship then fits the produced model.
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         let base_pdc = sim.best_weapon_def(WeaponKind::Pdc).intercept;
         let model17 = 2usize; // Model 17 PDC (Earth, tier 2)
         assert!(
@@ -4308,6 +4485,7 @@ mod tests {
         // Phase B: refit re-equips an existing ship with your best-owned weapons, for a
         // yard fee and a stint in the yard (it can't fight while refitting).
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
         let pdc = |s: &Sim| {
             s.corp().fleet()[0]
@@ -4351,6 +4529,7 @@ mod tests {
         // net-positive — combat is a viable economic strategy, not pure attrition.
         for seed in 0..64 {
             let mut sim = Sim::new(seed);
+            yard(&mut sim);
             for _ in 0..3 {
                 sim.commission_ship(ShipClass::Frigate).unwrap();
             }
@@ -4580,6 +4759,7 @@ mod tests {
     #[test]
     fn commissioning_spends_credits_and_crew_with_the_pool_as_the_cap() {
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         let (credits0, crew0) = (sim.corp().credits(), sim.corp().trained_crew());
         sim.commission_ship(ShipClass::Frigate).unwrap();
         assert_eq!(sim.corp().fleet().len(), 1);
@@ -4797,6 +4977,7 @@ mod tests {
         // E5: the aggressive path — assault a colony's garrison and, on a win, take
         // it (even a great power's), enraging the owner.
         let mut sim = Sim::new(7);
+        yard(&mut sim);
         sim.corp_mut().credit(5_000_000);
         // Need a fleet to mount an assault.
         let indie = sim.acquirable_colonies()[0];
@@ -4867,6 +5048,7 @@ mod tests {
     fn defending_repels_the_coalition_and_keeps_the_holdings() {
         // E3: with a fleet, you can answer the coalition and hold what you took.
         let mut sim = Sim::new(8);
+        yard(&mut sim);
         sim.corp_mut().credit(5_000_000);
         for i in sim.acquirable_colonies() {
             let _ = sim.acquire_colony(i);
@@ -4990,6 +5172,7 @@ mod tests {
         // EP3: a growing empire with too few escorts on station is preyed upon by
         // pirates; a navy that scales with the empire deters them. Real but counterable.
         let mut sim = Sim::new(2);
+        yard(&mut sim);
         sim.corp_mut().credit(150_000);
         for i in sim.acquirable_colonies() {
             let _ = sim.acquire_colony(i);
@@ -5173,6 +5356,47 @@ mod tests {
     }
 
     #[test]
+    fn warships_need_a_shipyard_except_corvettes_with_opa_standing() {
+        // Ship sourcing (Phase B+): civilians + (with OPA standing) corvettes come from
+        // Tycho; everything bigger needs your own shipyard, unlocked by tier.
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(2_000_000);
+        assert!(matches!(
+            sim.commission_ship(ShipClass::Frigate),
+            Err(CommissionError::NeedShipyard)
+        ));
+        assert!(matches!(
+            sim.commission_ship(ShipClass::Cruiser),
+            Err(CommissionError::NeedShipyard)
+        ));
+        // Good OPA standing buys corvettes from Tycho — but not warships.
+        sim.relations_mut()
+            .adjust(crate::sim::Faction::Belt, CORVETTE_STANDING);
+        assert!(
+            sim.commission_ship(ShipClass::Frigate).is_ok(),
+            "corvettes come from Tycho with OPA standing"
+        );
+        assert!(matches!(
+            sim.commission_ship(ShipClass::Destroyer),
+            Err(CommissionError::NeedShipyard)
+        ));
+        // A shipyard unlocks warships, gated by its tier.
+        let home = sim.markets()[0].body();
+        sim.found_shipyard(home).unwrap();
+        assert_eq!(sim.shipyard_max_hull(), "Destroyer");
+        assert!(matches!(
+            sim.commission_ship(ShipClass::Cruiser),
+            Err(CommissionError::NeedShipyard)
+        ));
+        sim.expand_shipyard().unwrap();
+        assert_eq!(sim.shipyard_max_hull(), "Cruiser");
+        assert!(matches!(
+            sim.found_shipyard(home),
+            Err(ShipyardError::AlreadyBuilt)
+        ));
+    }
+
+    #[test]
     fn a_fresh_world_controls_no_colonies() {
         // The empire layer is inert by default — a fresh sim owns nothing, so the
         // §7c gate + existing economy are unaffected (no tribute, no rep shift).
@@ -5263,6 +5487,7 @@ mod tests {
         // §17/G4: with a strong enough fleet, answering the incursion repels it and
         // the bridgehead takes no damage.
         let mut sim = Sim::new(11);
+        yard(&mut sim);
         for _ in 0..(3 + 10 + 25) {
             sim.complete_op();
         }
@@ -5302,6 +5527,7 @@ mod tests {
         // §17/G5: the journey completes when the bridgehead reaches the target level
         // *and* has weathered the required incursions — a genuine victory state.
         let mut sim = Sim::new(11);
+        yard(&mut sim);
         for _ in 0..(3 + 10 + 25) {
             sim.complete_op();
         }
@@ -5423,6 +5649,7 @@ mod tests {
         // with no raiding at all.
         use crate::sim::campaign::Tier;
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         assert_eq!(sim.campaign().tier(), Tier::Station);
         // Two commissions are two operations on their own.
         sim.commission_freighter().unwrap();
@@ -5452,6 +5679,7 @@ mod tests {
         // a warship from their own Assembled-tier stock for a fraction of the
         // off-the-yard credit price — the bill-of-materials link from economy to fleet.
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         // Empty warehouse ⇒ no parts ⇒ can't assemble.
         assert_eq!(
             sim.assemble_ship(ShipClass::Frigate),
@@ -5486,6 +5714,7 @@ mod tests {
         // §14 expressive identity: the player renames a hull's call-sign; the class
         // suffix is preserved and an empty name is rejected.
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
         assert!(sim.rename_ship(0, "Valkyrie"));
         assert_eq!(sim.corp().fleet()[0].name, "Valkyrie (Frigate)");
@@ -5500,6 +5729,7 @@ mod tests {
         // BattleResolved event (§9). With no fleet, there's nothing to send.
         use crate::sim::combat::Band;
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         assert!(
             sim.engage_raiders(Band::Medium).is_none(),
             "no warships ⇒ no engagement"
@@ -5529,6 +5759,7 @@ mod tests {
         // burn home — so the delta-v movement layer is consequential.
         use crate::sim::combat::Band;
         let mut sim = Sim::new(0);
+        yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
         sim.commission_ship(ShipClass::Frigate).unwrap();
         assert_eq!(sim.warships_on_station(), 2, "fresh hulls dock at the core");

@@ -86,6 +86,19 @@ fn arbitrage_once(sim: &mut Sim, cap: i64) -> bool {
     sim.sell(dear, c, qty).is_ok()
 }
 
+/// Found a tier-1 shipyard once affordable — warships now need your own yard (Tycho only
+/// sells civilians + corvettes). Returns whether a yard is up.
+fn ensure_yard(sim: &mut Sim) -> bool {
+    if sim.shipyard_tier() >= 1 {
+        return true;
+    }
+    if sim.corp().credits() >= 80_000 {
+        let home = sim.markets()[0].body();
+        return sim.found_shipyard(home).is_ok();
+    }
+    false
+}
+
 /// A fast interceptor sitting right on a hauler — a firing solution the
 /// player's frigate can take (mirrors the §7b interdiction geometry).
 fn frigate_on(h: &Hauler, tick: u64) -> Interceptor {
@@ -211,7 +224,6 @@ impl Strategy for Tycoon {
     fn setup(&mut self, sim: &mut Sim) {
         let _ = sim.commission_freighter();
         sim.set_trade_route(5, 1, 0, 20, 1);
-        let _ = sim.commission_ship(ShipClass::Frigate);
         sim.policy_mut().auto_research = true;
     }
     fn act(&mut self, sim: &mut Sim, last_events: &[Event]) -> u32 {
@@ -257,29 +269,25 @@ impl Strategy for Warlord {
         "Warlord"
     }
     fn intent(&self) -> &'static str {
-        "Stands up warships and fights raider packs — is the combat resolver reachable, and does attrition bite? (§7/§9)"
-    }
-    fn setup(&mut self, sim: &mut Sim) {
-        // Stand up a small initial squadron — keep crew in reserve to rebuild
-        // after a costly fight, rather than blowing the whole §8c pool at once.
-        for _ in 0..2 {
-            let _ = sim.commission_ship(ShipClass::Frigate);
-        }
+        "Earns a war chest, stands up its own shipyard, then builds warships and fights raider packs — is the combat loop reachable, and does attrition bite? (§7/§9, Phase B+)"
     }
     fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
         let mut actions = 0;
-        // Reinforce whenever the treasury and the crew pool allow (rebuilding the
-        // squadron between battles, until the §8c bottleneck runs dry).
-        if sim.tick().is_multiple_of(18) && sim.commission_ship(ShipClass::Frigate).is_ok() {
+        // Warships need your own yard now — earn a war chest to build one.
+        if sim.corp().credits() < 140_000 && arbitrage_once(sim, 25) {
             actions += 1;
         }
-        // Pick a fight on a cadence whenever there's a fleet to send. Frigates
-        // carry no railgun — they knife-fight Close, where the PDC brawl resolves
-        // (at range a screened salvo-only mirror just stalemates). Combat is
+        // Once the yard is up: build a squadron and pick fights. Frigates carry no
+        // railgun — they knife-fight Close, where the PDC brawl resolves. Combat is
         // decisive and crew-capped, so these are a few pivotal battles, not a grind.
-        if sim.tick().is_multiple_of(40) && !sim.corp().fleet().is_empty() {
-            sim.engage_raiders(Band::Close);
-            actions += 1;
+        if ensure_yard(sim) {
+            if sim.tick().is_multiple_of(18) && sim.commission_ship(ShipClass::Frigate).is_ok() {
+                actions += 1;
+            }
+            if sim.tick().is_multiple_of(40) && !sim.corp().fleet().is_empty() {
+                sim.engage_raiders(Band::Close);
+                actions += 1;
+            }
         }
         actions
     }
@@ -297,12 +305,6 @@ impl Strategy for Expansionist {
     fn intent(&self) -> &'static str {
         "Buys frontier colonies and holds them — does expansion pay off, and do administrative strain + the great-power coalition cap it? (Empire layer E1–E6)"
     }
-    fn setup(&mut self, sim: &mut Sim) {
-        // A standing squadron to answer the coalition when it comes for the holdings.
-        for _ in 0..3 {
-            let _ = sim.commission_ship(ShipClass::Frigate);
-        }
-    }
     fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
         let mut actions = 0;
         // Answer a coalition strike the moment it lands (defend the empire, E3).
@@ -318,8 +320,12 @@ impl Strategy for Expansionist {
         {
             actions += 1;
         }
-        // Reinforce the squadron between defenses, until the §8c crew pool runs dry.
-        if sim.tick().is_multiple_of(50) && sim.commission_ship(ShipClass::Frigate).is_ok() {
+        // Stand up a defense yard + squadron once affordable (warships need your own
+        // yard now), until the §8c crew pool runs dry.
+        if ensure_yard(sim)
+            && sim.tick().is_multiple_of(50)
+            && sim.commission_ship(ShipClass::Frigate).is_ok()
+        {
             actions += 1;
         }
         // Expand: buy the cheapest acquirable colony whenever affordable (E1)…

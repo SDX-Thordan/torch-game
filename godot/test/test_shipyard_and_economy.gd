@@ -41,6 +41,7 @@ func test_a_refinery_can_be_founded_on_a_processable_good() -> void:
 
 func test_engage_produces_a_battle_log_for_the_diorama() -> void:
 	# Commission a couple of hulls and fight; the diorama needs a populated log.
+	sim.dev_grant_shipyard()   # warships need a yard now (Phase B+)
 	sim.commission_ship(0)
 	sim.commission_ship(0)
 	var result: int = sim.engage(0)  # Close band
@@ -50,6 +51,7 @@ func test_engage_produces_a_battle_log_for_the_diorama() -> void:
 
 
 func test_warships_must_be_on_station_to_engage() -> void:
+	sim.dev_grant_shipyard()   # warships need a yard now (Phase B+)
 	sim.commission_ship(0)
 	assert_eq(sim.warships_on_station(), 1, "a fresh hull docks at the core")
 	# Fly it away (body 3 = Earth); now the core is undefended.

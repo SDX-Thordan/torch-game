@@ -179,6 +179,29 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Ship sourcing reframe: Tycho buys vs. your own shipyard (§8/§5).** Player call:
+  you **can't freely build warships**. Civilians + (with **OPA standing ≥ 250**) **corvettes**
+  come from **Tycho**; **Destroyer/Cruiser/Battleship** need your **own shipyard** (tier 1/2/3),
+  which is **very expensive** to found (60k) + expand (50k×tier) + **maintain** (upkeep/tick).
+  Capital **refits** also need the yard (Tycho only handles small hulls). New `shipyard_tier`/
+  `shipyard_body` on `Sim`; `hull_source_ok(class)` gates `commission_ship`/`commission_designed`/
+  `assemble_ship` (→ `CommissionError::NeedShipyard`); `found_shipyard(body)` (rejects Star/Gate
+  sites)/`expand_shipyard`/`run_shipyard_upkeep` (in `step()`, gated tier>0 ⇒ a fresh sim is
+  byte-identical). Persisted (`#[serde(default)]`). **This is a deep, *non*-byte-identical change**
+  — it gates the verb everything used, so **17 native tests** broke (added a private-field `yard()`
+  test helper) and the **3 combat-fleet GUT tests** (added a `dev_grant_shipyard()` sandbox
+  binding). Personas reworked to the new economy: **Warlord** now *earns → founds a yard → fights*
+  (and is **profitable +59k** now vs. net-negative before — trading to fund the yard funds the
+  Warlord too); **Tycoon** dropped its setup frigate (trade operator, no yard); **Expansionist**
+  builds its defense squadron only after a yard. *Balance:* first pass at **150 upkeep/tier/tick**
+  bankrupted the Warlord (≈600k over a run) — dialled to **50** (still ≈200k, "very expensive" but
+  survivable for an active operator). Shell: a **Shipyard** panel in BUILD (status + FOUND/EXPAND)
+  + a `NeedShipyard` commission message + a Tycho-corvette hint. 196 cargo + 17 GUT green; test
+  `warships_need_a_shipyard_except_corvettes_with_opa_standing`. *Lesson:* when a change gates a
+  core verb, budget for the **test + persona ripple** up front — a private-field test helper +
+  one sandbox binding kept it contained, and the persona rework (earn-before-warfare) is the
+  honest new shape of the game, not a regression.
+
 - **2026-06-18 — Phase C round-out: a development doctrine + a Developer QA persona (§46).**
   Closed the two deferred Phase-C items. **(1) Development doctrine** (`DevDoctrine`: Balanced /
   Industry / Trade / Growth) — an empire-wide *macro* tilt (per the player's macro>micro steer,

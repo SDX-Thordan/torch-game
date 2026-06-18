@@ -1649,6 +1649,63 @@ impl TorchSim {
         self.sim.commission_ship(warship_class(class)).is_ok()
     }
 
+    // ---- shipyards: where warships come from (Phase B+) ---------------------
+
+    /// The player's shipyard tier (0 = none; 1/2/3 → Destroyer/Cruiser/Battleship).
+    #[func]
+    fn shipyard_tier(&self) -> i64 {
+        self.sim.shipyard_tier()
+    }
+
+    /// Sandbox/test affordance: stand up a free max-tier shipyard so a fresh sim can
+    /// build any warship (the gated acquisition path is covered by the native tests).
+    #[func]
+    fn dev_grant_shipyard(&mut self) {
+        self.sim.dev_grant_shipyard();
+    }
+
+    /// The largest hull the current yard tier can lay down ("—" if no yard).
+    #[func]
+    fn shipyard_max_hull(&self) -> GString {
+        GString::from(self.sim.shipyard_max_hull())
+    }
+
+    /// Credit cost to expand the yard a tier (−1 if none / maxed).
+    #[func]
+    fn expand_shipyard_cost(&self) -> i64 {
+        self.sim.expand_shipyard_cost()
+    }
+
+    /// Whether you can source a corvette now (a yard, or OPA standing for Tycho).
+    #[func]
+    fn can_buy_corvettes(&self) -> bool {
+        self.sim.can_commission(sim::ShipClass::Frigate)
+    }
+
+    /// Found a shipyard at the home body (Ceres) — very expensive. Returns a message.
+    #[func]
+    fn found_shipyard_home(&mut self) -> GString {
+        let home = self.sim.markets()[0].body();
+        match self.sim.found_shipyard(home) {
+            Ok(()) => {
+                GString::from("Shipyard founded — it can lay down Destroyers (expand for bigger).")
+            }
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Expand the shipyard a tier (unlocks the next hull class). Returns a message.
+    #[func]
+    fn expand_shipyard(&mut self) -> GString {
+        match self.sim.expand_shipyard() {
+            Ok(()) => GString::from(format!(
+                "Shipyard expanded — now builds up to {}.",
+                self.sim.shipyard_max_hull()
+            )),
+            Err(_) => GString::new(),
+        }
+    }
+
     /// Assemble a warship of `class` from the player's own Assembled-tier component
     /// stock (§7d) — the production-chain payoff. Returns 0 on success, or an error
     /// code: 1 = missing parts, 2 = can't afford the labour fee, 3 = not enough crew.
@@ -1659,6 +1716,7 @@ impl TorchSim {
             Err(sim::CommissionError::MissingParts) => 1,
             Err(sim::CommissionError::CantAfford) => 2,
             Err(sim::CommissionError::NotEnoughCrew) => 3,
+            Err(sim::CommissionError::NeedShipyard) => 4,
             Err(sim::CommissionError::BadFit) => 1,
         }
     }
@@ -1693,6 +1751,7 @@ impl TorchSim {
             Ok(()) => 0,
             Err(sim::CommissionError::CantAfford) => 1,
             Err(sim::CommissionError::NotEnoughCrew) => 2,
+            Err(sim::CommissionError::NeedShipyard) => 4,
             _ => 3,
         }
     }
