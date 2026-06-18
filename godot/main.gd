@@ -337,11 +337,12 @@ func _build_world() -> void:
 			if parent == 0:
 				if not sim.body_is_far_side(b):
 					var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-					_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+					_orrery_root.add_child(_ring(r, Color(0.24, 0.33, 0.48)))
 			else:
 				var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
-				var mrm := _emissive_mat(Color(0.34, 0.4, 0.48))
-				_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.003, mr * 0.01)))
+				# Moon orbit: a hair-thin, faintly glowing line around its planet.
+				var mrm := _emissive_mat(Color(0.3, 0.38, 0.5) * 2.0)
+				_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.0022, mr * 0.006)))
 		var rad := _display_radius(name, kind)
 		var tag := Label3D.new()
 		tag.text = name
@@ -3282,7 +3283,8 @@ func _station_glyph(fcol: Color) -> Node3D:
 
 
 func _ring(radius: float, col: Color) -> MeshInstance3D:
-	return _ring_mat(radius, _emissive_mat(col), 0.02)
+	# A thin orbit line with a faint glow — the emission tips just into the bloom pass.
+	return _ring_mat(radius, _emissive_mat(col * 2.4), 0.005)
 
 
 func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInstance3D:
