@@ -376,6 +376,53 @@ impl Strategy for Responder {
     }
 }
 
+/// Grows *tall*: acquires a couple of colonies, then pours credits into **developing**
+/// them (Phase C). The QA lens on whether the tall axis pays — and stays off the
+/// coalition's radar (vs. the *wide* Expansionist).
+#[derive(Default)]
+pub struct Developer;
+
+impl Strategy for Developer {
+    fn name(&self) -> &'static str {
+        "Developer"
+    }
+    fn intent(&self) -> &'static str {
+        "Acquires a couple of colonies, then grows them tall by developing — does the tall axis pay, and stay off the coalition's radar? (Phase C)"
+    }
+    fn setup(&mut self, sim: &mut Sim) {
+        // A small footprint to grow tall (kept low so the coalition stays calm).
+        for _ in 0..2 {
+            if let Some(&i) = sim.acquirable_colonies().first() {
+                let _ = sim.acquire_colony(i);
+            }
+        }
+    }
+    fn act(&mut self, sim: &mut Sim, _last_events: &[Event]) -> u32 {
+        let mut actions = 0;
+        // A war chest to invest, gated so it isn't a faucet.
+        if sim.corp().credits() < 120_000 && arbitrage_once(sim, 25) {
+            actions += 1;
+        }
+        // Pour credits into the least-developed holding — grow tall, not wide.
+        if sim.tick().is_multiple_of(30) {
+            let mut best: Option<(usize, i64)> = None;
+            for i in 0..sim.colonies().len() {
+                if let Some(c) = sim.develop_cost(i) {
+                    if best.is_none_or(|(_, bc)| c < bc) {
+                        best = Some((i, c));
+                    }
+                }
+            }
+            if let Some((i, c)) = best {
+                if sim.corp().credits() >= c && sim.develop_colony(i).is_ok() {
+                    actions += 1;
+                }
+            }
+        }
+        actions
+    }
+}
+
 /// The full roster the report runs.
 pub fn roster() -> Vec<Box<dyn Strategy>> {
     vec![
@@ -387,5 +434,6 @@ pub fn roster() -> Vec<Box<dyn Strategy>> {
         Box::new(Tycoon::default()),
         Box::new(Expansionist),
         Box::new(Responder::default()),
+        Box::new(Developer),
     ]
 }

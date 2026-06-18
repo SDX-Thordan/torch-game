@@ -1036,6 +1036,11 @@ func _develop_colony() -> void:
 	status = msg if msg != "" else "Nothing to develop — acquire a colony first, or you're maxed/short on credits."
 
 
+## Cycle the empire-wide development doctrine (Phase C) — Industry / Trade / Growth tilt.
+func _cycle_doctrine() -> void:
+	status = String(sim.cycle_dev_doctrine())
+
+
 func _acquire_colony() -> void:
 	var best := -1
 	var best_cost := 1 << 30
@@ -2242,6 +2247,7 @@ func _build_empire_view() -> void:
 	ops.add_child(_make_op_button("⊕ ANNEX", _annex_colony))
 	ops.add_child(_make_op_button("⚔ SEIZE", _seize_colony))
 	ops.add_child(_make_op_button("⬆ DEVELOP", _develop_colony))
+	ops.add_child(_make_op_button("⚙ DOCTRINE", _cycle_doctrine))
 	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
 	ops.add_child(_make_op_button("🤝 COURT", _court_company))
 	v.add_child(UiKit.rule())
@@ -2278,6 +2284,7 @@ func _refresh_empire() -> void:
 	if strain > 0:
 		meters += " ⚠ strained (%d%% efficiency)" % sim.holdings_efficiency_pct()
 	meters += "      Influence %d" % sim.influence()
+	meters += "      Doctrine: %s" % String(sim.dev_doctrine_name())
 	# Security (EP3): escorts on station vs. what the empire's shipping needs.
 	if holdings > 0:
 		var need: int = sim.escorts_needed()

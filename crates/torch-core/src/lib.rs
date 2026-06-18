@@ -556,6 +556,22 @@ impl TorchSim {
         self.sim.peak_dev()
     }
 
+    /// The empire-wide development doctrine name (Phase C): Balanced/Industry/Trade/Growth.
+    #[func]
+    fn dev_doctrine_name(&self) -> GString {
+        GString::from(self.sim.dev_doctrine().label())
+    }
+
+    /// Cycle the development doctrine (the macro tilt on holding yield).
+    #[func]
+    fn cycle_dev_doctrine(&mut self) -> GString {
+        self.sim.cycle_dev_doctrine();
+        GString::from(format!(
+            "Doctrine: {} development.",
+            self.sim.dev_doctrine().label()
+        ))
+    }
+
     /// Develop the player's **least-developed** controlled colony (one-press, mobile-
     /// friendly tall growth). Returns a feedback message (empty if none affordable).
     #[func]

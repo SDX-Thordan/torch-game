@@ -36,6 +36,8 @@ pub struct Sample {
     pub holdings: usize,
     /// The great powers' alarm at the player's expansion, 0..=1000 (E3/E6).
     pub coalition_alarm: i64,
+    /// The tallest holding's development level (Phase C, the *tall* axis).
+    pub peak_dev: i64,
 }
 
 impl Sample {
@@ -72,6 +74,7 @@ impl Sample {
             standings,
             holdings: sim.holding_count(),
             coalition_alarm: sim.coalition_alarm(),
+            peak_dev: sim.peak_dev(),
         }
     }
 }

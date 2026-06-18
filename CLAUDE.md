@@ -179,6 +179,27 @@ Status: [x] done, [~] in progress, [ ] todo.
 
 ## 7. Learnings & decisions log (append-only)
 
+- **2026-06-18 — Phase C round-out: a development doctrine + a Developer QA persona (§46).**
+  Closed the two deferred Phase-C items. **(1) Development doctrine** (`DevDoctrine`: Balanced /
+  Industry / Trade / Growth) — an empire-wide *macro* tilt (per the player's macro>micro steer,
+  not per-colony micro): `run_holdings` scales output by `out_bp` and tribute by `trib_bp`, and
+  `develop_cost` by `cost_bp`, so Industry favours raw supply, Trade favours credits, Growth
+  cheapens development. **`Balanced` is the identity default** (10000/10000/10000) so a fresh /
+  undeveloped empire stays byte-identical. Cycled with a `⚙ DOCTRINE` op-button + a meters
+  readout; persisted (`#[serde(default)]`). *Clippy:* a hand-written `Default` trips
+  `derivable_impls` → `#[derive(Default)]` + `#[default]` on `Balanced`. **(2) Developer QA
+  persona** — acquires ~1 colony, then pours credits into **developing** it (no wide expansion).
+  It **proves the tall axis pays:** 1 holding → L5 → **+123k cr (~25×)** with coalition alarm
+  peaking at just **90/1000** (vs the wide Expansionist's 13 holdings @ 1000 alarm + fought
+  defenses). A new `peak_dev` transcript sample + an `Empire · development` review finding voice
+  it. *Determinism:* the doctrine's Balanced default + personas-don't-develop keep the **8
+  existing personas byte-identical** (verified by diff); only the new Developer section + the dev
+  finding + UI-wiring counts moved — an honest review change, regenerated. 195 cargo + 17 GUT
+  green; test `the_development_doctrine_tilts_holding_yield`. *Engagement note:* the Developer
+  scores 38 (low Agency/Flow — a patient builder is structurally low-action); its *value* is the
+  measurement (tall pays), not a high engagement score. **Phase C is complete** — the empire can
+  grow tall (develop + doctrine) or wide (acquire), each with distinct economics + political cost.
+
 - **2026-06-18 — Phase C: colony development — the *tall* growth axis (§46, the 4X gap).** The
   deepest remaining 4X gap was that holdings were flat (acquire-only, no depth). New per-colony
   **development level** (`colony_dev: Vec<i64>`, `DEV_BASE=1`..`MAX_DEV=5`): `run_holdings` now

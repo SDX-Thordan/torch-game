@@ -97,6 +97,17 @@ fn review_empire(t: &Transcript, f: &mut Vec<Finding>) {
             "Expansion-by-acquisition is reachable and exercised: grew to {peak_holdings} holding(s) at peak (ending at {final_holdings}). The §0 spine now has a territorial dimension."
         ),
     ));
+    // Phase C: the *tall* growth axis — did this style develop its holdings?
+    let peak_dev = t.samples.iter().map(|s| s.peak_dev).max().unwrap_or(0);
+    if peak_dev > 1 {
+        f.push(Finding::new(
+            Severity::Good,
+            "Empire · development",
+            format!(
+                "Grew *tall*, not just wide: developed a holding to level {peak_dev}/5, scaling its tribute + output — and (unlike wide expansion) drew no extra coalition alarm. A small, developed empire is a real alternative to a sprawling one (Phase C)."
+            ),
+        ));
+    }
     if peak_alarm >= 500 {
         let lost = final_holdings < peak_holdings;
         f.push(Finding::new(

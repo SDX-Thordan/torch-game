@@ -130,6 +130,48 @@ pub enum CommissionError {
     BadFit,
 }
 
+/// The empire-wide **development doctrine** (Phase C) — a macro tilt on what your
+/// developed holdings yield. `Balanced` is the identity default (so a fresh/undeveloped
+/// empire is byte-identical). Industry favours raw supply, Trade favours credits, Growth
+/// trades yield for cheaper development.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DevDoctrine {
+    #[default]
+    Balanced,
+    Industry,
+    Trade,
+    Growth,
+}
+
+impl DevDoctrine {
+    /// (output_bp, tribute_bp, develop_cost_bp) — multipliers in basis points.
+    pub fn weights(self) -> (i64, i64, i64) {
+        match self {
+            DevDoctrine::Balanced => (10_000, 10_000, 10_000),
+            DevDoctrine::Industry => (15_000, 6_000, 10_000),
+            DevDoctrine::Trade => (6_000, 15_000, 10_000),
+            DevDoctrine::Growth => (8_500, 8_500, 6_000),
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            DevDoctrine::Balanced => "Balanced",
+            DevDoctrine::Industry => "Industry",
+            DevDoctrine::Trade => "Trade",
+            DevDoctrine::Growth => "Growth",
+        }
+    }
+    /// Cycle to the next doctrine (the shell's one-press macro knob).
+    pub fn next(self) -> Self {
+        match self {
+            DevDoctrine::Balanced => DevDoctrine::Industry,
+            DevDoctrine::Industry => DevDoctrine::Trade,
+            DevDoctrine::Trade => DevDoctrine::Growth,
+            DevDoctrine::Growth => DevDoctrine::Balanced,
+        }
+    }
+}
+
 /// Why a weapon could not be produced (Phase B).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CraftError {
@@ -522,6 +564,8 @@ pub struct Sim {
     /// scales a controlled colony's tribute + specialty output. Inert until you control
     /// + invest. Indexed like `colonies`; starts at `DEV_BASE`.
     colony_dev: Vec<i64>,
+    /// Empire-wide development doctrine (Phase C) — tilts holding yield. Balanced default.
+    dev_doctrine: DevDoctrine,
     /// **Per-faction** alarm at the player's expansion (E3/E7), `0..=ALARM_MAX`,
     /// indexed by `Faction`. The inners (Earth/Mars) are alarmed by your *size*; any
     /// power is spiked by acquisitions/seizures **in its sphere** (taking Mars's
@@ -623,6 +667,7 @@ impl Sim {
             colonies: default_colonies(),
             controlled: vec![false; default_colonies().len()],
             colony_dev: vec![DEV_BASE; default_colonies().len()],
+            dev_doctrine: DevDoctrine::default(),
             faction_alarm: [0; 4],
             next_coalition_strike: 0,
             coalition_forecast_sent: false,
@@ -2050,6 +2095,7 @@ impl Sim {
             endgame_outcome: self.endgame_outcome,
             controlled_colonies: self.controlled.clone(),
             colony_dev: self.colony_dev.clone(),
+            dev_doctrine: self.dev_doctrine,
             faction_alarm: self.faction_alarm,
             influence: self.influence,
             company_relations: self.diplomacy.relations(),
@@ -2179,6 +2225,7 @@ impl Sim {
         if s.colony_dev.len() == self.colony_dev.len() {
             self.colony_dev = s.colony_dev.clone();
         }
+        self.dev_doctrine = s.dev_doctrine;
         // E3/E7: restore per-faction alarm; the strike schedule re-arms from it.
         self.faction_alarm = s.faction_alarm;
         for a in &mut self.faction_alarm {
@@ -2749,6 +2796,7 @@ impl Sim {
         // Influence accrues slowly toward its cap (E4) — the statecraft resource for
         // diplomatic annexation. Pure (no RNG), so a fresh sim stays byte-identical.
         self.influence = (self.influence + INFLUENCE_PER_TICK).min(INFLUENCE_MAX);
+        let (out_bp, trib_bp, _) = self.dev_doctrine.weights();
         let gross: i64 = self
             .controlled
             .iter()
@@ -2759,7 +2807,8 @@ impl Sim {
                     true => COLONY_TRIBUTE_MARKET,
                     false => COLONY_TRIBUTE_OUTPOST,
                 };
-                base * self.colony_dev(i) // Phase C: tribute scales with development
+                // Phase C: tribute scales with development, tilted by the doctrine.
+                base * self.colony_dev(i) * trib_bp / 10_000
             })
             .sum();
         if gross == 0 {
@@ -2784,8 +2833,20 @@ impl Sim {
             .map(|i| (self.colony_specialty(i), self.colony_dev(i)))
             .collect();
         for (c, dev) in outputs {
-            self.corp.store(c, COLONY_OUTPUT_PER_TICK * dev); // Phase C: output scales with dev
+            // Phase C: output scales with dev, tilted by the doctrine.
+            self.corp
+                .store(c, COLONY_OUTPUT_PER_TICK * dev * out_bp / 10_000);
         }
+    }
+
+    /// The empire-wide development doctrine (Phase C).
+    pub fn dev_doctrine(&self) -> DevDoctrine {
+        self.dev_doctrine
+    }
+
+    /// Cycle the development doctrine (a macro empire knob).
+    pub fn cycle_dev_doctrine(&mut self) {
+        self.dev_doctrine = self.dev_doctrine.next();
     }
 
     /// A controlled colony's development level (Phase C) — `DEV_BASE` until invested.
@@ -2799,7 +2860,8 @@ impl Sim {
         if !self.colony_controlled(i) || self.colony_dev(i) >= MAX_DEV {
             return None;
         }
-        Some(DEV_COST_BASE * self.colony_dev(i))
+        let (_, _, cost_bp) = self.dev_doctrine.weights();
+        Some(DEV_COST_BASE * self.colony_dev(i) * cost_bp / 10_000)
     }
 
     /// **Develop** a controlled colony (Phase C, the *tall* growth axis): spend credits
@@ -5070,6 +5132,43 @@ mod tests {
         assert!(
             dev_out > base_out,
             "a developed colony out-produces a bare one ({dev_out} > {base_out})"
+        );
+    }
+
+    #[test]
+    fn the_development_doctrine_tilts_holding_yield() {
+        // Phase C: Industry favours raw output (vs Trade), and Growth cheapens dev.
+        let out_under = |doc: DevDoctrine| -> i64 {
+            let mut sim = Sim::new(1);
+            sim.corp_mut().credit(2_000_000);
+            let i = sim.acquirable_colonies()[0];
+            sim.acquire_colony(i).unwrap();
+            while sim.dev_doctrine() != doc {
+                sim.cycle_dev_doctrine();
+            }
+            let specialty = sim.colony_specialty(i);
+            let c0 = sim.corp().cargo(specialty);
+            for _ in 0..30 {
+                sim.step();
+            }
+            sim.corp().cargo(specialty) - c0
+        };
+        assert!(
+            out_under(DevDoctrine::Industry) > out_under(DevDoctrine::Trade),
+            "Industry tilts holding output above Trade"
+        );
+        // Growth cheapens development.
+        let mut sim = Sim::new(1);
+        sim.corp_mut().credit(2_000_000);
+        let i = sim.acquirable_colonies()[0];
+        sim.acquire_colony(i).unwrap();
+        let balanced_cost = sim.develop_cost(i).unwrap();
+        while sim.dev_doctrine() != DevDoctrine::Growth {
+            sim.cycle_dev_doctrine();
+        }
+        assert!(
+            sim.develop_cost(i).unwrap() < balanced_cost,
+            "Growth doctrine cheapens development"
         );
     }
 
