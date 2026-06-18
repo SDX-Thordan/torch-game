@@ -24,6 +24,9 @@ pub enum BodyKind {
     Moon,
     /// The foreshadowed ring-gate beyond Pluto (§0.1) — a fixed landmark.
     Gate,
+    /// A body on the **far side** of the gate (§17 endgame) — revealed only after
+    /// the player transits. Exists always (determinism), shown only post-transit.
+    FarSide,
 }
 
 /// A celestial body on a fixed circular orbit about its parent.
@@ -107,7 +110,7 @@ fn moon(name: &'static str, parent: usize, radius: i64, period: u64, phase: i64)
 /// moons. Radii are real AU for planets; periods are real years (1 tick ≈ 1 hour).
 pub fn default_system() -> Vec<Body> {
     use BodyKind::*;
-    vec![
+    let mut bodies = vec![
         // 0: the star.
         Body {
             name: "Sol",
@@ -171,7 +174,38 @@ pub fn default_system() -> Vec<Body> {
         moon("Oberon", 8, 380_000, 323, 150_000),
         moon("Triton", 9, 280_000, 141, 0),
         moon("Charon", 10, 110_000, 153, 0),
-    ]
+    ];
+    // ---- The far side of the gate (§17 endgame) ----
+    // Appended last, so every existing index (planets/gate/moons, and the markets +
+    // colonies that reference them) is unmoved. These bodies exist always for
+    // determinism, but the shell only reveals them once the player has transited.
+    // A cold dead star beyond the ring, with two worlds in its dark.
+    let anchor = bodies.len();
+    bodies.push(Body {
+        name: "Erebus", // the lightless sun on the far side
+        parent: 0,
+        orbit_radius: AU * 66,
+        period_ticks: 0,
+        phase_mdeg: 205_000,
+        kind: FarSide,
+    });
+    bodies.push(Body {
+        name: "Threshold", // the bridgehead world
+        parent: anchor,
+        orbit_radius: AU * 2,
+        period_ticks: 52_000,
+        phase_mdeg: 0,
+        kind: FarSide,
+    });
+    bodies.push(Body {
+        name: "The Tally", // where the count is kept
+        parent: anchor,
+        orbit_radius: AU * 4,
+        period_ticks: 128_000,
+        phase_mdeg: 120_000,
+        kind: FarSide,
+    });
+    bodies
 }
 
 #[cfg(test)]
@@ -237,6 +271,37 @@ mod tests {
         let pluto = find("Pluto").orbit_radius;
         let gate = find("Ring-Gate").orbit_radius;
         assert!(gate > pluto, "the gate is the far frontier (§0.1)");
+    }
+
+    #[test]
+    fn the_far_side_lies_beyond_the_gate() {
+        // §17: the far-side cluster is appended after the gate (so inner indices are
+        // unmoved) and lies beyond the ring. Its worlds orbit a far-side anchor.
+        let bodies = default_system();
+        let gate = find("Ring-Gate").orbit_radius;
+        let erebus = bodies.iter().position(|b| b.name == "Erebus").unwrap();
+        assert!(
+            erebus > 11,
+            "the far side is appended after the gate (index 11)"
+        );
+        assert_eq!(bodies[erebus].kind, BodyKind::FarSide);
+        assert!(
+            bodies[erebus].orbit_radius > gate,
+            "Erebus lies past the ring"
+        );
+        // Threshold + The Tally orbit the anchor and resolve to real positions.
+        for name in ["Threshold", "The Tally"] {
+            let i = bodies.iter().position(|b| b.name == name).unwrap();
+            assert_eq!(
+                bodies[i].parent, erebus,
+                "{name} orbits the far-side anchor"
+            );
+            assert_ne!(position_of(&bodies, i, 5_000), (0, 0));
+        }
+        // The inner system's load-bearing indices are unchanged.
+        assert_eq!(bodies[3].name, "Earth");
+        assert_eq!(bodies[5].name, "Ceres");
+        assert_eq!(bodies[11].name, "Ring-Gate");
     }
 
     #[test]

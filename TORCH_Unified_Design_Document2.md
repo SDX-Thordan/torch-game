@@ -9,6 +9,17 @@ A hard sci-fi industrial sandbox for mobile (Android-first). You found a corpora
 **Reference DNA:** X4's industrial heart × The Expanse's scarcity politics × an authored story spine.
 **Tagline:** *Logistics is the weapon. Time is the terrain.*
 
+> **⚑ Genre re-aim (2026-06-17) — read with Part VI.** Parts 0–V below describe the
+> original **X4-style corporate sandbox** (you're a CEO who *perturbs* a living
+> economy and climbs to a gate). That foundation is **built and still load-bearing**
+> (the orrery, the deterministic economy, interdiction, combat, the gate). But the
+> project's actual north star is a **Distant Worlds / Stellaris empire sim** in the
+> Expanse's Sol — *you grow a colonizing state*. The reconciliation, and everything
+> built to deliver it, is **PART VI — THE EMPIRE LAYER** (the now-canonical core
+> loop). Where Part VI and the older text disagree on *genre/player identity*, Part VI
+> wins; the older parts remain authoritative for the systems they describe (economy,
+> ships, combat, orrery, tech).
+
 ---
 ---
 
@@ -125,15 +136,15 @@ The three-way cold war is a living tension meter; flashpoints create embargoes, 
 > fleet a positional, logistical asset (and a real interdiction target) rather than
 > an abstract roster.
 >
-> **Current MVP gap (to close).** Today `delta_v` is computed per fit and used only
-> for *combat* range/mobility and the shipyard readout; the **movement layer does
-> not consume it**. NPC haulers move at a flat `CRUISE_SPEED` (positions tracked,
-> rendered); player freighters are an abstract **pooled count** with an in-transit
-> timer (no individual position); player **warships have no position at all** and
-> never traverse the map (combat is the abstract `engage_raiders` verb). Closing
-> this — per-ship position + a spent delta-v/remass budget + stranding/refuel —
-> is the next major sim step toward Pillar #2, and unblocks an honest FLEET view
-> (location/fuel are currently synthesized in the shell because the sim lacks them).
+> **Status — closed 2026-06-16 (warships).** `sim::movement` now gives every owned
+> **warship** a tracked position + remass budget (`OwnedShip.nav`): `move_ship`
+> commits a trajectory at the live orbital distance, spends remass, and takes time
+> from the ship's drive and the chosen burn (economical vs. hard); a dry tank
+> **strands** the ship until `refuel_ship` buys remass at a dock. Ships render on the
+> orrery and the FLEET view shows **real** location/fuel (no longer synthesized).
+> *Remaining:* player **freighters** are still the abstract pooled-count + route
+> timer (not yet per-ship positional), and combat (`engage_raiders`) is not yet
+> gated on fleet position — both follow-ups toward full Pillar-#2 coverage.
 
 ## 7. Economy & Industry
 
@@ -226,7 +237,7 @@ Mostly emergent, with **light authored threads and faction arcs** — *except* t
 
 ## 17. Endgame Arc — The Gate, the Colonization Race & Empire
 
-The long-horizon spine that turns a corporation into an empire, and the *renewal* of the journey (§0.1). **Post-MVP.**
+The long-horizon spine that turns a corporation into an empire, and the *renewal* of the journey (§0.1). **Status (2026-06-17): BUILT** — the full post-gate sandbox (G1–G5: the far side as a place → its economy → a player bridgehead → escalating incursions → a win/loss resolution) shipped, every rung transit-gated so the inner game stays byte-identical. See **§44 (Part VI)** and `docs/POST_GATE_PLAN.md`. The handcrafted Sol far-side cluster is in; the *procedural* multi-system frontier (item 2 below) remains the open art/tooling lift.
 
 1. **The gate opens** — a late-game threshold; Sol's dormant ring-gate activates.
 2. **A multi-system frontier beyond** — procedurally generated systems (Avorion-like). Sol stays handcrafted.
@@ -243,7 +254,7 @@ The long-horizon spine that turns a corporation into an empire, and the *renewal
 
 ## 18. Orientation & Navigation — The Command Console
 - **Landscape-first** for the full experience; matches the sit-down session rhythm.
-- **Persistent map + slide-over panels.** The live 3D orrery owns the screen; a slim **top bar** carries time controls + the alert feed; panels slide from the edges (left = assets, right = selected detail). The map never fully occludes.
+- **Map-anchored nav-rail console** *(mobile-first realization, amended 2026-06-16).* A slim **left nav rail** switches between top-level views — **SYSTEMS** (the live 3D orrery owns the screen with a right context panel; the map is never occluded *here*), **FLEET**, **BUILD**, **MARKET**. A slim **top bar** carries time controls + the alert feed across every view. On the 6-inch-phone target the data views (FLEET/BUILD/MARKET) are **full-screen** — consistent with the "either map *or* data" honesty below — and the player is always one rail-tap from the map. *(This supersedes the original "panels slide from the edges; the map never fully occludes" framing, which assumed a tablet/desktop canvas; the slide-over treatment remains the ideal for wide screens.)*
 - **Portrait triage mode** *(post-core).* Glance, clear exceptions, queue an order; full orrery in landscape when seated.
 - **Phone vs. tablet honesty:** side-by-side panels are a tablet luxury; on a 6-inch phone you'll see *either* map *or* data — design panels to stand alone there.
 
@@ -355,3 +366,184 @@ Per-faction voxel block-kits drive a procedural generator (biggest tooling inves
 - **Over-investing in mastery.** → Keep fitting/logistics light (§0.2); the sim rigor is the builder's joy, not player homework.
 - **Native iteration speed.** → Hot-reloadable data; logic in Rust, numbers in data.
 - **Android toolchain / orbital fidelity / solo scope.** → De-risk day one; simplified orbital model; guard the MVP cut. The honest test is whether *you'd* keep opening it.
+
+---
+---
+
+# PART VI — THE EMPIRE LAYER (the re-aim, 2026-06-17)
+
+> This part is **canonical** and supersedes Parts 0–V wherever they disagree on
+> *genre and player identity*. It documents the decision to re-aim TORCH toward an
+> empire sim and the systems built to deliver it. Everything here is **shipped and
+> green** (native `cargo test` + GUT + the QA harness); the sequenced rationale lives
+> in `docs/EMPIRE_LAYER_PLAN.md`, `EMPIRE_PHASE2_PLAN.md`, `EMPIRE_DIPLOMACY_PLAN.md`,
+> and `POST_GATE_PLAN.md`.
+
+## 37. The Re-aim — from corporate sandbox to empire sim
+
+A vision check found a genuine genre divergence. TORCH had been built *faithfully to
+Parts 0–V* — an **X4-style corporate logistics sandbox** (you're a CEO who *perturbs*
+a self-sufficient economy and climbs to a gate; Pillar #3: "you are a perturbation on
+it, never its foundation"). But the actual north star is a **Distant Worlds /
+Stellaris empire sim** in the Expanse's hard-sci-fi Sol: *you grow a colonizing
+state.* The **setting** was always right (Expanse, Sol, delta-v, no FTL, Earth/Mars/
+Belt, the ring-gate); the **genre/player-identity** had drifted.
+
+**The reconciliation (the new core loop): expansion-by-acquisition.** You grow a
+station/colony empire by taking assets three ways — **economy** (buy/build),
+**diplomacy** (court independents into joining), and **military** (seize by force) —
+governed by an **overextension + faction-alarm** cost: take too much, or take it in
+the wrong power's backyard, and the great powers turn on you. Careful, political
+expansion *is* the game. The existing economy, fleet, combat, factions, and gate all
+become *means and stakes* of one empire loop instead of sitting beside each other.
+
+**Player identity:** still a persistent founder-CEO (Parts 1, 11), but the fantasy is
+now running a **polity**, not a trading company — the CEO *is* the state.
+
+**Who is negotiable:** **Earth and Mars are watchful giants** — you don't negotiate
+with them, you avoid provoking them (§39). The **independent companies** are the
+diplomatic counterparties (§42). Macro decisions (standing relationships, passive
+effects), **not** per-event micro-prompts — an explicit design constraint.
+
+## 38. The Acquisition Loop — three paths, three prices
+
+The core verb is **acquire a holding** (a station you build or a colony you take).
+Three pathways, each a distinct cost *and* a distinct political price, so *how* you
+expand is a real strategic choice:
+
+| Path | Resource cost | Gate | Coalition-alarm spike | Can take |
+|---|---|---|---|---|
+| **Buy** (economy) | credits | — | +120 (inners) | independent colonies |
+| **Annex** (diplomacy) | Influence (+ standing / company ally) | Independents ≥ Cordial, **or** an allied company | +60 (inners) | independent colonies |
+| **Seize** (military) | warships + losses | a fleet vs the garrison | **+220 (the victim power)** | **any** colony, incl. a great power's |
+
+- **Holdings** = built stations + controlled colonies (`holding_count`). A unified
+  view; the empire's size.
+- **Build** is the fourth, foundational path: found stations/refineries (Part 7) on
+  your ground — they *produce* (§40).
+- Acquisition is a **spine op** (advances the §0 climb).
+
+## 39. Overextension — the two caps that make expansion *careful*
+
+Expansion is never free; two governors, both inert until you actually hold assets (so
+the §7c stability gate and the headless economy stay byte-identical for a fresh world):
+
+- **Administrative capacity (the economic cap).** You can govern `base + CEO-level/3`
+  holdings efficiently (capacity is *earned*, Stellaris admin-cap style). Past it,
+  empire-wide tribute efficiency falls and per-holding **strain upkeep** mounts, so
+  over-reach holdings go **net-negative**.
+- **Faction alarm & the coalition (the political cap), sphere-aware.** A **per-faction**
+  alarm (`faction_alarm[Earth/Mars/Belt]`): the inners are alarmed by your sheer
+  **size**; **any** power is spiked by acquisitions/seizures **in its sphere** — taking
+  Mars's colony brings *Mars* down on you (the home Belt is alarmed only if you betray
+  it by seizing *its* colony). Above a threshold a **coalition** forms (led by the
+  angriest power), telegraphs, and lands an **act-now strike** on your holdings;
+  unanswered it **seizes your most valuable colony** (which relieves alarm — a
+  self-correcting equilibrium where sustainable empire size = the fleet you can field).
+  `defend_holdings` rallies the fleet to repel it.
+
+## 40. Economic Integration — holdings as supply-chain nodes
+
+A controlled colony is not a credit drip; it is a node in your economy:
+
+- **Supply.** Each colony produces a thematic raw (Belt→Ice, Mars→Ore, Earth→Volatiles)
+  into your **warehouse** every tick. Emergent end-to-end integration: your refineries
+  (Part 7) already pull input from the warehouse before buying market, so **colony
+  output feeds your production directly** (supply → production → logistics).
+- **Owned markets.** A colony you control is a market *you own*: you trade there
+  **fee-reduced** (you run the broker), and you collect a **tariff** on every **NPC
+  delivery** into it — *your empire earns from the living economy autonomously*.
+
+## 41. Security — a trade empire must be defended
+
+Two threads with **deliberately distinct counters**, scaling with empire size:
+
+- **Piracy (countered by a navy).** As your trade footprint grows, pirates prey on
+  *your* shipping unless you keep escorts **on station** (`escorts_needed` ≈ 1 +
+  holdings/3). Neglect the navy and a big empire bleeds cargo.
+- **Faction inspections (countered by reputation).** Sour a great power and trading in
+  its space carries a rising **customs surcharge**, plus periodic **inspection fines**
+  while you're on its bad side. Mend fences (contracts, decay) or reroute.
+
+Tuned **real but counterable**: the QA Expansionist (13 holdings) bled to ~37 raids +
+11 inspection sweeps yet stayed net-positive — a player who managed escorts + rep
+would keep more.
+
+## 42. Corporate Diplomacy — the independent companies
+
+The negotiable actors (Earth/Mars stay the coalition, §39). Each independent colony is
+operated by a named **company** (Ganymede Free Traders, Callisto Shipwrights, Enceladus
+Hydro Combine, Triton Pioneers) on a stance ladder **Rival < Cold < Neutral < Partner
+< Ally**. The one macro move is **court** (invest Influence to climb a step). Passive,
+standing-based payoffs — no micro-prompts:
+
+- An **Ally**'s colony **annexes for free** (joins willingly); each ally **lends an
+  escort** (diplomacy buys piracy security, §41).
+- A **Partner**'s colony is annexable with Influence even at low generic standing.
+- **Rival** (made by *seizing* its colony) refuses to deal; a **buyout** just sours it.
+
+So aggression has a diplomatic price: seize widely and you burn bridges with the
+independents you might otherwise have allied.
+
+## 43. The Empire Spine & Command Surface
+
+- **Expansion is the spine metric.** An `empire_rank` ladder (Independent Operator →
+  Local → Regional → Great Power → Hegemon, by holdings) headlines the status bar and
+  the EMPIRE view — "grow the empire" is the legible goal, always showing the next rung.
+- **The EMPIRE view** (a fifth nav-rail view, §18) is the "map + master-tables" command
+  surface: the rank headline, admin/influence/per-faction-alarm/escort/diplomacy
+  meters, the BUY/ANNEX/SEIZE/DEFEND/COURT verb deck, and a master-table of holdings,
+  acquirable + seizable colonies (by garrison), and independent relations.
+- **PC mode** (§33 amendment): the Android-first shell now auto-detects desktop and
+  swaps to mouse-wheel zoom + keyboard (toggle F8), both schemes coexisting.
+
+## 44. Post-Gate Endgame — BUILT (supersedes §17's "post-MVP" framing)
+
+The §17 arc shipped as a complete loop (`docs/POST_GATE_PLAN.md`), every rung
+**transit-gated** so the inner game stays byte-identical:
+
+- **G1 — the far side is a place:** a dead-star cluster (Erebus / Threshold / The Tally)
+  appended past the ring; hidden until you `transit_gate`.
+- **G2 — its economy:** two far-side markets in deep scarcity, stepped on a dedicated
+  RNG so the inner economy is untouched.
+- **G3 — the bridgehead:** your own foothold beyond the ring (found / upgrade /
+  integrity).
+- **G4 — incursions:** an escalating threat from beyond (the gate's *answer*) that
+  telegraphs, strikes the bridgehead, and is repelled by `defend_bridgehead`.
+- **G5 — the resolution:** win by growing + holding the bridgehead through the
+  incursions, or lose if it's overrun — the §0 destination pull finally *completes*.
+
+## 45. Build Status & the Determinism Discipline
+
+**Shipped:** the full empire layer (E1–E8), economic integration + security (EP1–EP4),
+per-faction geopolitics (E7), corporate diplomacy (E8), the post-gate sandbox (G1–G5),
+delta-v warship movement, the multi-view command shell incl. the EMPIRE view, and PC
+mode. ~186 native sim tests + the QA harness (7 personas incl. an **Expansionist** that
+exercises the empire loop) + 17 GUT view tests, all green.
+
+**The discipline that made it safe:** every empire/endgame system is **gated** (on
+holding assets, or on `transit`), so a fresh world and the non-expanding QA personas
+are **byte-identical** — the §7c economy stability gate is provably unaffected, and the
+QA review only moves for the persona that actually expands (regenerated honestly). New
+subsystems carry **dedicated RNGs** and append (never insert) so load-bearing indices
+and the shared RNG stream are untouched. Content stays in code; only mutable dials are
+save state (the `&'static str` serde wall).
+
+## 46. Next Steps (candidate rungs, macro-first)
+
+Sequenced, each a small focused PR in the established style:
+
+- **Living diplomacy payoffs** *(macro):* allied companies route more NPC trade to your
+  owned markets (passive tariff income); rival companies undercut/contest you (passive
+  economic friction) so rivalry has a downside beyond "can't annex."
+- **A Diplomat QA persona** — courts companies to allies and annexes the frontier
+  peacefully; the first persona to exercise the diplomacy loop in the review.
+- **Pops / colony development** *(the one classic 4X axis still absent):* a light
+  population/development tier per holding (output + a few macro policies), kept
+  un-fiddly per §0.2 — the deepest remaining empire-sim gap.
+- **War as a state** *(macro):* a sustained war footing with a great power (vs. the
+  one-off seize), with war goals and a peace.
+- **The art track** *(independent):* the §24/§25 procedural voxel assembly + baking
+  pipeline (the biggest single art lift), then the §22 voxel combat diorama.
+- **Audio:** deferred indefinitely by player choice (§23c) — the one consciously
+  dropped MVP item.

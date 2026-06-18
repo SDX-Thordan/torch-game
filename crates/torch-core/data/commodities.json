@@ -1,11 +1,17 @@
 {
-  "_comment": "Commodity tuning (§31): numbers in data, logic in Rust. The set and identity (names, recipe order) live in `economy::default_commodities`; this file supplies the hot-reloadable numbers. An entry's `name` must match a compiled commodity. Partial files are allowed (override only what you list). The committed file mirrors the compiled defaults — `data_file_matches_compiled_defaults` enforces it.",
+  "_comment": "Commodity tuning (§31): numbers in data, logic in Rust. The set and identity (names, recipe order) live in `economy::default_commodities`; this file supplies the hot-reloadable numbers. An entry's `name` must match a compiled commodity. Partial files are allowed (override only what you list). The committed file mirrors the compiled defaults — `data_file_matches_compiled_defaults` enforces it. The production chain is a 3-line × 4-tier grid (§7d): each commodity refines into the one +3 indices along (tier-major order).",
   "commodities": [
-    { "name": "Ice",         "base_price": 20,  "floor": 8,  "ceiling": 60,  "target_stock": 1200, "max_stock": 2400, "demand_jitter": 35 },
-    { "name": "Ore",         "base_price": 30,  "floor": 12, "ceiling": 90,  "target_stock": 1000, "max_stock": 2000, "demand_jitter": 30 },
-    { "name": "Volatiles",   "base_price": 45,  "floor": 18, "ceiling": 140, "target_stock": 800,  "max_stock": 1600, "demand_jitter": 22 },
-    { "name": "Remass",      "base_price": 70,  "floor": 28, "ceiling": 210, "target_stock": 700,  "max_stock": 1400, "demand_jitter": 18 },
-    { "name": "Metals",      "base_price": 110, "floor": 44, "ceiling": 330, "target_stock": 600,  "max_stock": 1200, "demand_jitter": 14 },
-    { "name": "ReactorFuel", "base_price": 180, "floor": 72, "ceiling": 540, "target_stock": 400,  "max_stock": 800,  "demand_jitter": 9 }
+    { "name": "Ice",         "base_price": 20,   "floor": 8,   "ceiling": 60,   "target_stock": 1200, "max_stock": 2400, "demand_jitter": 35 },
+    { "name": "Ore",         "base_price": 30,   "floor": 12,  "ceiling": 90,   "target_stock": 1000, "max_stock": 2000, "demand_jitter": 30 },
+    { "name": "Volatiles",   "base_price": 45,   "floor": 18,  "ceiling": 140,  "target_stock": 800,  "max_stock": 1600, "demand_jitter": 22 },
+    { "name": "Remass",      "base_price": 70,   "floor": 28,  "ceiling": 210,  "target_stock": 700,  "max_stock": 1400, "demand_jitter": 18 },
+    { "name": "Metals",      "base_price": 110,  "floor": 44,  "ceiling": 330,  "target_stock": 600,  "max_stock": 1200, "demand_jitter": 14 },
+    { "name": "ReactorFuel", "base_price": 180,  "floor": 72,  "ceiling": 540,  "target_stock": 400,  "max_stock": 800,  "demand_jitter": 9 },
+    { "name": "Composites",  "base_price": 240,  "floor": 96,  "ceiling": 720,  "target_stock": 350,  "max_stock": 700,  "demand_jitter": 0 },
+    { "name": "Alloys",      "base_price": 380,  "floor": 152, "ceiling": 1140, "target_stock": 300,  "max_stock": 600,  "demand_jitter": 0 },
+    { "name": "Circuitry",   "base_price": 620,  "floor": 248, "ceiling": 1860, "target_stock": 200,  "max_stock": 400,  "demand_jitter": 0 },
+    { "name": "Habitats",    "base_price": 820,  "floor": 328, "ceiling": 2460, "target_stock": 175,  "max_stock": 350,  "demand_jitter": 0 },
+    { "name": "Machinery",   "base_price": 1300, "floor": 520, "ceiling": 3900, "target_stock": 150,  "max_stock": 300,  "demand_jitter": 0 },
+    { "name": "Drives",      "base_price": 2100, "floor": 840, "ceiling": 6300, "target_stock": 100,  "max_stock": 200,  "demand_jitter": 0 }
   ]
 }

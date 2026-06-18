@@ -41,6 +41,10 @@ pub enum Urgency {
 pub enum Verb {
     /// A shortage is an opportunity: sell into it, or relieve it.
     ExploitShortage { market: usize, commodity: usize },
+    /// An incursion is at the bridgehead (§17, G4): rally the fleet and repel it.
+    DefendBridgehead,
+    /// A great-power coalition is striking your holdings (E3): rally the fleet.
+    DefendHoldings,
 }
 
 /// One entry in the feed.
@@ -139,6 +143,35 @@ impl AlertFeed {
         }
     }
 
+    /// Mark the active "defend the bridgehead" act-now alert as answered, dropping
+    /// it from the feed (§17, G4 — the incursion exception→verb loop closed).
+    pub fn resolve_incursion(&mut self) -> bool {
+        if let Some(pos) = self
+            .alerts
+            .iter()
+            .rposition(|a| a.verb == Some(Verb::DefendBridgehead))
+        {
+            self.alerts.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Mark the active "defend the holdings" act-now alert as answered (E3).
+    pub fn resolve_holdings(&mut self) -> bool {
+        if let Some(pos) = self
+            .alerts
+            .iter()
+            .rposition(|a| a.verb == Some(Verb::DefendHoldings))
+        {
+            self.alerts.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Classify a world event into an alert (or nothing, for routine noise).
     pub fn ingest(&mut self, event: &Event, tick: u64) {
         // Age out unanswered act-now shortages — the shortage has passed (§7b/§19).
@@ -148,16 +181,45 @@ impl AlertFeed {
             Event::Scarcity { market, commodity } => Some(self.scarcity(*market, *commodity, tick)),
             Event::HaulerInterdicted { .. } => Some(self.raid(tick)),
             Event::TierAscended { tier } => Some(Self::milestone(tier, tick)),
+            Event::GateTransited => Some(Self::milestone("Beyond the Gate", tick)),
             Event::BattleResolved { won, losses } => Some(self.battle(*won, *losses, tick)),
             Event::ThreatForecast { eta, .. } => Some(self.forecast(*eta, tick)),
             Event::WreckSighted { .. } => Some(self.wreck_sighted(tick)),
             Event::WreckSalvaged { .. } => Some(self.wreck_salvaged(tick)),
+            Event::BridgeheadFounded => Some(Self::bridgehead_founded(tick)),
+            Event::BridgeheadUpgraded { level } => Some(self.bridgehead_upgraded(*level, tick)),
+            Event::IncursionStruck { .. } => Some(self.incursion(tick)),
+            Event::BridgeheadDamaged { integrity } => {
+                Some(self.bridgehead_damaged(*integrity, tick))
+            }
+            Event::BridgeheadFell => Some(Self::bridgehead_fell(tick)),
+            Event::EndgameWon => Some(Self::endgame_won(tick)),
+            Event::EndgameLost => Some(Self::endgame_lost(tick)),
+            Event::ColonyAcquired { .. } => Some(self.colony_acquired(tick)),
+            Event::CoalitionStrike { .. } => Some(self.coalition_strike(tick)),
+            Event::HoldingLost { .. } => Some(self.holding_lost(tick)),
+            Event::EmpireRaided { loss } => Some(self.empire_raided(*loss, tick)),
+            Event::Inspected { fine } => Some(self.inspected(*fine, tick)),
             // Routine traffic and ticks are not feed-worthy.
             Event::Tick { .. } | Event::HaulerDeparted { .. } | Event::HaulerArrived { .. } => None,
         };
         if let Some(a) = alert {
             self.push(a);
         }
+    }
+
+    /// Push an authored, FYI announcement (a mission completion or a gate-mystery
+    /// beat, §0.1/§16) under a named voice. Loud (Critical) so it reads as a story
+    /// beat, not routine noise; never act-now (it's not a demand).
+    pub fn announce(&mut self, voice: &str, message: String, tick: u64) {
+        self.push(Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: voice.to_string(),
+            message,
+            verb: None,
+        });
     }
 
     fn push(&mut self, alert: Alert) {
@@ -187,6 +249,87 @@ impl AlertFeed {
             voice: mgr.name.clone(),
             message,
             verb: Some(Verb::ExploitShortage { market, commodity }),
+        }
+    }
+
+    /// The player annexed a frontier colony (the empire layer) — a milestone, and a
+    /// reminder that the inners are watching.
+    fn colony_acquired(&self, tick: u64) -> Alert {
+        let mgr = &self.markets_mgr;
+        Alert {
+            tick,
+            priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: A frontier colony flies our flag now. The inners will have noticed.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// A great-power coalition is striking the player's holdings (E3) — act-now.
+    fn coalition_strike(&self, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::ActNow,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: A great-power coalition is moving on our holdings. Defend them.",
+                mgr.name
+            ),
+            verb: Some(Verb::DefendHoldings),
+        }
+    }
+
+    /// A soured great power inspected and fined the player's shipping (EP4).
+    fn inspected(&self, fine: i64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: A customs sweep fined us {fine} cr — a power we've crossed is squeezing our shipping. Mend fences or reroute.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// Pirates raided the trade empire because escorts were too thin (EP3).
+    fn empire_raided(&self, loss: i64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: Pirates hit our shipping — lost {loss} cr of cargo. The empire needs more escorts on station.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// The coalition seized one of the player's holdings (E3).
+    fn holding_lost(&self, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: We've lost a holding — the inners pried it from our grip.",
+                mgr.name
+            ),
+            verb: None,
         }
     }
 
@@ -276,6 +419,108 @@ impl AlertFeed {
             urgency: Urgency::Fyi,
             voice: mgr.name.clone(),
             message: format!("{}: Wreck stripped — the haul's aboard.", mgr.name),
+            verb: None,
+        }
+    }
+
+    /// The player founded their far-side bridgehead (§17 endgame, G3) — a milestone.
+    fn bridgehead_founded(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: We hold a foothold beyond the ring. The bridgehead stands."
+                .to_string(),
+            verb: None,
+        }
+    }
+
+    /// The player upgraded the far-side bridgehead (§17, G3) — an FYI beat.
+    fn bridgehead_upgraded(&self, level: u32, tick: u64) -> Alert {
+        let mgr = &self.markets_mgr;
+        Alert {
+            tick,
+            priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: The bridgehead is reinforced — now level {level}.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// An incursion has reached the bridgehead (§17, G4) — act-now: defend it.
+    fn incursion(&self, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::ActNow,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: Contacts through the ring — they're on the bridgehead. Defend it.",
+                mgr.name
+            ),
+            verb: Some(Verb::DefendBridgehead),
+        }
+    }
+
+    /// The bridgehead took incursion damage (§17, G4) — a Warning FYI.
+    fn bridgehead_damaged(&self, integrity: i64, tick: u64) -> Alert {
+        let mgr = &self.security_mgr;
+        Alert {
+            tick,
+            priority: Priority::Warning,
+            urgency: Urgency::Fyi,
+            voice: mgr.name.clone(),
+            message: format!(
+                "{}: The bridgehead is hit — integrity {integrity}.",
+                mgr.name
+            ),
+            verb: None,
+        }
+    }
+
+    /// The bridgehead fell (§17, G5) — the gravest line.
+    fn bridgehead_fell(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: The bridgehead is overrun. The far side is lost to us."
+                .to_string(),
+            verb: None,
+        }
+    }
+
+    /// The endgame resolved in triumph (§17, G5) — the journey's end.
+    fn endgame_won(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: The far side is ours. We held the ring and made it home. \
+                      This is the empire we built."
+                .to_string(),
+            verb: None,
+        }
+    }
+
+    /// The endgame resolved in defeat (§17, G5).
+    fn endgame_lost(tick: u64) -> Alert {
+        Alert {
+            tick,
+            priority: Priority::Critical,
+            urgency: Urgency::Fyi,
+            voice: "The Board".to_string(),
+            message: "The Board: The far side has taken what we built beyond the ring. \
+                      It was always counting; now it has its number."
+                .to_string(),
             verb: None,
         }
     }

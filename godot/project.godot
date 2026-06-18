@@ -16,6 +16,9 @@ config/icon="res://icon.svg"
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+; Resizable so the desktop (PC mode) window can be sized/maximized; the HUD scales
+; via the expand stretch below. Ignored on handhelds.
+window/size/resizable=true
 ; Landscape, auto-rotating between the two landscape directions (mobile, §17).
 ; (DisplayServer.SCREEN_SENSOR_LANDSCAPE = 4; the HUD is designed for 1280×720.)
 window/handheld/orientation=4

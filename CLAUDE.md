@@ -5,7 +5,13 @@ the authoritative GDD). Read at the start of every session; update whenever a
 decision is made or a lesson is learned.
 
 **Companion authorities (in `docs/`):**
-- `docs/PLAYABLE_STATE_REVIEW.md` — the playable-state review (gaps + sequenced path).
+- `TORCH_Unified_Design_Document2.md` (root) — the authoritative GDD. **Part VI
+  (2026-06-17)** documents the empire-sim re-aim + everything built since.
+- `docs/EMPIRE_LAYER_PLAN.md` / `EMPIRE_PHASE2_PLAN.md` / `EMPIRE_DIPLOMACY_PLAN.md` /
+  `POST_GATE_PLAN.md` — the sequenced empire/endgame roadmaps (E1–E8, EP1–EP4, G1–G5),
+  all ✅ done; the live record of what shipped and why.
+- `docs/SAMPLE_GAMEPLAY_REVIEW.md` — the QA harness's current output (regenerated each
+  run; not hand-edited).
 - `docs/TORCH_Player_Influence_and_Interaction_Model.md` — *what* the player can
   influence, *how*, and *where it's pressable*. Identity: a **spreadsheet sim in
   space** (Aurora 4X / EVE); depth of decision is the fun. The heart is
@@ -80,6 +86,11 @@ cargo fmt --all         # / --check in CI
 cargo clippy --all-targets -- -D warnings
 cargo build --release   # produces target/release/libtorch_core.so (the GDExtension)
 # Godot: open godot/ in Godot 4.6 (the .gdextension points at the target/ lib)
+
+# GUT view/integration tests (§32) — boots the gdext core headless:
+cargo build                                   # the debug cdylib the extension loads
+godot --headless --path godot --import        # register the gdextension + GUT class_names
+cd godot && godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit
 ```
 
 ## 6. Roadmap (GDD §35 build order → PRs)
@@ -145,19 +156,1115 @@ Status: [x] done, [~] in progress, [ ] todo.
   **gameplay review** (pacing/agency/economy/alerts/reputation + cross-cutting
   design findings). The §32 counterpart to `cargo test`: tests assert systems
   *work*, this critiques how the game *plays*. Same seed ⇒ same review. Now a
-  **two-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
-  (engaging & fun?).
+  **three-lens** tool: `review`/`design_review` (works & balanced?) + `engagement`
+  (engaging & fun?) + `ui` (a static affordance audit of the binding ⟷ shell
+  wiring — can the player see & reach it all?).
 - [~] **14. Juice & audio pass**, then UX polish. **Playable shell + 3D orrery
   done** (`godot/main.gd`): real-time-with-pause loop (§28), a **3D orrery** (§21:
   lit bodies orbit the sun on the ecliptic, haulers run the lanes, an
   always-visible gate ring brightens with approach), live panels + alert feed
   (§18/§19) on a 2D CanvasLayer overlay, verbs on input + click-to-target/select.
   **Save/load (§30)** (F5/F9) and the first juice (act-now + ascension flashes).
-  Audio deferred indefinitely (player choice); deeper console-chrome + richer
-  juice still to come.
-- [ ] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
+  **Combat command + §22 diorama** in (doctrine knobs + engage verb + played-back
+  BattleLog). Audio deferred indefinitely (player choice); deeper console-chrome +
+  richer juice (a *voxel* diorama, live mid-fight commands) still to come.
+- [~] **15. (Post-MVP)** Tier 3 geopolitics → outer frontier → gate/empire.
+  **Post-gate sandbox (G1–G5) complete** (`docs/POST_GATE_PLAN.md`): the `Tier::Beyond`
+  tier + `transit_gate` + the gate-mystery *answer* (G1/§0.1), the far-side **place**
+  (Erebus/Threshold/The Tally bodies, G1), **economy** (the far-side markets, G2),
+  **bridgehead** colonization (G3), escalating **incursions** (G4), and the **win/loss**
+  resolution (G5) — a full endgame loop, every rung transit-gated so the inner game
+  (and the §7c gate + QA review) stays byte-identical. Remaining: the **art track**
+  (A1 procedural assembly/baking, A2 voxel diorama) + deeper Tier-3 geopolitics.
 
 ## 7. Learnings & decisions log (append-only)
+
+- **2026-06-18 — Ship sourcing reframe: Tycho buys vs. your own shipyard (§8/§5).** Player call:
+  you **can't freely build warships**. Civilians + (with **OPA standing ≥ 250**) **corvettes**
+  come from **Tycho**; **Destroyer/Cruiser/Battleship** need your **own shipyard** (tier 1/2/3),
+  which is **very expensive** to found (60k) + expand (50k×tier) + **maintain** (upkeep/tick).
+  Capital **refits** also need the yard (Tycho only handles small hulls). New `shipyard_tier`/
+  `shipyard_body` on `Sim`; `hull_source_ok(class)` gates `commission_ship`/`commission_designed`/
+  `assemble_ship` (→ `CommissionError::NeedShipyard`); `found_shipyard(body)` (rejects Star/Gate
+  sites)/`expand_shipyard`/`run_shipyard_upkeep` (in `step()`, gated tier>0 ⇒ a fresh sim is
+  byte-identical). Persisted (`#[serde(default)]`). **This is a deep, *non*-byte-identical change**
+  — it gates the verb everything used, so **17 native tests** broke (added a private-field `yard()`
+  test helper) and the **3 combat-fleet GUT tests** (added a `dev_grant_shipyard()` sandbox
+  binding). Personas reworked to the new economy: **Warlord** now *earns → founds a yard → fights*
+  (and is **profitable +59k** now vs. net-negative before — trading to fund the yard funds the
+  Warlord too); **Tycoon** dropped its setup frigate (trade operator, no yard); **Expansionist**
+  builds its defense squadron only after a yard. *Balance:* first pass at **150 upkeep/tier/tick**
+  bankrupted the Warlord (≈600k over a run) — dialled to **50** (still ≈200k, "very expensive" but
+  survivable for an active operator). Shell: a **Shipyard** panel in BUILD (status + FOUND/EXPAND)
+  + a `NeedShipyard` commission message + a Tycho-corvette hint. 196 cargo + 17 GUT green; test
+  `warships_need_a_shipyard_except_corvettes_with_opa_standing`. *Lesson:* when a change gates a
+  core verb, budget for the **test + persona ripple** up front — a private-field test helper +
+  one sandbox binding kept it contained, and the persona rework (earn-before-warfare) is the
+  honest new shape of the game, not a regression.
+
+- **2026-06-18 — Phase C round-out: a development doctrine + a Developer QA persona (§46).**
+  Closed the two deferred Phase-C items. **(1) Development doctrine** (`DevDoctrine`: Balanced /
+  Industry / Trade / Growth) — an empire-wide *macro* tilt (per the player's macro>micro steer,
+  not per-colony micro): `run_holdings` scales output by `out_bp` and tribute by `trib_bp`, and
+  `develop_cost` by `cost_bp`, so Industry favours raw supply, Trade favours credits, Growth
+  cheapens development. **`Balanced` is the identity default** (10000/10000/10000) so a fresh /
+  undeveloped empire stays byte-identical. Cycled with a `⚙ DOCTRINE` op-button + a meters
+  readout; persisted (`#[serde(default)]`). *Clippy:* a hand-written `Default` trips
+  `derivable_impls` → `#[derive(Default)]` + `#[default]` on `Balanced`. **(2) Developer QA
+  persona** — acquires ~1 colony, then pours credits into **developing** it (no wide expansion).
+  It **proves the tall axis pays:** 1 holding → L5 → **+123k cr (~25×)** with coalition alarm
+  peaking at just **90/1000** (vs the wide Expansionist's 13 holdings @ 1000 alarm + fought
+  defenses). A new `peak_dev` transcript sample + an `Empire · development` review finding voice
+  it. *Determinism:* the doctrine's Balanced default + personas-don't-develop keep the **8
+  existing personas byte-identical** (verified by diff); only the new Developer section + the dev
+  finding + UI-wiring counts moved — an honest review change, regenerated. 195 cargo + 17 GUT
+  green; test `the_development_doctrine_tilts_holding_yield`. *Engagement note:* the Developer
+  scores 38 (low Agency/Flow — a patient builder is structurally low-action); its *value* is the
+  measurement (tall pays), not a high engagement score. **Phase C is complete** — the empire can
+  grow tall (develop + doctrine) or wide (acquire), each with distinct economics + political cost.
+
+- **2026-06-18 — Phase C: colony development — the *tall* growth axis (§46, the 4X gap).** The
+  deepest remaining 4X gap was that holdings were flat (acquire-only, no depth). New per-colony
+  **development level** (`colony_dev: Vec<i64>`, `DEV_BASE=1`..`MAX_DEV=5`): `run_holdings` now
+  scales a controlled colony's **tribute *and* specialty output** by its level, so a developed
+  holding is worth multiples of a bare one. `develop_colony(i)` spends escalating credits
+  (`DEV_COST_BASE × level`) to raise it — and the strategic crux: improving your **own** colony
+  draws **no coalition alarm** (unlike *wide* acquisition, E3/E7), so "grow tall" is the safe,
+  capital-intensive alternative to "grow wide." Counts as a §0 op. **The byte-identical trick:**
+  `DEV_BASE=1` makes the scaling an **identity** at base level (`base×1`, `output×1`), so existing
+  behaviour — incl. the Expansionist persona acquiring colonies it never develops — is byte-for-
+  byte unchanged; the whole QA *gameplay* body holds (only the UI-wiring facet moved, +4 wired).
+  Persisted (`colony_dev`, `#[serde(default)]`). Shell: a `⬆ DEVELOP` button (one-press, invests
+  the least-developed holding), a "tallest L%d" headline, and `dev L%d (→L%d: N cr)` per holding
+  in the EMPIRE master-table. 194 cargo + 17 GUT green; test
+  `developing_a_colony_scales_output_and_draws_no_coalition_alarm`. *Design note:* kept it
+  un-fiddly per §0.2 — a single develop verb + escalating cost is the depth, no per-colony policy
+  micro (yet). **Deferred:** a per-colony focus policy (industry/trade/growth) + a Developer QA
+  persona to *measure* that tall pays (today it's player-only, so byte-identical but unmeasured).
+
+
+- **2026-06-18 — Phase B cont.: per-model refit + a FLEET refit bay (§8a).** Refit was "to
+  best-owned" only; now you **choose the model per kind** for a *specific* hull. `Sim::refit_ship`
+  gained `pdc_model/torp_model/rail_model` ids (via `chosen_weapon_def` — an unowned/invalid id
+  falls back to best, so `usize::MAX×3` is "refit to best"); the binding maps a **negative id →
+  best**, so the batch `REFIT FLEET` op-button passes `-1,-1,-1` and the per-ship bay passes the
+  picks. Shell: a **Refit bay** row in the FLEET view — a target-ship picker (`◂ name ▸`) + three
+  compact per-kind model pickers (`P/T/R ‹ name ›`) + a `⚒ REFIT` button; rebuilds the docked
+  hull's loadout, charges the yard fee, and benches it (`refit_until`) until done. *Layout lesson:*
+  `_make_op_button` defaults to **104px wide**, so a row of single-char cycle buttons overflows the
+  panel — added `_tiny_btn` (26×26) for the bay's `◂▸‹›`; render-verified it fits on one row.
+  **Determinism:** personas never refit, so the QA *gameplay* body is byte-identical (only the
+  UI-wiring facet moved). 193 cargo + 17 GUT green. **The fleet-loadout loop is complete:** produce
+  models → pick per slot when commissioning *or* refitting a chosen hull to a chosen loadout.
+
+- **2026-06-18 — Phase B cont.: per-slot weapon-model loadouts (macro>micro, §8/§8a).** Player
+  call: drop B3 live mid-fight commands (too micro) — **fleet loadouts** are the macro decision
+  that matters. So the BUILD designer now picks **which in-service weapon model arms each kind's
+  slots**, not just counts. `ShipCatalog::custom_loadout_with` fits chosen `WeaponDef`s per kind;
+  `Sim::commission_designed` gained `pdc_model/torp_model/rail_model` ids (`chosen_weapon_def`
+  resolves an owned model, else falls back to best-owned); `TorchShipyard::evaluate_fit` takes the
+  same models so the live alpha/Δv/mobility/power readout reflects the *picked* loadout. Bindings
+  `owned_model_count(kind)`/`owned_model_id(kind, n)` enumerate the in-service models (lowest-tier
+  first) for the shell's `<`/`>` per-kind pickers ("Fit models (from your foundry)"). Refit stays
+  "to best-owned" (the batch convenience). **Determinism:** personas use `commission_ship` (not
+  the designer), so the QA *gameplay* body is byte-identical — only the UI-wiring facet moved.
+  *Clippy:* `commission_designed` (8 args) + `evaluate_fit` (9) trip `too_many_arguments` →
+  `#[allow]` on both (the binding *and* the `Sim` method). 193 cargo + 17 GUT green. The weapon
+  loop is now end-to-end: reverse-engineer a schematic → produce it (slow, antagonises the power)
+  → **pick it per slot** in the designer → commission the loadout (or refit an old hull to best).
+
+- **2026-06-18 — Phase B cont.: no buying weapons → schematics + slow production + refit (§8a).**
+  Player reframe: you **can't buy** advanced weapons; the goal is to **get the schematic** and
+  **slowly produce your own**, plus **refit** existing hulls (time + money). Reshaped the Phase-B
+  arsenal: `Corp` now splits **`schematics`** (designs you know — earned, never bought) from
+  **`arsenal`** (production lines established → fittable). `produce_weapon(id)` requires the
+  schematic, spends scrap + credits, and **takes time** (`weapon_production` queue, completes in
+  `step()` → arsenal; `PRODUCTION_BASE_TICKS + tier·30`, so advanced guns are slow). Schematics
+  are **earned** by **reverse-engineering a derelict** (the wreck dilemma's option 2 now grants a
+  random unknown weapon schematic instead of a blueprint). `refit_ship(idx)` re-equips a docked
+  hull to your **best-owned** weapons for a yard fee + a stint **in the yard** (`refit_until`;
+  excluded from combat while refitting). Production/schematic events are voiced via `feed.announce`
+  (Foundry/R&D) to **dodge new `Event` variants** (no exhaustive-match churn). Persisted (schematics
+  + arsenal + production queue, `#[serde(default)]`); `refit_until` is transient. Shell: the BUILD
+  **foundry** list now shows ✓ in service / ⏳ building / BUILD / need parts / 🔒 schematic; a
+  **REFIT FLEET** button in FLEET. **Determinism:** personas never produce/refit/reverse-engineer
+  (the Responder strips wrecks via option 0), so the QA *gameplay* body is byte-identical — only
+  the UI-wiring facet moved. 193 cargo + 17 GUT green; tests
+  `producing_a_weapon_needs_a_schematic_then_time_and_antagonizes_the_power` +
+  `refitting_upgrades_an_old_hull_for_time_and_money`. **Deferred (clearly):** per-slot/per-kind
+  model *picking* in the designer + refit (today both auto-fit the **best-owned** model per kind,
+  not a chosen one) — the remaining designer-choice work.
+
+- **2026-06-18 — Phase B cont.: scrap → a tiered weapon-crafting arsenal (§8a).** Player ask:
+  combat should yield **scrap parts** to craft better weapons, because weapons are otherwise
+  scarce — you can't just buy the best, and your own production is **antagonised by the great
+  powers**. New `sim::weapons`: a ladder of **named models** per kind (the player's 21-weapon
+  list — Hashari Flak→Maegnus PDCs, Ramshackle→Stealthed torps, Ramshackle Coilgun→Farren
+  railguns), list order = power. Each has tier-scaled stats, an `origin` (Open/Pirate/Faction),
+  and a craft cost (scrap + credits). **Railguns trade power for accuracy** — `accuracy_bp` falls
+  up the ladder and `to_def` scales damage by it, so a heavy gun lands less reliably. **The
+  byte-identical trick:** tier-0 of each kind has stats *identical* to the old generic weapon, so
+  a fresh, un-crafted fleet fits the same loadout (combat + persist tests + §7c all hold). A won
+  `engage_raiders` now also yields **scrap** (`add_scrap`); `craft_weapon(id)` spends scrap +
+  credits, adds the model to the corp's **arsenal**, and a great power's design **sours that
+  power** (`relations.adjust(origin, −tier·CRAFT_ANGER)`). `stand_up_hull` fits the **best-owned**
+  model per kind (`best_weapon_def` → `loadout_with`), so crafting strengthens *newly built*
+  ships. Persisted (`scrap` + `arsenal`, `#[serde(default)]`); load restores the arsenal **before**
+  rebuilding the fleet, so a reload never downgrades your guns. Shell: a **Weapon Arsenal** panel
+  in BUILD (scrap readout + the catalog grouped by kind, owned ✓ / CRAFT / locked with live
+  costs). **Determinism:** personas never craft and combat-scrap is an inert counter, so the QA
+  *gameplay* body is byte-identical — only the UI-wiring facet moved (+8 wired bindings).
+  192 cargo + 17 GUT green; tests `crafting_a_weapon_upgrades_new_ships_and_antagonizes_the_power`.
+  *Deferred (clearly):* per-slot model picking in the designer (today the best-owned auto-fits all
+  slots of a kind), buying faction weapons via good standing (today they're craft-or-nothing), and
+  the weapon *models* showing on the forged hull. **The loop the player wanted is closed:** fight →
+  scrap → craft a better gun (angering the powers) → stronger fleet.
+
+- **2026-06-18 — Phase B (start): combat pays + protects the lanes (§7/§9/§13).** The Warlord
+  was the lowest non-degenerate persona (49) because winning a fight was pure attrition — no
+  payoff, just lost ships. Now a **won** `engage_raiders` credits a **bounty** (`BOUNTY_PER_
+  RAIDER` × pack size, sized so a clean win clears a frigate's 4000 cr build + a margin) **and**
+  `relieve`s the piracy gauge — so a navy is a viable economic strategy (B2) that also protects
+  trade (B1), not a money sink. `last_bounty` field + `battle_bounty()` binding surface it in the
+  diorama verdict ("✚ Bounty +N cr — the lanes are calmer"). **Crew-capped, so not a faucet:**
+  combat fires only a few times a run (the §8c pool gates rebuilds), so even a generous bounty
+  can't runaway. **Determinism:** only the Warlord persona calls `engage_raiders`, so the other
+  personas' review bodies are byte-identical; the Warlord legitimately shifts (overall 49→51,
+  Stakes 92→100, treasury −12k→−7.6k — still net-negative because it *loses* 2 of 3 coin-flip
+  fights + over-commissions, which is honest: combat is risky, but each *win* is net-positive,
+  proven by `winning_an_engagement_pays_a_bounty` finding a seed that wins on the first engage and
+  asserting credits rose). 191 cargo + 17 GUT green; regenerated `SAMPLE_GAMEPLAY_REVIEW.md`.
+  **Next (Phase B cont.):** tie engagements to the frequent EP3 empire-piracy loop (fight *to*
+  protect a specific convoy/holding), and B3 live mid-fight commands (the Warlord's real gap is
+  Agency 19 — combat is too sparse/passive; mid-fight verbs on the §22 diorama address that).
+
+- **2026-06-18 — Phase A2: answering pays + a hard-pause on stacked dilemmas + a Responder
+  QA persona.** Three parts closing the Agency loop. **(1) Universal reward (A2):** every
+  resolved dilemma now calls `complete_op` *once, centrally* in `resolve_decision` (removed
+  the scattered per-branch calls) — so answering **any** act-now exception climbs the §0 spine
+  (CEO XP + research + ascent), not just the shortage-trading Tycoon. **(2) Hard-pause:** the
+  shell forces `speed_idx = 0` while `decision_count() >= 2` and won't resume until the menu is
+  **fully cleared** (`== 0`) — stacked demands make the player decide (a lone dilemma still uses
+  the softer auto-pause-on-alert). Speed-change input is swallowed while locked so the
+  indicator doesn't flicker; render-verified (top bar reads ‖ PAUSED with the panel up). **(3)
+  Responder persona** (`torch-qa`): answers the whole dilemma feed each tick (`resolve_decision`
+  on the top option until the menu clears). It **proves A2** — purely by engaging exceptions it
+  profits (+56k, ~2×) and **reaches the gate** (3 ascents, CEO 25), scoring **90 overall /
+  Agency 100**, which lifted the cross-cutting **Agency average 42 → 49** and added a 5th
+  ≥50 play style to the breadth finding. *Determinism:* A2's `complete_op` only fires on
+  `resolve_decision`, which only the Responder calls, so the other 7 personas' review bodies are
+  byte-identical — the new persona + recomputed aggregates are an **honest** review change
+  (regenerated `SAMPLE_GAMEPLAY_REVIEW.md`). 190 cargo + 17 GUT green. *Metric note:* the
+  Responder answers shortages+wrecks+raids, so its `responses` (124) exceeds `act_now_raised`
+  (28 = shortages only) — the engagement Agency calc `clamp100`s the ratio, so "answered 124 of
+  28" reads oddly but scores correctly. **Next: Phase B** (combat purpose — bounties/loot on a
+  won engagement + tie combat to the empire-piracy loop, to lift the Warlord's 49).
+
+- **2026-06-18 — Phase A cont.: wreck + raid dilemmas on the same framework (§15/§13).** Two more
+  `DecisionKind`s on the Phase-A plumbing, so the act-now menu spans the whole event stream, not
+  just shortages. **Wreck** (auto-raised on `WreckSighted`): **Strip Hull** (+1400 cr scrap,
+  certain) / **Mine Data** (+45 research, certain) / **Reverse-Engineer** (risky — ~50% a
+  recovered blueprint, else consolation data). The yield follows the *choice*, not the wreck's
+  pre-rolled reward (resolve `claim`s the derelict, then applies the chosen extraction). **Raid**
+  (auto-raised on a `ThreatForecast{Piracy}`): **Hunt Them** (~60% → bounty + calms the piracy
+  gauge; else they slip) / **Hire Escorts** (pay 2500 cr, sure relief) / **Set an Ambush** (~38%
+  → double bounty + bigger calm; else a loss). Added `PressureSystem::relieve(kind, amount)` so a
+  raid answer mechanically *eases the gauge*. Generalized `Decision` with `target`(wreck id) +
+  `magnitude`(bounty base); `push_decision` dedups **per kind** (shortage by market/commodity,
+  wreck by id, raid one-at-a-time) under the 3-cap; `decision_title`/`decision_options`/
+  `resolve_decision` dispatch by kind. **The shell needed *zero* changes** — the dilemma panel is
+  generic over the `decision_*` bindings, so wreck/raid render through the same path (verified:
+  "Raiders inbound" with the three risk/reward options). **Determinism:** raising touches no
+  rng/economy (pure event read → push); the resolve RNG (reverse-engineer / hunt / ambush rolls)
+  only fires on a *player* choice, so the §7c gate + 190 cargo tests + 17 GUT hold and the QA
+  review is **fully byte-identical** (no new bindings this round). *Test lesson:* the 3-decision
+  cap means ambient **shortage** dilemmas often hold index 0, so a wreck/raid test must **find its
+  decision by kind** (`position(|d| d.kind == …)`) and resolve that index — not assume index 0 —
+  *and* drive the real auto-raise path (step until the kind appears) rather than `push_decision`
+  into a crowded queue. *Borrow:* `super::pressure::X` doesn't resolve inside the `mod tests`
+  scope — use the full `crate::sim::pressure::X` path.
+
+- **2026-06-18 — Phase A: act-now dilemmas (decisions with trade-offs), §0.4.** The QA review's
+  measured #1 fun gap was **Agency** (avg 42/100) — the world raised act-now exceptions but the
+  player's pressable menu was one button (`exploit_shortage`). New `sim::decisions`: an act-now
+  exception is now a **menu of options** with diverging benefit/risk. First kind — a **shortage
+  dilemma** (3 options): **Speculate** (buy cheap / sell into the shortage — clean profit, no
+  rep), **Profiteer** (gouge for ~+40% more credits, but −rep with the market's owner *and* a
+  risk: an already-soured faction may roll a profiteering fine — the one RNG path), **Relief Run**
+  (sell at ~cost to break the shortage — forgoes profit for +rep *and* a spine op). `Sim` holds a
+  transient capped `Vec<Decision>` (raised in `step()` from each fresh `Scarcity` event, deduped,
+  TTL 72 — **not persisted**, like pending incursions); `decision_options(i)` computes live
+  numbers; `resolve_decision(i, opt)` mutates + clears the matching feed alert. Shell: a
+  bottom-centre **dilemma panel** (its own CanvasLayer) that shows the title + a tap-target per
+  option with its live benefit/risk line (render-verified: Speculate +3895 / Profiteer +6639 ⚠ /
+  Relief +120). **Determinism:** raising decisions touches no rng/market (pure event read →
+  push), and the *resolve* RNG only fires when the player chooses Profiteer (personas don't), so
+  the §7c gate + 188 cargo tests + 17 GUT hold and the QA *gameplay* body is byte-identical —
+  only the UI-wiring facet moved (232→239 bindings, +7 wired), regenerated `SAMPLE_GAMEPLAY_
+  REVIEW.md`. *Borrow note:* collect the fresh `(market,commodity)` scarcity pairs into a `Vec`
+  **after** the `&self.events` ingest loop, then push decisions (can't mutate `self.decisions`
+  while borrowing `self.events`). **Next (Phase A cont.):** wreck + raid-defense dilemmas on the
+  same framework, and a reward for engaging so every play style (not just the Tycoon) has reason
+  to act — the lever on the avg-42 Agency score.
+
+- **2026-06-17 — Art: faction-liveried orrery traffic (§4/§24).** The faction palette/shape
+  work only showed in the BUILD bench + the §22 diorama; now NPC haulers read by their owner's
+  colour on the live map. New read-only binding `hauler_faction(i)` = the hauler's **origin
+  market's owner faction** (the party a cut angers — `markets()[h.origin].faction().index()`),
+  0..3 / −1 out of range. The shell caches four faction-tinted hauler materials (each
+  `FACTION_COL[f].lerp(HAULER_COL, 0.35)` so they stay legible as traffic) and the orrery loop
+  picks one per hauler (selection still overrides to the reticle material). *Deliberately kept
+  the lightweight single-mesh markers* (A5's call — full baked hulls are wasted detail at the
+  1-AU/dot orrery zoom *and* ×16 markers); a **colour** swap is the right-cost livery cue.
+  **Determinism:** read-only binding, no sim/RNG touch → §7c gate + cargo tests (187) +
+  GUT (17) unchanged, and the QA *gameplay* body is byte-identical — only the UI-wiring facet
+  moved (231→232 bindings, 176→177 wired, the new binding *is* wired), so I regenerated
+  `SAMPLE_GAMEPLAY_REVIEW.md` (restoring its hand-added do-not-edit header line). *Tooling
+  reflex:* a new `#[func]` needs a **debug** `cargo build` (the editor loads `target/debug`),
+  and verify the binding end-to-end headless (`TorchSim.new()` → `reset(7)` → step → print
+  `hauler_faction`) before trusting the tint.
+
+- **2026-06-17 — Art A6: bake the forge to a single optimized mesh (§25).** The forge built a
+  ship as ~80–166 separate `MeshInstance3D` children (one draw call each) — fine for one
+  turntable hull, dear for a fleet. `ShipForge.bake(src)` collapses the whole node tree into a
+  **single `ArrayMesh`**: walk the children accumulating transforms, group geometry by
+  `material_override` (object identity — the forge reuses shared material instances, so the
+  dominant hull/plate/accent/trim merge; a few per-weapon `_mat()` instances stay separate),
+  and `SurfaceTool.append_from(mesh, surface, accumulated_xform)` each primitive into that
+  material's surface tool, then `commit()` all tools into one mesh (one **surface per
+  material**, ~9). Lights are duplicated across (the drive plume preserved). `build_baked()` =
+  build → bake → `free()` the transient source (geometry is already copied, so freeing is
+  safe). **Measured 166 nodes → 2** per Battleship, render-verified **pixel-identical** to the
+  unbaked hull; the §22 diorama now fields baked hulls. *Key API:* `SurfaceTool.commit(am)`
+  *appends* a surface to an existing `ArrayMesh` and returns it, so a loop over the per-material
+  tools builds one multi-surface mesh; `set_material()` on the tool before commit carries the
+  material onto the surface. *Determinism:* pure shell, no sim/RNG → §7c gate + QA body
+  byte-identical; 17 GUT green. **Deferred:** a true **UV atlas** (one surface, one texture) —
+  premature while hulls are flat-shaded primitives; the per-material merge is the real win. The
+  art track (A1–A7) is now complete bar the optional atlas pass.
+
+- **2026-06-17 — Art A7: the 3D combat diorama (§22).** Turned the engagement report from a
+  text BattleLog playback into a real **3D battle**. New `godot/ui/battle_diorama.gd`
+  (`class_name BattleDiorama`) — a self-contained `Node3D` (own camera/lights/env) hosted in a
+  `SubViewport` in the upper half of the diorama box, the play-by-play log shrunk beneath it.
+  `_open_diorama` calls `setup(player_faction, n_player, n_raider)` → spawns two small forged
+  fleets (player in livery on the left, raiders as **scavenged Belt hulls** on the right,
+  facing off); the existing beat loop calls `on_beat(kind, side)` so each BattleLog beat drives
+  FX — **railgun volleys** throw bright kinetic tracers, **torpedo salvos** slower warm streaks,
+  a **kill** blooms an expanding explosion as the hull `queue_free`s, a **retreat** peels the
+  side away (FX are pooled in a `_fx` array with per-frame ttl/fade). **Pure shell** — no sim
+  dependency beyond the playback calls main.gd already made → §7c gate + QA review
+  byte-identical; 17 GUT green. **Two GDScript traps, both fatal-not-graceful:** (1) indexing
+  an **untyped array literal** (`[[..],[..]][cls]`) returns Variant, so `var mounts :=` fails
+  inference → type it `var mounts: Array =` and `int(mounts[0])` the elements; (2) `node.
+  material_override` is typed `Material`, so assigning to a `StandardMaterial3D` local needs
+  `as StandardMaterial3D`, not `: StandardMaterial3D =`. *Critical lesson:* a parse error in a
+  `class_name` script that **main.gd depends on** doesn't fail loudly — the scene just **hangs
+  on load** (godot sits forever, even `--headless`), and a *render* timeout looks like "slow
+  GL." Diagnose with `godot --headless --path godot --import`, which prints the real
+  `Parse Error: Cannot infer the type…` with file:line. Always `--import` after adding a new
+  `class_name` (registers the global class too). **Remaining art:** A6 (bake/optimize, deferred).
+
+- **2026-06-17 — Art: military-tower look pass + faction palettes pulled apart (§24).** Player
+  posted a reference render (a size-progression fleet of olive-drab **tower-like** hulls with
+  bold **yellow-black hazard banding**) and the silhouette/quality target. Two parts. **(1)
+  Shared tower look:** reworked `ShipForge.build()` toward it — **stepped tier lips** (a thin
+  wider overhang at each section's fore edge so the hull reads as stacked tiers, broad drive
+  base → narrow prow, not a smooth taper), a **taller 3-tier stepped bridge stack**, and a
+  parameterized `_hazard(col)` so warning bands can be yellow or rust. Rendered a Battleship
+  **stood up prow-up** (pitch the long axis near-vertical — `rotation (-74,32,0)`; *don't roll
+  it with z=90, that just spins it on its axis*) to judge against the reference — the
+  thrust-gravity tower (drive base at the bottom, banded tiers climbing, bridge on top) reads
+  exactly like the ref. **(2) Faction palettes pulled apart** (player call via AskUserQuestion:
+  "make this its own faction look"): the olive+yellow is now **Earth/UNN's** signature, and the
+  `PALETTE` gained per-faction **`struct`** (structural tone) + **`band`** (style) so the powers
+  diverge hard — **Earth** olive-drab + bold yellow hazard *wrap* bands; **Mars/MCRN** dark
+  gunmetal + a clean thin **red trim** line (sleek, minimal); **Belt/OPA** ochre + irregular
+  **rust hazard patches** slapped on one flank (scavenged); **Independent** light grey + a
+  modest **orange deck-edge** stripe. `plate_mat` lerps the faction hull toward its own struct
+  tone; `band_mat`/`band_mode` drive the loop's `match`. **Pure shell** (no sim/RNG) → §7c gate
+  + QA review byte-identical. *Process note:* an image-only message with a strong but
+  scope-ambiguous look (global vs per-faction?) → built the unambiguous wins (silhouette +
+  banding), rendered, then **AskUserQuestion** on the one real fork before committing the
+  palette reassignment. **Remaining art:** A6 (bake/optimize, deferred).
+
+- **2026-06-17 — Art A3: faction-distinct hull *shapes* + the render-normalization trap (§24).**
+  Two parts. **(1) Classes read distinctly now.** A player render review caught that the four
+  classes "look exactly the same" — root cause was a **render-harness lie**: the per-ship
+  capture scaled each hull to the same on-screen length (`scale = 5.6/len`), *cancelling the
+  size difference*, so four different hulls all read as one tower. Fixed by rendering at a
+  **common fixed scale** (broadside + rear-quarter), and widened the actual spread (length
+  2.8→7.6, beam 0.44→1.30 across the line — Battleship ~2.7× longer / ~3× beamier), enlarged
+  the drive bells, and bolded the railgun tells (Destroyer spinal juts past the prow,
+  capital turrets scaled up). *Lesson: a per-subject normalized render hides exactly the
+  axis (size) you're trying to show — compare at a common scale.* **(2) A3 — faction
+  grammars.** Added a `SHAPE` profile dict in `ship_forge.gd` (len/width/height/taper +
+  drums/sponsons/asym/bevel/boltons/prow flags) so each power builds a *different hull*, not
+  just a recolor: **Earth** wide/boxy/low + bilateral **sponson pods** + blunt nose;
+  **Mars** long/narrow + **beveled (faceted) decks** + a forward **spear-lance** prow;
+  **Belt/OPA** chunky + **off-centre welded sections** (lateral asym) + **salvaged bolt-on
+  tanks** + a ragged prow; **Independent** the modular baseline. Render-verified all four
+  factions at one class (Cruiser) so only the grammar differs. **Pure shell** (no sim/RNG) →
+  §7c gate + QA review byte-identical. *GDScript:* a ternary `x if cond else y` only
+  evaluates the taken branch, so the `asym==0` factions draw no extra rng — kept the per-
+  faction greeble layout stable. **Remaining art:** A6 (bake/optimize, deferred). Player
+  noted the 4-drive cluster still reads as ~1 from most angles (bells overlap) — widened the
+  cluster spacing a touch but accepted as "okay for now."
+
+- **2026-06-17 — Art: Expanse-direction warship forge — tower-like + class signatures (§24).**
+  Player direction on the reference fleet: an Expanse ship is **utilitarian and tower-like,
+  built around thrust gravity** (drive at the base, prow up top — you stand "down" toward
+  the engine), and each class maps to a canonical hull — **Corvette = Morrigan** (1 drive,
+  *no* railguns), **Destroyer = MCRN heavy frigate** (1 drive, a *fixed forward spinal*
+  railgun), **Cruiser = Pella** (4 drives, *one* railgun turret), **Battleship = Donnager**
+  (4 drives, *two* railgun turrets), size running **Corvette < Destroyer < Cruiser <
+  Battleship** (Battleship largest — confirmed via AskUserQuestion; their "Corvette>…" was
+  list order, not size). Reworked `ShipForge.build()` (pure shell): the envelope went
+  **tall-and-narrow** (length `lerpf(3.2,6.4)`, width `lerpf(0.5,0.92)` across the classes —
+  first pass at 0.42–0.74 rendered *too thin*, widened) so the silhouette reads as a
+  thrust-gravity stack, not an aircraft; **drive bells 1/1/4/4** (single central bell for
+  Corvette/Destroyer, a 2×2 cluster for Cruiser/Battleship); and a **class-branched railgun**
+  — none on the Corvette, a single `_railgun` fixed spinal on the Destroyer, and `railgun`-many
+  dorsal `_railgun_turret`s (new helper: turret ring base + body box + twin forward barrels
+  angled −8°) spaced along the spine on the Cruiser/Battleship. **Pure shell + existing
+  read-only bindings → §7c gate + QA review byte-identical.** Render-verified all four classes
+  under xvfb with a **neutral grey background + class label lower-right** (per the player's
+  explicit presentation ask): `transparent_bg=false`, env BG_COLOR grey, ship scale `5.6/len`,
+  PIL-drawn label, crop `(338,62,1012,414)`. The tower silhouette + per-class drive/railgun
+  count now read clearly. **Remaining art:** A3 (faction-distinct hull *shapes*) + A6 (bake).
+
+- **2026-06-17 — Art: warship forge look-polish to the reference fleet (§24).** The
+  player supplied four class reference renders (Corvette/Destroyer/Cruiser/Battleship,
+  Expanse/SE-style) for the look. Rewrote `ShipForge.build()` (pure shell) to the shared
+  design language: a **pointed prow** (stepped taper → nose cap + a thin forward sensor
+  mast tipped with a dome), **layered hull** (a lower armored body + a narrower upper
+  deck per module), **ribbed reactor drums** (cylinders with rib-ring greebles), a
+  raised **command tower** amidships (stepped boxes + sensor domes + an angled radar
+  dish), a **fat ribbed aft engine block** + bell cluster + plume, more **panel
+  greebles**, rust-orange flank accent stripes + hazard bands on weathered white-grey
+  plating, and the weapon hardpoints kept (PDC turrets on the upper deck, torpedoes
+  forward, **spinal railguns** that run *long on a Destroyer*). Bigger classes = more
+  sections (4→7) + a fatter engine block + more turrets. Added `_ring`/`_dome` helpers.
+  Render-verified all four classes — they now read as the layered, detailed reference
+  hulls (prow + mast + tower + drums + accents), a big step past the A1 blocks. Pure
+  shell, **no sim change** → §7c gate + QA review byte-identical; 187 core + 17 GUT
+  green. *Realistic ceiling reminder:* primitives give "believable industrial
+  silhouette + detail," not true voxel meshes (the §25 offline-tool path). Faction-
+  distinct *shapes* (A3) is still a separate axis on top of this shared class look.
+
+- **2026-06-17 — Art track A5: forge the orrery fleet (§21/§24).** Replaced the
+  orrery's cyan-sphere / orange-dot ship markers with **directional hull markers** and
+  the colony spheres with **station glyphs** — ships read as ships, not dots. *Key
+  realization on scale:* at the orrery's compressed scale (1 AU = 1 unit) and typical
+  zoom (10–140), a full forged hull is invisible *and* expensive ×16+ markers — so the
+  right call is a **single-mesh** lightweight marker, not the BUILD-bench forge. Each
+  ship marker is one stretched `BoxMesh` (0.05×0.04×0.18 — a long thin hull) **oriented
+  down its lane** by adding a guarded `look_at(target)` to the shared `_smooth_to`
+  (negligible when near-stationary; the ecliptic-plane heading never parallels UP, so
+  no NaN). Keeping markers a **single MeshInstance3D** means picking
+  (`_hauler_pool[i].position`) and selection (`material_override` + `scale`) are
+  **completely unchanged** — the lowest-risk way to upgrade the most-viewed, tap-
+  critical screen. Colonies got a `_station_glyph` (a hab drum + cross arms, faction-
+  tinted) parented to the static body node (multi-part is fine there). Role colour
+  still conveys hauler/warship/freighter; the hull *shape* conveys "ship." Pure shell,
+  **no sim bindings added** → §7c gate + QA review **fully byte-identical** (zero diff).
+  Render-verified (orange haulers + a green freighter on the Earth↔Ceres lane, station
+  glyphs on Saturn's moons). 187 core + QA + 17 GUT green. *Note on the forge ceiling:*
+  the detailed `ShipForge`/`build_civilian`/`build_station` live in the BUILD bench
+  (and future inspect views) where a ship fills the frame; the orrery uses these light
+  markers. **Remaining art:** A3 (faction-distinct warship *shapes*) + A6 (bake) — both
+  optional polish.
+
+- **2026-06-17 — Art track A4: the civilian fleet + station kit (§8e/§24).** Extended
+  the forge (`ship_forge.gd`, pure shell) with two new builders: `build_civilian(kind,
+  faction, seed)` — **freighter** (a spine of mixed-colour cargo-container boxes + a
+  bridge pod), **tanker** (a row of big cylindrical fuel drums), **miner** (a blunt
+  blocky hull + a forward mining rig/drill); and `build_station(faction, tier, seed)` —
+  a central stack of habitat drums with accent banding, radial docking arms + dark-blue
+  solar/radiator wings, docking pods, and a beacon `OmniLight`. Faction-tinted, seeded.
+  Render-verified standalone in the BUILD viewport (cargo containers / fuel drums / hab
+  drums + solar all read clearly). **No display surface in-game yet** — these models
+  get wired onto the orrery (stations on colonies/holdings, civilians as freighter/
+  hauler markers) in **A5**; A4 is the model-building rung. No sim change → core/§7c/QA
+  untouched; GUT 17 green. *Reused the §A1 helpers* (`_box`/`_cyl`/`_mat`/`_emissive`)
+  + the `lerpf`/typed-float discipline. **Next: A5** (forge the orrery fleet — replace
+  the cyan-sphere/dot markers with these hulls), then A3 (faction-distinct warship
+  *shapes*, a polish pass the player OK'd for later).
+
+- **2026-06-17 — Art track A2: the interactive ship designer (§8/§24, `ART_TRACK_PLAN`).**
+  The BUILD bench is now a real fitting designer. The sim's fitting model
+  (`Loadout::fit` → slots/power/tankage/crew, `FitError`) already supported it, so the
+  core add is small: `ShipCatalog::custom_loadout(class, pdc, torp, rail, remass, …)`
+  (clamps to mounts, validates) + `Sim::commission_designed(...)` (builds the *player's*
+  fit, not the reference) — refactored `stand_up_hull` into a shared `stand_up_loadout`
+  so the RNG order is preserved (commission tests + same-seed determinism unchanged).
+  `CommissionError::BadFit` for an invalid design. Two bindings: `TorchSim::
+  commission_designed` + a read-only `TorchShipyard::evaluate_fit(...) -> Dictionary`
+  (`ok`/`alpha`/`delta_v`/`mobility`/`power_used`/`power_cap`/`crew`) for the **live**
+  bench stats. Shell: weapon **steppers** (PDC/TORP/RAIL ±, clamped to slots) + a BURN%
+  (remass) stepper, a live `Design: alpha … Δv … mobility … power U/C` line (red on a
+  bad fit), and `_forge_ship` now renders the *chosen* counts — so stripping torpedoes/
+  railgun removes their **models from the hull** *and* drops alpha while raising
+  mobility (less mass), and cutting BURN% drops Δv (less fuel). The real designer
+  tradeoff (firepower ↔ mobility ↔ range), render-verified (full Cruiser alpha 556 →
+  stripped 16, mobility 393 → 525). **Gameplay-neutral:** personas use the reference
+  `commission_ship`, so §7c + the QA body are byte-identical (only UI-wiring moved).
+  *Catches:* (1) `custom_loadout` hit `clippy::too_many_arguments` (8/7) → `#[allow]`.
+  (2) a Cruiser needs 60+ crew vs the 60 pool, so the design test commissions
+  **Frigates** (the BUILD cost line's "Crew 36" is a *synthesized* readout, not the real
+  `crew_required`). (3) the 4-stepper row overflowed the centre column → split to two
+  rows. Test `a_custom_design_commissions_a_lighter_faster_hull_when_stripped`. 187 core
+  + QA + 17 GUT green. **Next: A3** (faction-distinct hull *shapes*, not just palettes).
+
+- **2026-06-17 — Art track A1: the procedural ship forge + the BUILD bench (§24/§25,
+  `docs/ART_TRACK_PLAN.md`).** Player wants Expanse-style procedural ships + a designer.
+  Realized as a **pure-shell forge** (no sim/determinism dependency): `godot/ui/
+  ship_forge.gd` (`class_name ShipForge`) assembles a warship from Godot primitives via
+  a shape grammar — a modular spine of stacked box/cylinder hull sections (cylindrical
+  drums for non-Earth hulls), orange accent panels + a **diagonal hazard-stripe**
+  material (a procedural `Image` texture), an aft drive cluster (engine bells + emissive
+  plume + an `OmniLight`), a forward bridge, radiator fins, plating greebles, and
+  **named weapon hardpoints** carrying their own models (PDC turrets / torpedo launchers
+  / spinal railgun barrels). Hull envelope scales with class; **faction = a parameter
+  set** (Earth boxy blue-grey / Mars lean rust-red / Belt chunky ochre / Indie
+  grey+orange). Deterministic from a seed. The forge reads the sim's per-class slot
+  counts via **4 new read-only `TorchShipyard` bindings** (`pdc_mounts`/`torpedo_mounts`/
+  `railgun_mounts`/`utility_mounts`). The BUILD view renders it **solid** (dropped the
+  old wireframe-pill `DEBUG_DRAW_WIREFRAME`) in a lit `SubViewport` (key+fill
+  `DirectionalLight3D` + a `WorldEnvironment` ambient — the SubViewport owns its world,
+  so it needs its own lights) on a slow turntable, rebuilt on class change. **Gameplay-
+  neutral** (pure shell + read-only bindings) → §7c gate + QA body byte-identical (only
+  the UI-audit binding count moved). *GDScript gotchas:* `lerp()` and `Dictionary`
+  access return **Variant**, which trips warnings-as-errors `:=` inference — type every
+  float local explicitly and use `lerpf`/`maxf`/`maxi`. Render-verified across all four
+  classes under xvfb (modular hull + livery + hazard stripes + the railgun barrel read
+  clearly). 186 core + QA + 17 GUT green. *Ceiling note:* with primitives the realistic
+  target is "believable industrial silhouette + livery + snap-on weapons," not SE-voxel
+  detail — true voxel meshes would be the offline §25 tool path. **Next: A2** (the
+  interactive designer — swap weapons/drives on slots, re-validate the fit, re-forge).
+
+- **2026-06-17 — Docs cleanup + GDD re-aim (Part VI).** Tidied the doc set now that the
+  empire layer is deep. **Deleted** two stale point-in-time *review* docs whose findings
+  are all addressed: `docs/GDD_DEVIATION_REVIEW.md` (the pre-empire deviation audit) and
+  `docs/PLAYABLE_STATE_REVIEW.md` (the early playable-state gaps). Kept the plan docs
+  (decision records, not reviews) and `SAMPLE_GAMEPLAY_REVIEW.md` (live QA output).
+  **Extended the GDD** (`TORCH_Unified_Design_Document2.md`): a re-aim **banner** under
+  the high-concept (Parts 0–V = the X4 foundation, still load-bearing; **Part VI** =
+  the canonical empire-sim re-aim, wins on genre/identity where they disagree); a
+  **BUILT** status note on §17; and a full **PART VI — THE EMPIRE LAYER** (§37–§46):
+  the re-aim rationale, the acquisition loop (buy/annex/seize), overextension (admin
+  cap + per-faction coalition), economic integration (EP1–EP2), security (EP3–EP4),
+  corporate diplomacy (E8), the empire spine + EMPIRE view, the post-gate endgame as
+  built (G1–G5), the determinism discipline, and **§46 Next Steps** (living-diplomacy
+  payoffs, a Diplomat QA persona, a light pops/development tier — the deepest remaining
+  4X gap, war-as-a-state, the art track, audio). Fixed the dangling refs (CLAUDE.md
+  "Companion authorities" header now points at the GDD Part VI + the empire plans;
+  `POST_GATE_PLAN.md`'s deviation-review mention de-linked). No code change.
+
+- **2026-06-17 — E8: corporate diplomacy with the independent companies (`EMPIRE_
+  DIPLOMACY_PLAN.md`).** Player call: diplomacy yes, but with **independent companies**
+  (Earth/Mars stay watchful giants = the coalition, not negotiable), and **macro not
+  micro** (standing relationships with passive effects, no per-event prompts). Built
+  `sim::diplomacy`: a `Company { name, home_colony, relation }` per independent colony
+  (Ganymede Free Traders / Callisto Shipwrights / Enceladus Hydro / Triton Pioneers)
+  and a `Stance` ladder (Rival<Cold<Neutral<Partner<Ally, `derive(Ord)`). The macro
+  move is `court_company(i)` — spend Influence (the E4 resource) to climb a step. **The
+  passive payoffs make diplomacy worth it:** an **Ally**'s colony annexes **for free**
+  (joins willingly), and each ally **lends an escort** (`effective_escorts` = navy +
+  `ally_count`, wired into EP3 `empire_secure`/`run_empire_piracy`) — so diplomacy buys
+  trade security. A **Rival** (made by *seizing* its colony) refuses to be annexed; a
+  **buyout** just sours it. *Determinism/persistence reflexes that held:* (1) the
+  `&'static str` company name hit the **serde wall** — dropped `Serialize/Deserialize`
+  from `Company`/`Diplomacy` and persisted only the **relation dials** as a plain
+  `Vec<i64>` (`restore`/`relations`, the §31 content-in-code split). (2) Everything is
+  gated on the player courting/acquiring (personas do neither) → §7c gate + QA review
+  body **byte-identical** (only UI-wiring moved). (3) The annex path became a small
+  `AnnexKind` (Free/Influence/Blocked) so the Ally-free / Partner-or-standing /
+  Rival-blocked logic reads cleanly. 7 bindings + a 🤝 COURT verb + an INDEPENDENT
+  RELATIONS section in the EMPIRE view (render-verified — the 5-button deck still fits).
+  *GDScript gotchas:* `-1 << 30` is rejected ("only positive operands for <<") — use a
+  literal; and an array-indexed-by-gdext-int needs the index typed (`var sn: int =
+  …; arr[sn]`). 186 core + QA + 17 GUT green.
+
+- **2026-06-17 — E7: sphere-aware geopolitics — the coalition is per-faction now.** The
+  refinement that makes *whose* space you expand into matter. Replaced the single
+  `coalition_alarm: i64` with **`faction_alarm: [i64;4]`** (by `Faction`): the inners
+  (Earth/Mars) are alarmed by your *size* (`alarm_baseline` = holdings×90 for them, 0
+  for the home Belt), and **any** power is spiked by acquisitions/seizures *in its
+  sphere* — `seize_colony` now `raise_alarm(owner, ALARM_PER_SEIZE)` so taking **Mars's**
+  colony brings *Mars* down on you, and `coalition_leader()` (argmax) leads the strike.
+  `coalition_alarm()` becomes `max` over the great powers (so the shell/QA reads and the
+  threshold logic are unchanged); `raise_alarm` takes a `Faction`; the defend/seize
+  relief cools the *leader*. **Belt excluded from the size baseline** (your home ally is
+  only alarmed if you *seize its colony*, not by your growth). Persisted `faction_alarm`
+  (replaced the scalar; `#[serde(default)]`). Per-faction meters in the EMPIRE view
+  ("⚠ COALITION (led by Mars) · Earth 1000 · Mars 1000 · Belt 0"); bindings
+  `faction_alarm`/`coalition_leader`. **Refactor stayed behavior-preserving for the
+  Expansionist's trigger** (it buys Independents → Earth==Mars symmetric → `max` ≈ the
+  old single gauge), so the coalition still fires; only benign strike-*timing* variance
+  shifted its review (it now defends all strikes and keeps 13 holdings — the per-faction
+  relief cools the leader so its fleet holds the line) — non-expanding personas + §7c
+  gate byte-identical. Made `Faction::index` pub for the array indexing. Test
+  `seizing_a_powers_colony_alarms_that_power_most`. 182 core + QA + 17 GUT green.
+  *Lesson:* keep `coalition_alarm()` as the `max`-reducing accessor so a single→array
+  refactor leaves every existing caller (threshold, period, shell, QA sample) untouched
+  — only the *spike* sites become faction-targeted.
+
+- **2026-06-17 — Empire Phase 2 complete: EP2 owned markets + EP3/EP4 the security
+  layer.** Finished the trade-empire depth arc the player asked for. **EP2 (owned
+  markets):** `market_is_owned(m)` (a controlled colony on its body); a market-aware
+  fee — `OWNED_TRADE_FEE_BP` (1%) at your markets vs 3% elsewhere — and a **tariff** on
+  every NPC delivery into a market you own (`deliver_arrivals`), so *NPC trade with your
+  empire pays you autonomously*. **EP3 (piracy on your empire):** `escorts_needed()` =
+  1 + holdings/3; `run_empire_piracy` skims cargo on a cadence when warships **on
+  station** fall short, deterred by a navy that scales with the empire (`empire_secure`)
+  — countered by **military**. **EP4 (faction inspections):** a **customs surcharge** in
+  `market_trade_fee` (up to +5% at a faction's market when you've soured them) + a
+  periodic `run_inspections` fine while a great power is ≤ Cold and you hold assets —
+  countered by **reputation** (mend fences). The two security threads are deliberately
+  *distinct counters*: piracy ← navy, inspections ← diplomacy. **All gated on holding
+  assets + (for EP4) a soured faction; all pure-credit, no RNG → a fresh sim is
+  byte-identical and §7c holds.** Only the Expansionist persona moved: it drew **37
+  piracy raids** + **11 inspection sweeps**, trimming its treasury from ~157k to ~142k
+  (~3×) — *real but counterable* (still net-positive; a player who managed escorts + rep
+  would keep more). New `review_empire` findings report both; `empire_raids`/
+  `inspections` telemetry; `EmpireRaided`/`Inspected` events fold into the piracy
+  variety bit (`1<<2`) so `EVENT_KIND_COUNT` is unchanged. Tests
+  `owning_a_market_cuts_your_fee_and_earns_a_tariff_on_npc_trade`,
+  `an_unescorted_trade_empire_is_raided_but_a_navy_protects_it`,
+  `souring_a_faction_brings_customs_surcharges_and_inspection_fines`. 181 core + QA + 17
+  GUT green. **The empire is now a living thing to run** — holdings supply your chain
+  (EP1), your markets earn from NPC trade (EP2), and a big empire must be *defended*
+  militarily (EP3) and *managed* politically (EP4).
+
+- **2026-06-17 — Empire Phase 2 + EP1: holdings supply your chain (`EMPIRE_PHASE2_PLAN.md`).**
+  A player review found two real depth gaps after E1–E6: controlled colonies were a
+  flat **credit tribute**, not economic nodes (no supply/production/logistics), and
+  nothing preyed on a large trade empire (pirates hit only NPC haulers; no faction
+  enforcement). Wrote the Phase-2 plan — **economic integration** (EP1 colony
+  production → EP2 owned/fee-reduced markets) + **security** (EP3 piracy on your
+  empire → EP4 faction inspections/enforcement). **EP1 shipped:** each controlled
+  colony has a deterministic `colony_specialty` (thematic by faction — Belt→Ice,
+  Mars→Ore, Earth→Volatiles, independents vary by index) and `run_holdings` deposits
+  `COLONY_OUTPUT_PER_TICK` (3) of it into the **warehouse** each tick. **Warehouse-only
+  ⇒ no market RNG**, so a fresh sim (controls nothing) is byte-identical and §7c holds.
+  *Lovely emergent integration the QA harness proved:* `run_industry` already sources a
+  refinery's input from the **warehouse** before buying from the market — so colony
+  output now *feeds your refineries directly* (supply → production → logistics,
+  end-to-end), which is why the **Expansionist** persona's review shifted (its
+  refineries now run partly on colony-supplied raws, less market-buying) while every
+  non-expanding persona + the §7c gate stayed put. EMPIRE view shows each holding's
+  "supplies X"; binding `colony_specialty`. Test
+  `controlled_colonies_supply_raw_goods_into_your_warehouse`. 178 core + QA + 17 GUT
+  green. **Next: EP2** (owned markets — fee-reduced trade at your colonies), then the
+  security thread (EP3 piracy on your empire, EP4 faction inspections).
+
+- **2026-06-17 — PC (desktop) control mode alongside mobile.** TORCH is Android-first
+  (§33), but the same shell now has a proper **desktop mode**. Most plumbing was already
+  there (mouse-wheel zoom was kept as a desktop fallback when pinch replaced
+  `MagnifyGesture`; the keyboard verbs + F1–F4 views exist), so PC mode is a thin
+  additive layer: a `pc_mode` flag **auto-detected from `OS.has_feature("pc")`** (true on
+  desktop, false on a handheld) and **toggleable with F8** (test the desktop layout on a
+  dev box, or let a tablet user pick). `_set_pc_mode(on)` hides the touch-only
+  `[+]/[–]/[◉]` map-zoom buttons (mouse wheel + RMB-reset replace them), sets the window
+  resizable/windowed (`project.godot window/size/resizable=true` — ignored on
+  handhelds), and swaps the bottom legend between a PC line (`wheel: zoom · click:
+  focus`, F-keys) and a touch line (`pinch: zoom · tap: focus`). Also wired **F6 →
+  EMPIRE view** (the fifth view lacked a key). Render-verified under xvfb (zoom buttons
+  gone, desktop legend reads correctly). *No Rust change* → core/§7c untouched; the QA
+  UI-audit only ticked the keyboard-binding count (40→42), regenerated. *Lesson:* PC
+  mode **adds** desktop affordances rather than replacing touch ones — both schemes live
+  at once (the flag just flips which zoom-control + legend show), so the Android target
+  stays first-class.
+
+- **2026-06-17 — Empire layer E6: expansion-as-spine + the EMPIRE view + an Expansionist
+  QA persona — the loop is complete.** The capstone, in three parts. (1) **Spine** —
+  `empire_rank()` (Independent Operator → Local → Regional → Great Power → Hegemon by
+  `holding_count`) + `next_empire_rank()`, surfaced as the headline of the SYSTEMS
+  status bar and the EMPIRE view, so "grow the empire" is the legible goal. (2) **EMPIRE
+  view** — a fifth nav-rail view (`✪`, the first added to the multi-view shell): the
+  rank/next-rung headline, an Admin-capacity/Influence/coalition-alarm meter row, the
+  BUY/ANNEX/SEIZE/DEFEND verb deck, and a **master-table** (RichTextLabel) listing your
+  holdings, the acquirable independents (cost + garrison), and the seizable great-power
+  colonies (red, by garrison strength) — the "map + master-tables" empire command
+  surface. *Adding a view is mechanical:* extend `V_*`/`VIEW_GLYPH`/`VIEW_CAP`/
+  `VIEW_TITLE` (the nav rail + `_select_view` iterate them), add `_build_*_view()` (append
+  to `_views`) + a `_refresh_*()` arm. Render-verified under xvfb (the new-view layout
+  read perfectly first try). (3) **Expansionist persona** (`torch-qa`) — buys colonies,
+  founds stations to push past the coalition threshold, and defends; the harness now
+  samples `holdings`+`coalition_alarm` and `review_empire` reports the loop. **This is
+  the first rung that *legitimately* moves the QA review** (7 personas now): the
+  Expansionist grew to 13 holdings, maxed alarm to 1000, fought 3 defenses, lost one
+  holding to the inners, soured Earth/Mars to −392 — so we regenerate the review
+  honestly rather than chasing byte-identity. *QA-tuning catch:* the first Expansionist
+  hand-traded every 6 ticks → a ~36× treasury faucet (the review's own runaway-arbitrage
+  CONCERN fired) — gated trading on `credits < 150k` so it's a war chest, not a faucet.
+  *Empire-finding heuristic:* the per-persona `review_empire` only speaks for styles
+  that actually expand (peak holdings > 0), so the other six persona sections are
+  unchanged. **The whole empire layer (E1–E6) is in** — expansion-by-acquisition
+  (economy/diplomacy/military), capped by admin capacity + the faction coalition,
+  legible through the EMPIRE view, exercised by its own QA lens. 177 core + QA + 17 GUT
+  green. *Next candidates:* sphere-aware per-faction alarm (E3 refinement), or a PC
+  desktop input mode.
+
+- **2026-06-17 — Empire layer E4 + E5: the other two acquisition paths complete.**
+  With E1 (buy) the economic path, **E4 (diplomacy)** and **E5 (military)** finish the
+  trio — each a distinct cost *and* a distinct political price, so *how* you expand is a
+  real strategic choice. **E4 — diplomatic annexation:** a slow `influence` resource
+  accrues per tick (capped, accrual in `run_holdings` — pure, no RNG, so QA stays
+  byte-identical); `annex_colony` is gated on Independents-standing ≥ Cordial (200) +
+  `ANNEX_INFLUENCE_COST` (300) banked, spends **Influence not credits**, and pays the
+  gentler `on_player_annex` (−20 inners vs the buyout's −40) + a smaller alarm spike
+  (60 vs 120) — the reward for the patient, reputation-built path. **E5 — military
+  seizure:** `seize_colony(i, band)` assaults a `garrison_size`-scaled pack (Earth 8 /
+  Mars 6 / Belt 4 / Independents 2, quality 60), so it can take **any** colony incl. a
+  great power's (the only path that bypasses the Independents-only restriction), at the
+  harshest price — `on_player_seize` craters the owner (−200) + rival bonus + the
+  biggest alarm spike (220). So the three paths sit at alarm 120 / 60 / 220 and cost
+  credits / Influence+standing / ships+blood. Both persisted (`influence`); 5 bindings +
+  `⊕ ANNEX (DIPLO)` / `⚔ SEIZE COLONY` buttons + an `Influence n` readout. *Reflexes
+  that held:* every new mutating path raises coalition alarm via the shared
+  `raise_alarm`, and the seize/annex events reuse `ColonyAcquired` (no new Event variant
+  → no QA exhaustive-match churn). *Test lesson:* seize is reliable on a **light**
+  garrison — the provoke test seizes the 2-defender independent colony with 5 frigates;
+  taking Earth's 8-strong garrison genuinely needs a battlefleet (by design).
+  177 core + QA + 17 GUT green. **The whole expansion-by-acquisition loop (E1–E5) is in
+  — economy/diplomacy/military, capped by admin capacity + the faction coalition.**
+  Next: **E6** (expansion-as-spine + EMPIRE master-table view + an Expansionist QA
+  persona — the first rung that *legitimately* moves the QA review).
+
+- **2026-06-17 — Empire layer E2 + E3: the overextension teeth (`EMPIRE_LAYER_PLAN.md`).**
+  The caps that make E1's expansion *careful*, both inert until the player holds
+  colonies (so the §7c gate + QA body stay byte-identical). **E2 (administrative
+  capacity)** — the *economic* cap: `admin_capacity()` = `ADMIN_BASE`(3) + CEO-level/3
+  (earned, Stellaris admin-cap style); `run_holdings` now scales tribute by
+  `holdings_efficiency_bp()` (−15%/excess holding, floored 20%) **and** bleeds
+  `STRAIN_UPKEEP`(35/tick) per over-capacity holding, so past your reach holdings go
+  net-negative. `⚠ Holdings n/cap (strained · x%)` readout. **E3 (faction alarm &
+  coalition)** — the *political* cap, structurally a clone of the G4 incursion loop:
+  `coalition_alarm` (0..=1000) trends toward a size baseline (`holdings×90`) and spikes
+  +120/acquisition, so a *big* empire stays watched and *fast* expansion unites them
+  early; above `COALITION_THRESHOLD`(500) `run_coalition` telegraphs → lands an act-now
+  `CoalitionStrike` (verb `DefendHoldings` + window) → unanswered it **seizes your most
+  valuable colony** (`HoldingLost`, which *relieves* alarm → a self-correcting
+  equilibrium where sustainable empire size = the fleet you can field).
+  `defend_holdings(band)` fights an alarm-scaled pack (2→7 ships). *Two balance catches:*
+  (1) first pass scaled the pack by **raw alarm / 30 → ~18 ships** (unwinnable) — refit
+  to `2 + (alarm−threshold)/100` (2→7). (2) the coalition only bites with ≥~6 holdings,
+  so the provoke-test acquires the whole independent frontier (4 colonies) **plus** two
+  founded refineries to clear the baseline. *Event churn reflex:* each new `Event`
+  variant (`CoalitionStrike`/`HoldingLost`, and E1's `ColonyAcquired`) needs the two QA
+  exhaustive matches — fold into the `1<<4` ascent bit so `EVENT_KIND_COUNT` is
+  unchanged (personas don't expand → QA byte-identical). 175 core + QA + 17 GUT green.
+  **Critical path E1→E2→E3 done — expansion now has real economic *and* military
+  teeth.** Next: E4 (diplomatic annexation + an Influence resource), E5 (military
+  seizure), E6 (expansion-as-spine + EMPIRE view + an Expansionist QA persona).
+
+- **2026-06-17 — Vision re-aim: the empire layer (`docs/EMPIRE_LAYER_PLAN.md`) + E1.**
+  A player vision-check found a genuine genre divergence: TORCH had been built
+  *faithfully to the GDD* — an **X4-style corporate sandbox** (you're a CEO who
+  *perturbs* an economy and climbs to a gate) — but the actual north star is a
+  **Distant Worlds / Stellaris empire sim** (you *are* a colonizing state) in the
+  Expanse's Sol. The setting matched; the **genre/player-identity** didn't. Chosen
+  reconciliation (player's call): **grow the empire layer** so acquiring assets
+  (stations + independent colonies) **via economy / diplomacy / military** is the
+  **core loop**, governed by an **overextension + faction-alarm** cost (don't anger
+  the great powers). Wrote the sequenced plan (E1 holdings+economic-buy → E2 admin
+  capacity → E3 faction alarm/coalition → E4 diplomatic annex → E5 military seizure →
+  E6 expansion-as-spine + EMPIRE view + an Expansionist QA persona). **E1 shipped:** a
+  unified **holdings** view (`holding_count` = stations + controlled colonies);
+  `frontier::Colony`s gain player control (`controlled: Vec<bool>` on `Sim`);
+  `acquire_colony(i)` buys an **Independents** colony for credits, flips control, and
+  pays the political cost via a new `Relations::on_player_expand` (Earth & Mars grow
+  wary, the home Belt approves). Controlled colonies pay a flat per-tick **tribute**
+  (`run_holdings`) — a pure credit drip that never touches market RNG, *so the §7c
+  gate is provably unaffected and a fresh sim is byte-identical* (personas don't
+  acquire; the QA review body is unchanged, only the UI-wiring count moved +6
+  bindings). Persisted (`controlled_colonies`, `#[serde(default)]`). Shell: an
+  `⊕ ACQUIRE COLONY` op-button (one-press, buys the cheapest acquirable colony,
+  mobile-friendly) + a `Holdings N` status readout. `AcquireError`; `Event::
+  ColonyAcquired` voiced. Tests: `buying_a_frontier_colony_grows_the_empire_and_
+  alarms_the_inners`, `a_fresh_world_controls_no_colonies`,
+  `expanding_alarms_the_inners_and_pleases_the_home_belt`. *Design note:* E1
+  deliberately ships with a built-in political cost (the rep ding) so expansion is
+  never free even before the hard caps land — but it's only **soft-capped** until E2
+  (admin capacity) + E3 (faction coalition) add the real overextension teeth; those
+  are the critical-path next rungs. 172 core + QA + 17 GUT green. **Unlike the
+  post-gate sandbox, this changes the *core loop*** — future rungs (E2+) will move the
+  QA review legitimately (and E6 adds an Expansionist persona); we regenerate it
+  honestly rather than chasing byte-identity. **Next: E2** (administrative capacity).
+
+
+- **2026-06-16 — G5: the endgame resolves + the post-gate sandbox is complete
+  (§17).** The culminating win/loss that finally *completes* the §0 destination pull.
+  `EndgameOutcome` (Undecided/Triumph/Fallen, serde). **Win** = the bridgehead reaches
+  `WIN_BRIDGEHEAD_LEVEL` (5) **and** `WIN_INCURSIONS_SURVIVED` (8) repelled incursions
+  (`check_endgame_won`, fired from `upgrade_bridgehead` + a won `defend_bridgehead`);
+  **loss** = the foothold is overrun (`strike_bridgehead` → `Fallen`). Voiced finales
+  (`EndgameWon`/`EndgameLost`, Critical). Resolution is **terminal** — `run_incursions`
+  short-circuits once decided, so the far side stops pressing. Persisted
+  (`incursions_survived` + `endgame_outcome`). 4 bindings + the destination panel shows
+  the **final goal** (`bridgehead Lv x/5 · held y/8`) plus the triumph/fallen banner
+  and a win/loss flash. All gated on transit → §7c gate + QA body **byte-identical**
+  (the two new events fold into the variety ascent-bit; personas never transit). Tests
+  `the_endgame_is_won_by_growing_and_holding_the_bridgehead` /
+  `..._is_lost_if_the_bridgehead_is_overrun` (the loss test grinds an *undefended*
+  foothold to zero; the win test refits frigates between defenses so the squadron keeps
+  winning). **With this the post-gate sandbox (G1–G5) is a full loop —** place →
+  economy → bridgehead → incursions → win/loss — every rung transit-gated so the inner
+  game stays byte-identical. 169 core + QA + 17 GUT green. The art track (A1 procedural
+  assembly, A2 voxel diorama) is the remaining independent work (`docs/POST_GATE_PLAN.md`).
+
+- **2026-06-16 — G4: incursions — the far side answers (post-gate sandbox, §17).**
+  The `GATE_ANSWER` payoff made mechanical: an escalating threat from beyond the ring
+  that only wakes **post-transit**. `PressureKind::Incursion` (gauges `[i32;3]`→`[4]`)
+  and a dormant endgame layer on `PressureSystem` — `begin_endgame(now)` (called at
+  `transit_gate`) lights it; the cadence **tightens** and severity **climbs** with
+  time-in-Beyond (both off a `beyond_start` clock, pure/integer/deterministic). `Sim`
+  telegraphs incursions (`ThreatForecast{Incursion}`), lands one as an **act-now**
+  `IncursionStruck` carrying a `Verb::DefendBridgehead` + a response window; left
+  unanswered past the window it `strike_bridgehead`s for its severity
+  (`BridgeheadDamaged`, and `BridgeheadFell` at zero — the G5 loss hook).
+  `defend_bridgehead(band)` rallies the whole fleet vs a **severity-scaled** far-side
+  pack (quality 70, a notch above inner pirates) — a win repels it cleanly (no damage +
+  an op), a loss lets it through. Persisted via `endgame_since` (`#[serde(default)]`);
+  `begin_endgame` is idempotent so a post-transit reload resumes the clock (pending
+  incursions are transient — a reload re-opens a fresh window). 3 bindings + a DEFEND
+  button (lit only while an incursion presses) + an `⚠ INCURSION … DEFEND` destination
+  line. **Gated on `pressure.endgame()` (off until transit) →** §7c gate + QA review
+  body **byte-identical**: gauge[3] stays 0 pre-transit so `peak_pressure` is unmoved,
+  and the three new `Event` variants fold into the QA variety ascent-bit (personas
+  never transit). *Three routine catches:* (1) adding `Verb::DefendBridgehead` broke an
+  **irrefutable** closure pattern (`.map(|Verb::ExploitShortage{..}| …)`) — rewrote it
+  as a `match`; (2) the two QA exhaustive `Event` matches + the `pressure_level` binding
+  match needed the new arms; (3) `let mut p` in a read-only pressure test tripped
+  `unused_mut`. *Combat-test lesson:* a Battleship needs 120 crew vs the 60 starting
+  pool, so a "stand up a heavy squadron" defense test must commission **Frigates**
+  (12 crew ⇒ five fit the pool) — a 5-vs-2 numeric edge wins reliably on the seed.
+  167 core + QA + 17 GUT green. **Next: G5** (the win-state / empire resolution).
+
+- **2026-06-16 — G3: the far-side bridgehead (post-gate sandbox, §17).** The third
+  post-gate rung: the player's **own foothold beyond the ring**. `sim::bridgehead::
+  Bridgehead` is a `Copy` state (`founded`/`level`/`integrity`) with
+  `found`/`upgrade`/`damage`/`repair`/`has_fallen` — **`integrity` is carried now** so
+  **G4** (incursions) just wires the damage and **G5** the fall/win. `Sim` owns one;
+  `found_bridgehead` (Beyond-only — errs `NotBeyond` before transit — costs 60k, a
+  spine op via `complete_op`) and `upgrade_bridgehead` (level-scaled cost, raises max
+  integrity + tops it up). New `Event::BridgeheadFounded`/`BridgeheadUpgraded` voiced
+  through the feed (`AlertFeed::bridgehead_founded`/`_upgraded`). Persisted in
+  `SaveState` (`#[serde(default)]` ⇒ old saves load unfounded). **Inert pre-transit by
+  construction:** a fresh sim has no bridgehead and it can't be founded until
+  `campaign.transited()`, so the §7c gate holds and the **QA review body is
+  byte-identical** — only the UI-wiring affordance count moved (+6 bindings, all wired:
+  `bridgehead_founded`/`_level`/`_integrity`/`_max_integrity` + `found_bridgehead`/
+  `upgrade_bridgehead`). Shell: a FOUND BRIDGEHEAD / REINFORCE button pair (lit only
+  post-transit, mutually exclusive on `bridgehead_founded()`) + an integrity readout in
+  the destination panel. *Two routine catches:* (1) the two new `Event` variants broke
+  the QA harness's two **exhaustive** `match`es — added arms folding their variety bits
+  into the ascent bit (`1 << 4`) so `EVENT_KIND_COUNT` is unchanged (personas never
+  found a bridgehead → tally byte-identical); (2) `cargo fmt` reflowed the new
+  `format!`/match-arm lines — run it before the `--check` gate. 162 core + QA + 17 GUT
+  green. **Next: G4** (incursions — the far side answers).
+
+- **2026-06-16 — G2: the far-side economy (post-gate sandbox, §17).** The second
+  post-gate rung: two **far-side markets** — **Threshold** (the bridgehead) + **The
+  Tally** (where the count is kept), on G1's worlds — trade only post-transit. **Key
+  determinism design** (the one risk §17/G2 flagged — a new market destabilizing §7c):
+  they live in the *same* `Sim::markets` list (so trade/route verbs work on them by
+  index post-transit, no special-case economy) but (1) step on a **dedicated `far_rng`**
+  (`seed ^ 0xFA5_FACE`) split out in `step()`, and (2) are **excluded from NPC routing
+  and contracts** by bounding both to a new `far_market_start` (the inner count). So the
+  shared `rng` stream is byte-for-byte unchanged → the §7c gate holds and the **QA
+  review body is byte-identical** (only the UI-wiring affordance count moved +1 for the
+  new `market_is_far_side` binding, correctly). `far_side_markets()` builds them in
+  **deep scarcity** (quarter-stock on raw/refined ⇒ near-ceiling prices: the frontier
+  where nothing arrives unless you haul it), resolved by body name via
+  `far_side_market_colonies()`. Proven by
+  `the_far_side_markets_exist_in_deep_scarcity_without_perturbing_the_inner_economy`
+  (a world polling the far side every tick keeps the inner markets bit-identical to one
+  that never does). **Shell:** a `_visible_market_count()` helper hides the far-side
+  columns from the MARKET board / ticker / selection cycle until `far_side_revealed()`;
+  `market_is_far_side` binding. *Borrow/RNG lesson reused:* split the market slice
+  (`[..split]` shared rng, `[split..]` far_rng) rather than branching per-market inside
+  one loop — cleaner and makes the byte-identical guarantee obvious. 158 core + QA + 17
+  GUT green. **Next: G3** (the bridgehead/colonization).
+
+- **2026-06-16 — Post-gate sandbox plan + G1: the far side is a place (§17).** Wrote
+  `docs/POST_GATE_PLAN.md` — the §17 endgame sequenced into G1–G5 PRs (place → economy
+  → bridgehead → incursions → win-state) + an art track, every step **transit-gated**
+  so it stays QA-neutral by construction. **G1 shipped:** a `BodyKind::FarSide` cluster
+  (the dead star **Erebus** + **Threshold** + **The Tally**) **appended** to
+  `default_system()` past the Ring-Gate, so every inner index (Earth=3/Ceres=5/Gate=11
+  + markets/colonies) is **unmoved**. The bodies exist always (determinism) but the
+  shell hides them until `far_side_revealed()` (= `transited()`), then reveals them and
+  jumps the camera through. Bindings `body_is_far_side`/`far_side_revealed`. **Two
+  catches:** (1) adding bodies grows `body_count()`, which reseeds the §15 salvage RNG
+  → the QA review shifts (benign, 0 concerns) → regenerate the sample. (2) The QA review
+  has a **UI-wiring facet that scans `main.gd`** for `sim.X()` calls vs. the binding
+  list, so *any* shell binding-call change shifts it — regenerate **after** the shell
+  edits, not before (I regenerated too early and got a mismatch on the wiring counts).
+  *Render note:* couldn't xvfb-capture the *revealed* far side (software GL is too slow
+  to route to the gate in-frame); relied on the orbit unit test
+  (`the_far_side_lies_beyond_the_gate`) + a clean headless run exercising the visibility
+  branch. 157 core + QA + 17 GUT green.
+
+- **2026-06-16 — Endgame: gate transit + the mystery's answer (post-MVP #18/§17/§0.1).**
+  Started the post-MVP arc with its climax: a new `Tier::Beyond` past the Gate, reached
+  by a **deliberate `transit_gate` verb** (not an ops auto-ascent). It tells the rest
+  of the gate mystery, voices the gate's **answer** (`GATE_ANSWER` — the payoff the 7
+  mystery beats build toward), emits `Event::GateTransited`, and crosses into the
+  endgame (wider caps + new briefing/objective). Shell: a `⟁ TRANSIT GATE` op-button
+  that lights only at the open gate, and the destination panel reframes to "Beyond the
+  Gate". **Key non-breaking design:** making transit a *deliberate verb* (rather than
+  giving the Gate tier an `ops_to_advance`) means personas — several of which reach the
+  Gate — never cross it, so the §7c gate + the QA review stay **byte-identical**.
+  **Two churn catches the new `Event::GateTransited` variant forced:** torch-qa's two
+  exhaustive `Event` matches (`harness.rs` tally + `event_kind_bit`) needed the arm —
+  and I folded its variety-bit into the existing `TierAscended` bit (rather than adding
+  a 10th kind) so `EVENT_KIND_COUNT` stays 9 and the engagement *variety* facet is
+  unchanged → QA byte-identical. `gate_progress_bp` clamps at 100% (Beyond is past the
+  bar, not more of it). 156 core + 8 QA + 17 GUT green.
+
+- **2026-06-16 — Binary save format: bincode shipping save + JSON dev export (#6, §30).**
+  Closed the last 🟡: the shipping save is now **bincode** (`SaveState::to_bincode`/
+  `from_bincode`) alongside the JSON dev export. `Sim::save_bytes`/`load_bytes`, with
+  `load_bytes` **auto-detecting** the format (leading `{` after whitespace ⇒ JSON,
+  else bincode) so **old JSON saves still load**. Bindings: `save_game` writes the
+  compact `.sav` binary, `export_save_json` dumps readable JSON, `save_peek`/
+  `load_game` read either; shell slot files moved `.json` → `.sav`. Round-trips
+  bit-for-bit (`a.to_save() == reloaded`), binary < JSON in size, version mismatch
+  refused in both formats. Added GUT `test_binary_save_round_trips_through_the_binding`.
+  **Notes:** (1) bincode 1.3 is the one new dep (fetched fine; it's *not*
+  self-describing, so `#[serde(default)]` cross-version tolerance is the JSON path's
+  job — exactly the GDD's "ship binary, dev JSON" split). (2) GDScript `:=` can't
+  infer a gdext return — the new GUT test needed `var tick: int = sim.tick()` typed
+  explicitly or the whole script fails to parse.
+
+- **2026-06-16 — View interpolation: orrery markers glide between ticks (#14, §28).**
+  Pure-shell polish: the sim is a fixed 6-tick/s clock, so in-flight markers used to
+  *snap* each tick. `_smooth_to` now lerps each hauler/warship/freighter marker
+  toward its latest sim position every frame (framerate-scaled at `VIEW_LERP=9`),
+  snapping only on a big jump (respawn / pooled-slot reuse). **Two consistency
+  catches:** the lane trails now start from the *smoothed marker* position (not the
+  raw sim position) so trail + dot agree mid-interpolation, and tap-picking projects
+  the **rendered** marker position (`_hauler_pool[i].position`) rather than the sim
+  position — preserving the "render + pick can't disagree" rule. No Rust change →
+  determinism (§27) and the QA review are untouched. *Lesson:* when you decouple
+  render position from sim position, every consumer of "where is it" (trails,
+  picking) must read the *rendered* position, or they drift apart for a frame.
+
+- **2026-06-16 — Crew depth: captain traits + ship rename (deviation #11, §11/§14).**
+  A right-sized crew pass (§0.2: "support, not RimWorld-deep"). Each captain gets a
+  flavour **trait** (Ace Gunner / Steady / Lucky / …) derived **deterministically
+  from the name** (`ships::captain_trait`, a name-hash, **no RNG draw**) — so it's a
+  stable identity that can't perturb the economy/combat RNG → tests + QA review
+  **byte-identical**. Added a **ship rename** verb (`Sim::rename_ship`, keeps the
+  class suffix, pure string edit). Shell: the FLEET roster's TYPE column now reads
+  "Capt. {name} · {trait}" per hull, the flagship line spotlights its captain, and a
+  `FLAGSHIP` button renames the hero ship by cycling an evocative pool (mobile-
+  friendly — no text entry). Bindings `ship_captain`/`ship_trait`/`rename_ship`/
+  `flagship_index`. Render-verified. *Lesson:* derive cosmetic identity from existing
+  deterministic state (the name) rather than a fresh RNG draw, so a "content" feature
+  stays provably balance-neutral.
+
+- **2026-06-16 — Combat heat as opt-in aggressive fire (deviation #9, §8a/§9).**
+  Added the §9 heat model without rebalancing the tuned combat suite. Firing
+  railguns **hot** (`Doctrine.aggressive_fire`) boosts alpha (`AGGRESSIVE_FIRE_BP`
+  130%) but builds heat (`HEAT_PER_RAILGUN` × mounts/tick); over a per-ship radiator
+  ceiling the fleet **vents** — skips a railgun volley (`CombatEvent::Overheat`, a
+  gold diorama beat) and sheds heat. **Key non-breaking move:** `aggressive_fire`
+  defaults **false**, and the heat branch in `volley_damage` is skipped entirely
+  when off → the railgun/pdc sum + the jitter RNG draw are unchanged, so a default
+  fight is **byte-identical** (all 64-seed/§8a-saturation combat tests + the QA
+  review pass untouched — verified). The knob is exposed as a FLEET-view `FIRE`
+  toggle + `set_combat_aggressive` binding; `engage_raiders` reads it off
+  `self.combat_doctrine`. *Design lesson:* combat is **decisive/short** (§13, 2–3
+  ticks), so heat-venting can't be a clean tradeoff in a typical fight — it never
+  triggers (pure upside) or, if tuned to trigger fast, makes aggressive strictly
+  worse. So heat is framed as **front-loaded upside** that only vents in *prolonged*
+  engagements (a squadron grinding a big swarm) — the test
+  `aggressive_fire_eventually_vents_in_a_prolonged_fight` needs a 3-battleship vs
+  40-frigate Long-range fight to drag long enough to see an `Overheat`. The §8b
+  axis, §8a saturation, target/retreat, and now heat are modeled; facing/spinal is
+  the last combat-texture gap.
+
+- **2026-06-16 — GUT view/integration tests (deviation #15, §32).** Added the GUT
+  counterpart to `cargo test`: a vendored **GUT 9.4.0** suite in `godot/test/` (15
+  tests / 108 asserts, 3 scripts) that boots the **real gdext core headless** and
+  exercises the **sim↔view binding contract** main.gd relies on — world/economy/
+  commission/freighter-position/combat-on-station/BOM bindings, the `TorchShipyard`
+  catalog, and the pure `UiKit`/`MiniChart` UI helpers. These catch binding
+  regressions a Rust unit test can't see (wrong arg mapping, a missing `#[func]`, a
+  GDScript-side break). Wired into CI as a `gut` job in `ci.yml`: the
+  `barichello/godot-ci:4.6.3` container, install Rust → `cargo build` (the debug
+  cdylib the extension loads) → `godot --headless --path godot --import` (registers
+  the gdextension **and** GUT's class_names) → `gut_cmdln … -gexit`. GUT exits
+  **non-zero on failure** (verified), so it's a real gate. **Two hard-won setup
+  notes:** (1) **GUT 9.3.0 is incompatible with Godot 4.6** — 4.6 added a native
+  `Logger` class that 9.3.0's `utils.gd` shadows (`"Logger" shadows a native class`
+  → the whole addon fails to compile); **9.4.0** renamed it to `GutLogger`, so pin
+  ≥9.4.0. (2) A **single `--import` pass on a fresh checkout** is enough to register
+  GUT's `GutInputFactory`/`GutInputSender` class_names (without it GUT aborts with
+  "Some GUT class_names have not been imported") — proven on a clean `.godot/`.
+  Headless GUT needs **no xvfb** (unlike the render-capture workflow). A benign
+  `gut_loader.gd:35` static-init SCRIPT ERROR prints but doesn't affect the run
+  (exit 0, all pass). No Rust change → cargo tests + the QA review are untouched.
+
+- **2026-06-16 — Freighter remass: routes burn fuel now (Pillar #2 complete, §6).**
+  The last delta-v nuance. A dispatched standing-route freighter **refuels with
+  Remass at the origin port** — `remass_units = travel_ticks / FREIGHTER_REMASS_
+  DIVISOR(10)`, debited at the local Remass price and drawn from that market's
+  stock. Long outer hauls cost far more fuel than inner hops (the delta-v constraint
+  as opex), and a hub that produces cheap Remass (the Ice→Remass chain) lowers the
+  whole network's running cost — closing the production→logistics loop. A route only
+  dispatches if it can source + afford the fuel (a new exception). FLEET view shows
+  per-trip fuel; binding `freighter_fuel`/`route_remass_units`. **Balance:** the §7c
+  gate is untouched (default Sim has no routes), but the QA **Logistician** now pays
+  fuel so its take dipped (~108k→~107k, still ~4×) — regenerated the sample, **still
+  0 concerns**. With this, **Pillar #2 is complete**: every player ship is positional
+  *and* delta-v-costed. *Test lesson:* asserting on post-dispatch *market stock* is
+  fragile (the 4%/tick stabilizer + jitter swamp the few-unit fuel draw over the
+  ticks-to-dispatch) — test the deterministic distance-scaling (`outer > inner`)
+  instead.
+
+- **2026-06-16 — Combat-diorama juice: live depleting force rosters (§22/§23).** A
+  pure-shell juice pass on the #63 diorama: two **pip rosters** (player GOOD-green,
+  raiders BAD-red) above the BattleLog that **deplete in real time** as `Destroyed`
+  beats reveal (`▰` filled → `▱` spent, `N/Total`), so a fight reads at a glance —
+  who's winning, how lopsided. Tracked by decrementing the victim side's count on
+  each kind-2 (Destroyed) event during playback (`_dio_surv`, `_dio_refresh_forces`).
+  No Rust change → all tests + the QA review untouched. Render-verified: a Close-band
+  frigate brawl shows the raider roster empty to `▱▱▱▱▱ 0/5` while the player holds
+  `▰▰▰▰▰ 5/5`. (Re-confirmed the §9 doctrine lesson on the way: the same fight at
+  *Medium* is a 0-leaker stalemate — the diorama surfaces the mistake faithfully.)
+
+- **2026-06-16 — Bill-of-materials: assemble warships from your own goods (§7d/§5).**
+  Closed the economy→fleet loop the four-tier chain set up. Alongside the buy-for-
+  credits `commission_ship`, new `assemble_ship(class)` builds the same hull from the
+  player's **own Assembled-tier stock** (`Sim::ship_bom`: Machinery 10 / Drives 11 /
+  Habitats 9, scaled by hull) plus a small labour fee (`ASSEMBLY_FEE_PER_MASS = 1` vs
+  the off-the-yard `SHIP_PRICE_PER_MASS = 5`) — so building out the production chain
+  *pays off* (make the parts, build warships cheap). Extracted the shared
+  `stand_up_hull` tail so commission + assemble share the fit/crew/christen/op logic
+  with the **same RNG order** → `commission_ship` is byte-identical (149 tests, QA
+  review unchanged). `CommissionError::MissingParts`; bindings `assemble_ship` (0 ok /
+  1 missing / 2 fee / 3 crew), `ship_bom_desc`, `can_assemble_ship`; the BUILD view
+  shows the BOM (green when in stock) with an `⚙ ASSEMBLE FROM PARTS` button.
+  **Backward-compatible by construction:** an empty warehouse can't assemble but can
+  still buy, and personas don't produce finished goods, so every test + the QA review
+  are unchanged. *Lesson:* keep the new path *additive* next to the old verb (don't
+  gate the existing one) when a feature must not perturb the established balance.
+
+- **2026-06-16 — Four-tier production chain (deviation #8, §7d).** Deepened the
+  economy from 6 commodities (Raw→Refined) to **12 in a 3-line × 4-tier grid**: Raw
+  (Ice/Ore/Volatiles) → Refined (Remass/Metals/ReactorFuel) → Components
+  (Composites/Alloys/Circuitry) → Assembled (Habitats/Machinery/Drives). The order is
+  **tier-major** so the existing `output = input + RAW_COUNT` (+3) recipe means "next
+  tier in the same line" (Ore→Metals→Alloys→Machinery); `found_refinery` is
+  generalized from raw-only to **any non-top-tier input**. **Indices 0–5 are
+  unchanged** (RAW=[0,1,2], REMASS=3 for refuel), so no index-based code moved.
+  **Two balance lessons, the second caught by the QA harness:** (1) the designed NPC
+  producer/consumer spread keys off `RAW`, so new upper-tier goods are auto-treated as
+  "non-raw" (dear at producer / cheap at consumer) — *too* good, because (2) the
+  upper tiers' high *absolute* prices (Drives base 2100) turn even tiny demand jitter
+  into huge absolute spreads, so the instant-arbitrage Arbitrageur ran away ~30×
+  (a fresh CONCERN). Fix matching the design philosophy: **finished goods are
+  *produced*, not NPC-arbitraged** — upper tiers get **neutral setpoints + demand
+  jitter 0** (administered prices). Bonus: `Market::step` short-circuits the jitter
+  RNG draw when `jitter == 0`, so the **lower-tier RNG stream is byte-identical** →
+  the §7c gate *and* the QA review body are **unchanged** (Arbitrageur back to the
+  exact 113888 cr). *Lesson:* when adding high-value commodities, watch absolute
+  spread × qty, not just relative spread — and keep value-add tiers as production
+  surfaces, not speculation surfaces. Shell: MARKET ticker scrolls 12 rows cleanly
+  (raw shows green spreads, finished goods "—"); render-verified.
+
+- **2026-06-16 — Freighters are positional on their lanes (Pillar #2, §6).** Closed
+  the last positional gap: a freighter running a standing `TradeRoute` now has a
+  **live map position**, interpolated along its orbital lane (origin → dest market
+  body) by trip progress — the same model the NPC haulers use. Added a `departed`
+  tick to `TradeRoute` (`#[serde(default)]` so old saves load) set on dispatch;
+  `Sim::flying_routes()` + `route_freighter_pos(i)`/`route_dest_pos(i)`/
+  `route_progress_bp(i)` expose it. Bound for the shell as `freighter_count` +
+  `freighter_x/y` + `freighter_dest_x/y` + `freighter_trip`/`freighter_progress`.
+  Freighters render as a distinct **muted-green** marker with a lane trail on the
+  orrery (vs. orange NPC haulers + livery warships), and the FLEET view shows each
+  one's real trip + "In transit N%". **The pool-dispatch semantics are untouched**
+  (one flying freighter per in-transit route), so the route tests + the QA review
+  stay **byte-identical** — this is a *visibility/position* layer over the existing
+  logistics, not a rewrite. With this, **every player ship (warship + freighter) is a
+  located asset** — Pillar #2 is substantially complete. Finer follow-up: freighters
+  fly a route-timed lane, not a per-ship remass-costed burn (a 🟡 nuance, not a gap).
+
+- **2026-06-16 — Combat is positional now (Pillar #2, §6/§9/§13).** Made the
+  delta-v movement layer *consequential* for combat: raiders muster on the inner
+  lanes at the **home core** (`markets[0]`'s body, where hulls commission), and
+  `engage_raiders` answers **only with warships on station there** — a fleet flown
+  to the outer system can't defend the core until it burns home. Losses fall on the
+  **engaged ships only** via a new `Corp::resolve_engagement_for(participants, …)`
+  (the Rocinante veteran-sort preserved within the group; bystanders untouched),
+  vs. the old whole-fleet `resolve_engagement`. New `Sim::warships_on_station()`
+  drives an accurate shell read (FLEET doctrine line "+N on station" + a "recall the
+  fleet" message distinct from "no warships"). **Key backward-compat move:** the
+  muster point is the *home dock* where ships commission, so a fresh fleet is on
+  station and every existing engage test + the QA review stay **byte-identical** —
+  the new behaviour only bites once you fly the fleet away. Proven by
+  `an_off_station_fleet_cannot_defend_the_core` (commission → fight → fly to Earth →
+  can't engage → recall home → can fight again). *Tooling reminders that re-bit:*
+  (1) the desktop extension loads `target/debug/libtorch_core.so` — a new `#[func]`
+  binding needs a **`cargo build` (debug)**, not just `--release`, or Godot reports
+  "Nonexistent function"; (2) GDScript `:=` can't infer a gdext return — type the
+  local (`var on_station: int = sim.warships_on_station()`).
+
+- **2026-06-16 — Ship class specs are now data (deviation #12, §31).** Extended the
+  "numbers in data, logic in Rust" overlay from commodities to **ship hulls +
+  weapons** — the second-highest-leverage tuning domain. New `data/ships.json` tunes
+  every hull's numeric envelope (mass/armor/thrust/tankage/drive/power/mounts/crew →
+  and therefore build cost = `dry_mass × SHIP_PRICE_PER_MASS` and the §8c crew
+  bottleneck) and every weapon (damage/intercept/mass/power), matched **by name**
+  with the exact commodity pattern: partial overlay, unknown-name = error (typo
+  protection), and an `include_str!`'d `DEFAULT_SHIP_JSON` proven to reproduce the
+  compiled catalogs by `ship_data_matches_compiled_defaults` (file ↔ code can't
+  drift). **Made real, not just parsed:** `Sim` holds a `ShipCatalog` (default =
+  compiled tables); `commission_ship`/`commission_freighter` fit from it via
+  `ShipCatalog::reference_loadout_quality`, and `reload_ship_data(json)` swaps it
+  (parse-before-mutate, touches no RNG → deterministic mid-run retune). **Identity
+  stays in code** (hull `class`, weapon `kind`) — only numbers are data, same call
+  as commodities. Combat *raider* packs keep the compiled defaults (raiders aren't
+  player-tunable content), and the persist fleet-restore uses the default catalog
+  (tuning is a runtime overlay, not save state) — so a default `Sim` is byte-
+  identical: the §7c gate holds and the QA review body is unchanged. **Borrow note:**
+  `self.catalog.reference_loadout_quality(class, q, &mut self.rng)` is a *disjoint*
+  two-field borrow (catalog immutable + rng mutable) and compiles cleanly. **Shell:**
+  the `L` dev-reload key now reloads *both* overlays (`user://commodities.json` +
+  `user://ships.json`); bound as `reload_ship_data(path)`. *GDScript lesson:* `:=`
+  type inference on a gdext method return can fail to resolve (`Cannot infer the
+  type`) even when the sibling call infers fine — type the local explicitly
+  (`var serr: String = sim.reload_ship_data(...)`).
+
+- **2026-06-16 — Combat command + diorama (deviation #3, §9/§22).** Closed the
+  "combat is non-interactive" gap. Two halves: (1) the **command layer** — the §9
+  `Doctrine` gained a **target priority** (biggest hull / most wounded) and a
+  **retreat threshold** (`retreat_bp`; a side that drops below its surviving-hull
+  fraction breaks off, emitting `CombatEvent::Retreat` and conceding the field).
+  Both are pre-engagement knobs the player sets in the FLEET view (RANGE / TARGET /
+  RETREAT cycle buttons) and the resolver honours them. The retreat check sits at
+  the **start** of the resolve loop so survivors are preserved (a fleet that breaks
+  off keeps its hulls); the winner is the side still holding the field. Default
+  `retreat_bp = 0` (fight to the death) keeps every existing combat test + the
+  64-seed balance gate unchanged. (2) the **presentation** — `Sim::engage_raiders`
+  now stores `last_battle: (Band, [start counts], BattleOutcome)`, and the shell
+  plays its `BattleLog` back **beat-by-beat** in a full-screen diorama
+  (`_build_diorama`/`_play_diorama`, DIO_STEP 0.22s): salvos/volleys/kills/retreats
+  colour-coded by side (player GOOD-green, raiders BAD-red), closing on a verdict +
+  survivor tally. The engage verb is wired to the FLEET-view `◆ ENGAGE` button +
+  `W` key; the world pauses for the diorama, tap to dismiss. **No new RNG / no
+  economy touch**, so the §7c gate + QA review body are byte-identical (only the
+  hand-added SAMPLE header line differs, as always). Render-verified under xvfb
+  (fleet doctrine row + the played diorama both read cleanly). *Note:* frigate
+  salvos at Medium show "0 leakers" (they knife-fight Close per the §9 learning) —
+  the diorama faithfully surfaces the doctrine mistake rather than hiding it.
+  Deferred to a later pass: mid-fight live commands (focus fire / go dark / brace),
+  heat, and a true **voxel** diorama (vs. the current text BattleLog).
 
 - **2026-06-14 — Stack pivot to Godot + Rust.** An earlier TypeScript prototype
   (Vite/Canvas + Capacitor) built the deterministic economy (stockpile pricing,
@@ -834,6 +1941,28 @@ Status: [x] done, [~] in progress, [ ] todo.
   `MultiMeshInstance3D` of 600 billboarded unshaded quads on a deterministic shell
   (radius 55–80, seeded RNG) behind the system, so the dark space reads as depth,
   not emptiness. Cheap (one draw), pure shell, render-verified under xvfb.
+- **2026-06-16 — QA gets a third lens: UI usability (`torch-qa::ui`).** The harness
+  asks *does it work* and *is it engaging*; it now also asks *can the player see
+  and reach it all?* The Godot shell is GDScript (outside the `cargo test` gate),
+  but it can only touch the sim through the **gdext binding** (`#[func]` in
+  `lib.rs`) and wires it in `godot/*.gd` — committed source we can audit
+  **statically and deterministically**, no engine needed. `ui::audit` parses the
+  binding surface and the shell's `sim.<x>(` calls and flags: **phantom calls**
+  (the shell calling a non-existent binding — a runtime break GDScript's dynamic
+  typing hides until that path runs), **unreached capability** (bindings the shell
+  never wires), **exception→verb** (an act-now shortage must have a one-press
+  answer, §0.4), **status visibility** (Nielsen #1: treasury/tier/gate/feed on
+  screen), **recognition over recall** (Nielsen #6: a controls legend), and
+  **platform fit** (Android-first §33 vs. a keyboard-scale control surface). First
+  run on the real shell: 165 bindings, 73% wired (44 unreached), 40 keyboard
+  bindings *with* native `InputEventScreenTouch`/`Drag` handling and a controls
+  legend — mostly Good, with two Notes (the unreached bindings, and keeping the
+  touch surface first-class for the 40-verb keymap on mobile). It complements (not
+  replaces) the GUT view tests (#72) and the manual render-and-look pass. *Lesson:*
+  the binding ⟷ shell wiring is a real, checkable usability contract — phantom
+  calls and unreachable verbs are exactly the gaps that escape both `cargo test`
+  and a quick playtest.
+
 - **2026-06-15 — QA gets a second lens: engagement & "fun" (`torch-qa::engagement`).**
   The harness could say *does it work* (`review`/`design_review`); it now also
   asks *is it engaging*. `assess(&Transcript)` scores six **structural proxies**
@@ -1007,6 +2136,50 @@ Status: [x] done, [~] in progress, [ ] todo.
   (§32). 🟢: audio (player-dropped), voxel art + procedural assembly (#11 todo),
   endgame §17 (post-MVP). Most *systems* are built and green — the deviations are
   mostly known/tracked; the doc just makes them legible in one place.
+
+- **2026-06-16 — Delta-v movement: the fleet becomes positional (§6, Pillar #2,
+  deviation #1).** The biggest GDD-fidelity gap (per `docs/GDD_DEVIATION_REVIEW.md`):
+  `delta_v` was computed per fit but the *movement* layer ignored it — player
+  warships had **no position** and the FLEET view's location/fuel were synthesized
+  `sin()` placeholders. Closed for warships: new `sim::movement` (`Nav` =
+  location/dest/ticks/remass/tankage; `plan()` = travel-time + remass-cost from the
+  hull's thrust-to-mass + drive-efficiency + the chosen burn). `OwnedShip` gains a
+  `nav`; `Sim::move_ship(idx, dest, hard_burn)` commits a trajectory at the **live
+  orbital distance** (`orbit::position_of`), spends remass, and takes real time;
+  `refuel_ship` buys remass (the "Remass" commodity, index 3) at a dock; a dry tank
+  **strands** the ship. `run_fleet_nav()` advances arrivals each `step()`;
+  `ship_position()` interpolates in transit. Bound to the shell: ships render cyan
+  on the orrery, the FLEET view shows **real** location/fuel/status, and mobile
+  **SEND FLEET / REFUEL** buttons dispatch the docked fleet to the focused world.
+  Persistence: `ShipSave` carries `nav`. **Calibration:** SPEED_K/REMASS constants
+  tuned so a frigate (tank 600) does several inner hops but **can't** hard-burn to
+  Jupiter on one tank — proven by `the_outer_system_can_strand_a_small_hull` and the
+  Sim-level `a_warship_flies_a_committed_trajectory_and_refuels`. 136 tests green,
+  §7c gate + QA review **untouched** (personas commission but don't move ships, and
+  `commission_ship`'s new `location` arg draws no RNG). *Lesson:* `Nav` is `Copy`,
+  so the move/refuel verbs copy it out of `self.corp.fleet()` **before** the
+  `fleet_mut()`/`debit()` mutation to dodge the borrow checker. Freighters
+  (pooled-count) and combat-positioning are the remaining Pillar-#2 follow-ups.
+
+- **2026-06-16 — Gate-mystery thread + opening missions (§0.1/§16, deviation #2).**
+  The other 🔴 pillar gap: the destination pull existed *systemically* (tiers, gate
+  %, voiced ascents) but had **no authored content** — the GDD's #1 over-invest
+  priority (§0.2) was the part with least substance. `sim::missions` adds it: a
+  5-step **opening-mission** chain teaching the verbs (First Light → Stand Up a Hull
+  → Standing Orders → Cut a Lane → Climb), each firing once via hooks in
+  `sell`/`commission_ship`/`set_trade_route`/`ripple_reputation`/`complete_op`; and a
+  **7-beat gate mystery** (`GATE_LORE`) revealed across tier ascents + salvage finds
+  (the §15 anomaly → §0.1 lore link), voiced as "The Gate" via a new
+  `AlertFeed::announce` (Critical/FYI — a story beat, not act-now noise). The SYSTEMS
+  overlay shows the active objective + hint + the latest gate beat + a `mystery N/7`
+  counter; persisted in `SaveState` (`#[serde(default)]` so old saves load).
+  **Determinism/QA:** mission notes + lore reveals draw **no RNG**, so the economy is
+  bit-identical and the QA review is **unchanged** (the announce alerts are FYI, not
+  act-now, so they don't move the pacing metrics). Both 🔴 pillar deviations (#1
+  delta-v, #2 gate mystery) are now addressed. *Lesson:* route all the
+  player-attributed mission triggers through the existing centralized paths
+  (`ripple_reputation` for any player cut, `complete_op` for any ascent) — one hook
+  covers manual + managed, no per-call-site sprinkling.
 
 ### Carried-over design learnings from the TS prototype (still authoritative)
 

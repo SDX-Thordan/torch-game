@@ -13,7 +13,8 @@
 
 use super::alerts::Priority;
 use super::automation::AutomationPolicy;
-use super::campaign::Campaign;
+use super::bridgehead::Bridgehead;
+use super::campaign::{Campaign, EndgameOutcome};
 use super::faction::Relations;
 use super::industry::Station;
 use super::logistics::TradeRoute;
@@ -25,6 +26,11 @@ use serde::{Deserialize, Serialize};
 /// Bumped whenever the on-disk shape changes; load refuses mismatches.
 pub const SAVE_VERSION: u32 = 1;
 
+/// serde default for `gate_revealed` (beat 0 is always shown).
+fn one() -> usize {
+    1
+}
+
 /// One owned hull, captured by class + crew quality + service history (§14). The
 /// loadout is rebuilt from the class on load (content is code, §31).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +41,8 @@ pub struct ShipSave {
     pub battles: u16,
     pub battles_won: u16,
     pub crew_quality: i64,
+    /// Position + remass budget (§6).
+    pub nav: super::movement::Nav,
 }
 
 /// One market's dynamic state — the stock/price pair per commodity (§7a). Defs
@@ -58,6 +66,20 @@ pub struct SaveState {
     pub trained_crew: i64,
     pub freighters: i64,
     pub fleet: Vec<ShipSave>,
+    /// Scrap parts + weapon schematics + arsenal + production lines (Phase B).
+    #[serde(default)]
+    pub scrap: i64,
+    #[serde(default)]
+    pub schematics: Vec<usize>,
+    #[serde(default)]
+    pub arsenal: Vec<usize>,
+    #[serde(default)]
+    pub weapon_production: Vec<(usize, u64)>,
+    /// Expressive identity (§14): corp name + livery index.
+    #[serde(default)]
+    pub corp_name: String,
+    #[serde(default)]
+    pub corp_livery: usize,
 
     // ---- standings, campaign, progression (§4/§0/§10) ----
     pub relations: Relations,
@@ -67,6 +89,55 @@ pub struct SaveState {
     pub blueprints_known: Vec<bool>,
     pub ceo_xp: i64,
     pub ceo_branch: Option<Branch>,
+
+    // ---- the authored thread: opening missions + gate mystery (§0.1/§16) ----
+    #[serde(default)]
+    pub mission_done: Vec<bool>,
+    #[serde(default = "one")]
+    pub gate_revealed: usize,
+
+    // ---- the far-side endgame (§17, G3/G4) ----
+    /// The player's far-side bridgehead; default = unfounded (pre-transit / old saves).
+    #[serde(default)]
+    pub bridgehead: Bridgehead,
+    /// The tick the player transited (lights the incursion clock, §17 G4); `None`
+    /// pre-transit / old saves.
+    #[serde(default)]
+    pub endgame_since: Option<u64>,
+    /// Incursions repelled (§17, G5 victory progress); 0 pre-transit / old saves.
+    #[serde(default)]
+    pub incursions_survived: u64,
+    /// How the far-side endgame resolved (§17, G5); `Undecided` pre-transit / old saves.
+    #[serde(default)]
+    pub endgame_outcome: EndgameOutcome,
+
+    // ---- the empire layer (E1/E3) ----
+    /// Which frontier colonies the player controls (the empire layer); empty for a
+    /// fresh game / old saves.
+    #[serde(default)]
+    pub controlled_colonies: Vec<bool>,
+    /// Per-colony development level + the empire-wide doctrine (Phase C).
+    #[serde(default)]
+    pub colony_dev: Vec<i64>,
+    #[serde(default)]
+    pub dev_doctrine: super::world::DevDoctrine,
+    /// The player's shipyard (tier + body).
+    #[serde(default)]
+    pub shipyard_tier: i64,
+    #[serde(default)]
+    pub shipyard_body: usize,
+    /// Per-faction alarm at the player's expansion (E3/E7), by `Faction` index; all-0
+    /// for a fresh game / old saves. The coalition schedule re-arms from it on load.
+    #[serde(default)]
+    pub faction_alarm: [i64; 4],
+    /// Influence — the statecraft resource for diplomatic annexation (E4); 0 for a
+    /// fresh game / old saves.
+    #[serde(default)]
+    pub influence: i64,
+    /// Player relations with the independent companies (E8), in company order; empty
+    /// for a fresh game / old saves (companies reconstructed from code).
+    #[serde(default)]
+    pub company_relations: Vec<i64>,
 
     // ---- standing orders + automation (§4/§12) ----
     pub routes: Vec<TradeRoute>,
@@ -90,6 +161,24 @@ impl SaveState {
     /// Parse a save document, rejecting an unsupported version.
     pub fn from_json(json: &str) -> Result<Self, String> {
         let s: SaveState = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        Self::check_version(s)
+    }
+
+    /// Serialize to the compact **binary** shipping format (§30): bincode over the
+    /// same `SaveState`. Smaller and faster to load than the JSON dev export.
+    pub fn to_bincode(&self) -> Vec<u8> {
+        bincode::serialize(self).expect("SaveState serializes to bincode")
+    }
+
+    /// Parse a binary save, rejecting an unsupported version. Bincode is *not*
+    /// self-describing, so it only reads same-shape saves — cross-version migration
+    /// is the JSON export's job (§30).
+    pub fn from_bincode(bytes: &[u8]) -> Result<Self, String> {
+        let s: SaveState = bincode::deserialize(bytes).map_err(|e| e.to_string())?;
+        Self::check_version(s)
+    }
+
+    fn check_version(s: Self) -> Result<Self, String> {
         if s.version != SAVE_VERSION {
             return Err(format!(
                 "unsupported save version {} (this build reads {})",

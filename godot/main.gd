@@ -25,29 +25,33 @@ const BRANCH_NAMES := ["Industrialist", "Trader", "Warlord", "Diplomat"]
 const INTENSITY_NAMES := ["Calm", "Normal", "Harsh"]   # §13 pressure difficulty
 const QTY_STEP := 5
 const QTY_MAX := 500
-const SAVE_PATH := "user://savegame.json"   # where [F5]/[F9] persist the run (§30)
+const SAVE_SLOTS := 3                        # numbered manual save slots (§30)
+const IRONMAN_AUTOSAVE_SEC := 20.0           # how often Ironman autosaves
 
 # Views (index = nav-rail order).
 const V_SYSTEMS := 0
 const V_FLEET := 1
 const V_BUILD := 2
 const V_MARKET := 3
-const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄"]
-const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET"]
+const V_EMPIRE := 4
+const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪"]
+const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE"]
 const VIEW_TITLE := [
 	"Orrery — Sol System",
 	"Fleet Management",
 	"Orbital Shipyard",
 	"Market & Logistics",
+	"Empire — Holdings & Expansion",
 ]
 
 # 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit.
 const SCALE3D := 1.0 / 1_000_000.0
+const VIEW_LERP := 9.0   # orrery marker position smoothing rate (§28 interpolation)
 const CAM_DIR := Vector3(0.0, 1.15, 0.9)
 const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
 # 0 Star, 1 Planet, 2 GasGiant, 3 Dwarf, 4 Moon, 5 Gate.
-const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0]
+const BODY_RADIUS := [0.45, 0.13, 0.32, 0.09, 0.06, 0.0, 0.20]  # 6 = far-side (§17)
 const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
@@ -67,10 +71,15 @@ var view := V_SYSTEMS
 var flash := 0.0
 var ascend_flash := 0.0
 var last_tier := ""
+var _last_endgame := 0                       # 0 undecided · 1 won · 2 lost (§17, G5)
 var _zoom := 10.0
 var _focus_body := 0
 var _touches := {}
 var _pinch_prev := 0.0
+# PC mode (desktop): mouse-wheel zoom + keyboard, no touch-zoom buttons. Auto-detected
+# on desktop, manually toggleable (F8) so it can be forced on either platform.
+var pc_mode := false
+var _map_controls: Control
 var _was_multitouch := false
 var _last_chart_tick := -1
 
@@ -96,6 +105,9 @@ var _views: Array[Control] = []
 var _nav_buttons: Array[Button] = []
 var _title: Label
 var _date: Label
+var _emp_header: Label
+var _emp_meters: Label
+var _emp_table: RichTextLabel
 var _res_credits: Label
 var _res_ore: Label
 var _res_fuel: ProgressBar
@@ -114,14 +126,49 @@ var _sys_queues: VBoxContainer
 var _sys_now: Label
 var _sys_gate: ProgressBar
 var _sys_gate_lbl: Label
+var _transit_btn: Button
+var _bridge_found_btn: Button
+var _bridge_upgrade_btn: Button
+var _defend_btn: Button
+var _defend_holdings_btn: Button
+var _sys_mission: Label
+var _sys_lore: Label
 var _tg_patrol: CheckButton
 var _tg_research: CheckButton
 var _tg_pause: CheckButton
 var _feed: RichTextLabel
 
+# Decision panel (Phase A): act-now dilemmas as a menu of trade-off options.
+var _dec_layer: CanvasLayer
+var _dec_title: Label
+var _dec_opts: VBoxContainer
+var _dec_shown := ""                          # title currently rendered (rebuild on change)
+var _dilemma_lock := false                    # hard pause until a stacked dilemma menu is cleared
+
 # Fleet view.
 var _fleet_grid: GridContainer
 var _fleet_count: Label
+var _corp_lbl: Label
+var corp_name_idx := 0
+var save_slot := 0                           # active manual slot, 0..SAVE_SLOTS-1 (§30)
+var ironman := false                         # Ironman: autosave, no manual reloads
+var _autosave_accum := 0.0
+var combat_band := 1                         # 0 close · 1 medium · 2 long (§9)
+var _combat_lbl: Label                       # doctrine readout in the FLEET view
+const DIO_STEP := 0.22                        # seconds between revealed BattleLog beats
+# Diorama (§22): plays the last battle's BattleLog beat by beat.
+var _diorama: CanvasLayer
+var _dio_title: Label
+var _dio_sub: Label
+var _dio_log: RichTextLabel
+var _dio_force_a: RichTextLabel   # player force roster (depletes as kills play)
+var _dio_force_b: RichTextLabel   # raider force roster
+var _dio_surv := [0, 0]           # live surviving counts during playback
+var _dio_start := [0, 0]          # starting counts (pip denominators)
+var _dio_idx := 0
+var _dio_timer := 0.0
+var _dio_playing := false
+var _battle3d: BattleDiorama          # the 3D combat scene behind the log (§22)
 var _fleet_tabs: Array[Button] = []
 
 # Build view.
@@ -129,8 +176,25 @@ var _build_list: VBoxContainer
 var _build_caption: Label
 var _build_stats: Label
 var _build_cost: Label
+var _bom_lbl: Label
 var _build_queue: VBoxContainer
 var _ship_pivot: Node3D
+# Ship designer (A2): the player's draft loadout for the selected class.
+var _des_pdc := 0
+var _des_torp := 0
+var _des_rail := 0
+var _des_burn := 100        # remass load, percent of tankage
+var _des_vals := {}         # kind -> value Label (updated each refresh)
+var _des_model_i := {0: 0, 1: 0, 2: 0}   # kind -> index into owned models (per-slot pick)
+var _des_model_lbl := {}    # kind -> model-name Label
+var _refit_target := 0      # fleet index targeted by the refit bay
+var _refit_model_i := {0: 0, 1: 0, 2: 0}  # refit-bay model choice per kind
+var _refit_lbl := {}        # "target"/0/1/2 -> Label for the refit bay
+var _design_lbl: Label
+var _arsenal_box: VBoxContainer               # weapon-crafting list (Phase B)
+var _scrap_lbl: Label
+var _yard_lbl: Label                          # shipyard status (Phase B+)
+var _arsenal_sig := ""                         # rebuild the list only when it changes
 
 # Market view.
 var _flow: Control
@@ -143,13 +207,19 @@ var _orrery_root: Node3D
 var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []
 var _hauler_pool: Array[MeshInstance3D] = []
+var _faction_haul_mats: Array[StandardMaterial3D] = []   # per-faction hauler livery (§4)
+var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
+var _freighter_pool: Array[MeshInstance3D] = []  # §6 player freighters on the lanes
 var _wreck_pool: Array[MeshInstance3D] = []
 var _gate_ring: MeshInstance3D
 var _lane_mesh: ImmediateMesh
 var _hauler_mat: StandardMaterial3D
+var _ship_mat: StandardMaterial3D
+var _freighter_mat: StandardMaterial3D
 var _select_mat: StandardMaterial3D
 var _wreck_mat: StandardMaterial3D
 var _gate_mat: StandardMaterial3D
+const FREIGHTER_COL := Color(0.45, 0.78, 0.62)  # muted green — player logistics wing
 
 
 func _ready() -> void:
@@ -164,7 +234,30 @@ func _ready() -> void:
 	_build_fleet_view()
 	_build_build_view()
 	_build_market_view()
+	_build_empire_view()
+	_build_diorama()
+	_build_decision_panel()
 	_select_view(V_SYSTEMS)
+	# Default to PC mode on desktop, touch on a handheld (§33). Either can be forced
+	# with F8 — handy for testing the desktop layout on a dev machine.
+	_set_pc_mode(OS.has_feature("pc"))
+
+
+## Switch between desktop (mouse + keyboard) and touch (pinch + on-screen buttons)
+## control schemes. On PC, the window is resizable and the touch-only zoom buttons
+## give way to the mouse wheel; on touch they return.
+func _set_pc_mode(on: bool) -> void:
+	pc_mode = on
+	if _map_controls:
+		_map_controls.visible = not on
+	if on:
+		# A desktop window: resizable, a sensible default, mouse cursor shown.
+		var win := get_window()
+		win.mode = Window.MODE_WINDOWED
+		win.title = "TORCH"
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	status = "PC mode — mouse wheel zooms, F1–F4 switch views, click to focus." if on \
+		else "Touch mode — pinch to zoom, tap a world to focus."
 
 
 func _resolve_commodity_indices() -> void:
@@ -212,6 +305,11 @@ func _build_world() -> void:
 	_orrery_root.add_child(key)
 
 	_hauler_mat = _emissive_mat(HAULER_COL)
+	# Faction-liveried hauler markers (§4/§24): NPC traffic reads by its owner's colour.
+	for fc in FACTION_COL:
+		_faction_haul_mats.append(_emissive_mat((fc as Color).lerp(HAULER_COL, 0.35)))
+	_ship_mat = _emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
+	_freighter_mat = _emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
 	_select_mat = _emissive_mat(SELECT_COL)
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
 
@@ -230,12 +328,18 @@ func _build_world() -> void:
 			_body_nodes.append(ph)
 			continue
 		var body := _sphere(BODY_RADIUS[kind], _lit_mat(_body_colour_kind(b, kind)))
+		# Far-side worlds (§17) exist always but stay hidden until the gate is transited.
+		if sim.body_is_far_side(b):
+			body.visible = false
 		_orrery_root.add_child(body)
 		_body_nodes.append(body)
 		var parent := sim.body_parent(b)
 		if parent == 0:
-			var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-			_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
+			# The far-side anchor's ring is drawn in _update_world (toggled with the
+			# reveal); inner-system bodies keep their static orbit ring here.
+			if not sim.body_is_far_side(b):
+				var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
+				_orrery_root.add_child(_ring(r, Color(0.20, 0.28, 0.38)))
 		else:
 			var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
 			var mrm := _emissive_mat(Color(0.32, 0.36, 0.42))
@@ -257,7 +361,7 @@ func _build_world() -> void:
 		if cb < 0 or cb >= _body_nodes.size():
 			continue
 		var fcol: Color = FACTION_COL[clampi(sim.colony_faction(ci), 0, 3)]
-		var marker := _sphere(0.03, _emissive_mat(fcol))
+		var marker := _station_glyph(fcol)
 		marker.position = Vector3(BODY_RADIUS[sim.body_kind(cb)] + 0.03, 0.0, 0.0)
 		_body_nodes[cb].add_child(marker)
 		var clbl := Label3D.new()
@@ -527,12 +631,14 @@ func _build_systems_view() -> void:
 	_tg_patrol = _add_toggle(col, "Interdiction patrol", func(on): sim.toggle_patrol())
 	_tg_research = _add_toggle(col, "Auto-research", func(on): sim.toggle_auto_research())
 	_tg_pause = _add_toggle(col, "Auto-pause on alert", func(on): auto_pause = on)
+	_add_toggle(col, "Ironman (autosave, no reloads)", _toggle_ironman)
 
-	# Bottom-left overlay panel: NOW goal + the always-visible gate progress (§0.1).
+	# Bottom-left overlay panel: NOW goal + the active mission + the gate mystery +
+	# the always-visible gate progress (§0.1 — the authored destination pull, §16).
 	var goal := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
 	goal.set_anchors_preset(Control.PRESET_FULL_RECT)
 	goal.anchor_top = 1
-	goal.offset_top = -124
+	goal.offset_top = -214
 	goal.offset_left = 0
 	goal.offset_right = 360
 	goal.offset_bottom = 0
@@ -540,11 +646,20 @@ func _build_systems_view() -> void:
 	var gv := VBoxContainer.new()
 	gv.add_theme_constant_override("separation", 4)
 	goal.add_child(gv)
-	gv.add_child(UiKit.kicker("Now"))
-	_sys_now = UiKit.label("", 12, UiKit.TEXT)
+	gv.add_child(UiKit.kicker("Objective"))
+	_sys_mission = UiKit.label("", 12, UiKit.ACCENT)
+	_sys_mission.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sys_mission.custom_minimum_size = Vector2(338, 0)
+	gv.add_child(_sys_mission)
+	_sys_now = UiKit.label("", 11, UiKit.TEXT_DIM)
 	_sys_now.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_sys_now.custom_minimum_size = Vector2(338, 0)
 	gv.add_child(_sys_now)
+	# The gate mystery — the one authored thread (§0.1).
+	_sys_lore = UiKit.label("", 10, UiKit.GOLD)
+	_sys_lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sys_lore.custom_minimum_size = Vector2(338, 0)
+	gv.add_child(_sys_lore)
 	_sys_gate_lbl = UiKit.label("", 10, UiKit.GOLD)
 	gv.add_child(_sys_gate_lbl)
 	_sys_gate = UiKit.gauge(0.0, UiKit.GOLD, 338, 8)
@@ -582,9 +697,68 @@ func _build_systems_view() -> void:
 	mc.offset_right = -322
 	mc.offset_bottom = -132
 	root.add_child(mc)
+	_map_controls = mc
 	mc.add_child(_make_map_button("+", func(): _zoom_by(0.8)))
 	mc.add_child(_make_map_button("–", func(): _zoom_by(1.25)))
 	mc.add_child(_make_map_button("◉", _reset_view))
+
+	# Fleet ops (§6): send the docked warships to the focused world, or refuel them.
+	var fo := HBoxContainer.new()
+	fo.add_theme_constant_override("separation", 6)
+	fo.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fo.anchor_left = 1
+	fo.anchor_top = 1
+	fo.offset_left = -470
+	fo.offset_top = -126
+	fo.offset_right = -250
+	fo.offset_bottom = -94
+	root.add_child(fo)
+	fo.add_child(_make_op_button("SEND FLEET", _dispatch_fleet_to_focus))
+	fo.add_child(_make_op_button("REFUEL", _refuel_fleet))
+	fo.add_child(_make_op_button("⚒ REFIT FLEET", _refit_fleet))
+	# The empire layer (E1): buy out an independent frontier colony. Mobile-friendly
+	# one-press expansion — takes the cheapest acquirable colony.
+	fo.add_child(_make_op_button("⊕ ACQUIRE COLONY", _acquire_colony))
+	# The empire layer (E4): diplomatically annex an independent colony (Influence +
+	# good standing, a gentler political cost than a buyout).
+	fo.add_child(_make_op_button("⊕ ANNEX (DIPLO)", _annex_colony))
+	# The empire layer (E5): seize a colony by force — the aggressive path.
+	fo.add_child(_make_op_button("⚔ SEIZE COLONY", _seize_colony))
+	# The empire layer (E3): answer a great-power coalition strike on your holdings —
+	# lit only while the inners are moving on you.
+	_defend_holdings_btn = _make_op_button("⚔ DEFEND HOLDINGS", _defend_holdings)
+	_defend_holdings_btn.visible = false
+	fo.add_child(_defend_holdings_btn)
+	# The climactic endgame verb (§0.1/§17) — only lit when standing at the open gate.
+	_transit_btn = _make_op_button("⟁ TRANSIT GATE", _transit_gate)
+	_transit_btn.visible = false
+	fo.add_child(_transit_btn)
+	# Far-side endgame verbs (§17, G3) — only lit once through the ring.
+	_bridge_found_btn = _make_op_button("⛓ FOUND BRIDGEHEAD", _found_bridgehead)
+	_bridge_found_btn.visible = false
+	fo.add_child(_bridge_found_btn)
+	_bridge_upgrade_btn = _make_op_button("⛓ REINFORCE", _upgrade_bridgehead)
+	_bridge_upgrade_btn.visible = false
+	fo.add_child(_bridge_upgrade_btn)
+	# The act-now far-side defense (§17, G4) — lit only while an incursion presses.
+	_defend_btn = _make_op_button("⚔ DEFEND BRIDGEHEAD", _defend_bridgehead)
+	_defend_btn.visible = false
+	fo.add_child(_defend_btn)
+
+	# Archive (§30): numbered save slots + load. (Ironman toggle lives in settings.)
+	var ar := HBoxContainer.new()
+	ar.add_theme_constant_override("separation", 6)
+	ar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ar.anchor_left = 1
+	ar.anchor_top = 1
+	ar.offset_left = -470
+	ar.offset_top = -88
+	ar.offset_right = -120
+	ar.offset_bottom = -56
+	root.add_child(ar)
+	ar.add_child(_make_op_button("SLOT", _cycle_slot))
+	ar.add_child(_make_op_button("SAVE", _do_save))
+	ar.add_child(_make_op_button("LOAD", _do_load))
 
 
 func _add_toggle(col: VBoxContainer, text: String, cb: Callable) -> CheckButton:
@@ -607,6 +781,699 @@ func _make_map_button(label: String, cb: Callable) -> Button:
 	btn.add_theme_color_override("font_color", UiKit.ACCENT)
 	btn.pressed.connect(cb)
 	return btn
+
+
+## A wider labelled touch button for fleet ops (§6).
+func _make_op_button(label: String, cb: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = label
+	btn.custom_minimum_size = Vector2(104, 32)
+	btn.add_theme_font_size_override("font_size", 12)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_stylebox_override("normal", UiKit.panel_box(UiKit.BG_BAR, UiKit.LINE, 6))
+	btn.add_theme_stylebox_override("hover", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+	btn.add_theme_stylebox_override("pressed", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 6))
+	btn.add_theme_color_override("font_color", UiKit.TEXT_HI)
+	btn.pressed.connect(cb)
+	return btn
+
+
+## ---- Phase A: the act-now decision panel (a menu of trade-off options) --------
+
+## Build the bottom-centre dilemma panel — hidden until an act-now exception offers
+## the player a choice (speculate / profiteer / relief, etc.). Each option is a tap
+## target with its own benefit/risk line, so answering the feed is a *decision*.
+func _build_decision_panel() -> void:
+	_dec_layer = CanvasLayer.new()
+	_dec_layer.layer = 50
+	_dec_layer.visible = false
+	add_child(_dec_layer)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UiKit.panel_box(Color(0.05, 0.07, 0.11, 0.96), UiKit.ACCENT, 10, 2))
+	panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	panel.offset_left = -300
+	panel.offset_right = 300
+	panel.offset_top = -250
+	panel.offset_bottom = -96
+	_dec_layer.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	panel.add_child(box)
+	box.add_child(UiKit.kicker("⚠ Act Now — Your Call"))
+	_dec_title = UiKit.label("", 16, UiKit.TEXT_HI)
+	box.add_child(_dec_title)
+	box.add_child(UiKit.rule())
+	_dec_opts = VBoxContainer.new()
+	_dec_opts.add_theme_constant_override("separation", 5)
+	box.add_child(_dec_opts)
+
+
+## Show/populate the dilemma panel for the top pending decision (rebuilt on change).
+func _refresh_decisions() -> void:
+	if sim.decision_count() <= 0:
+		_dec_layer.visible = false
+		_dec_shown = ""
+		return
+	_dec_layer.visible = true
+	var title := String(sim.decision_title(0))
+	if title == _dec_shown:
+		return                                  # already rendered this dilemma
+	_dec_shown = title
+	_dec_title.text = title
+	for c in _dec_opts.get_children():
+		c.queue_free()
+	var n := sim.decision_option_count(0)
+	for opt in n:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var risky := sim.decision_option_risky(0, opt)
+		var label := String(sim.decision_option_label(0, opt))
+		var btn := _make_op_button(("⚠ " if risky else "") + label, _resolve_decision.bind(opt))
+		btn.custom_minimum_size = Vector2(120, 40)
+		row.add_child(btn)
+		var desc := UiKit.label(String(sim.decision_option_desc(0, opt)), 12, UiKit.TEXT)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc.custom_minimum_size = Vector2(440, 0)
+		desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(desc)
+		_dec_opts.add_child(row)
+
+
+## Resolve the top dilemma with the chosen option, surface the outcome, repaint.
+func _resolve_decision(opt: int) -> void:
+	var msg := String(sim.resolve_decision(0, opt))
+	status = msg if msg != "" else "Couldn't act on that — nothing to source."
+	_dec_shown = ""                             # force a rebuild for any next dilemma
+	_refresh_decisions()
+
+
+## Send every docked warship on a committed trajectory to the focused world (§6).
+func _dispatch_fleet_to_focus() -> void:
+	if _focus_body <= 0 or sim.body_kind(_focus_body) == 5:
+		status = "Tap a world first, then SEND FLEET."
+		return
+	var sent := 0
+	var blocked := ""
+	for i in sim.fleet_size():
+		if sim.ship_in_transit(i):
+			continue
+		var err := String(sim.move_ship(i, _focus_body, false))
+		if err == "":
+			sent += 1
+		elif err != "already docked there":
+			blocked = err
+	if sent > 0:
+		status = "%d ship(s) burning for %s." % [sent, String(sim.body_name(_focus_body))]
+	elif blocked != "":
+		status = "Can't dispatch: %s." % blocked
+	else:
+		status = "No docked warships to send (or already there)."
+
+
+## ---- save slots + Ironman (§13/§30) -----------------------------------------
+
+func _slot_path(i: int) -> String:
+	return ProjectSettings.globalize_path("user://torch_slot_%d.sav" % i)
+
+
+func _ironman_path() -> String:
+	return ProjectSettings.globalize_path("user://torch_ironman.sav")
+
+
+func _active_save_path() -> String:
+	return _ironman_path() if ironman else _slot_path(save_slot)
+
+
+func _do_save() -> void:
+	var err := String(sim.save_game(_active_save_path()))
+	if err == "":
+		status = "Saved — %s." % ("Ironman" if ironman else "slot %d" % (save_slot + 1))
+	else:
+		status = "Save failed: %s" % err
+
+
+func _do_load() -> void:
+	if ironman:
+		status = "Ironman — no manual reload. Your choices stand."
+		return
+	var err := String(sim.load_game(_slot_path(save_slot)))
+	if err == "":
+		speed_idx = 0
+		selected = 0
+		status = "Loaded slot %d — paused. [1] to resume." % (save_slot + 1)
+	else:
+		status = "Load failed: %s" % err
+
+
+func _cycle_slot() -> void:
+	save_slot = (save_slot + 1) % SAVE_SLOTS
+	var t := sim.save_peek(_slot_path(save_slot))
+	status = "Slot %d — %s." % [save_slot + 1, ("saved day %d" % (t / 24)) if t >= 0 else "empty"]
+
+
+func _toggle_ironman(on: bool) -> void:
+	ironman = on
+	if ironman:
+		sim.save_game(_ironman_path())   # commit a baseline immediately
+		_autosave_accum = 0.0
+		status = "IRONMAN engaged — autosaves, no reloads. Live with your choices."
+	else:
+		status = "Ironman off — manual slots restored."
+
+
+## Cycle the corporation name through the presets (§14 self-expression).
+func _cycle_corp_name() -> void:
+	corp_name_idx += 1
+	var nm := String(sim.set_corp_name(corp_name_idx))
+	status = "Corporation renamed: %s." % nm
+
+
+## Cycle the fleet livery and repaint the ships (§14).
+func _cycle_livery_btn() -> void:
+	sim.cycle_livery()
+	_apply_livery()
+	status = "Fleet livery updated."
+
+
+## Repaint the shared warship material to the current livery (§14).
+func _apply_livery() -> void:
+	var c := sim.corp_livery_color()
+	_ship_mat.albedo_color = c
+	_ship_mat.emission = c
+
+
+## Refuel every docked warship to a full tank (§6).
+func _refuel_fleet() -> void:
+	var n := 0
+	for i in sim.fleet_size():
+		if sim.refuel_ship(i):
+			n += 1
+	status = "Refuelled %d ship(s)." % n if n > 0 else "Nothing to refuel."
+
+
+## Refit every docked hull to your best-owned weapons (Phase B) — a yard fee + time
+## per ship; refitting hulls can't fight until they're out of the yard.
+func _refit_fleet() -> void:
+	var n := 0
+	for i in sim.fleet_size():
+		if String(sim.refit_ship(i, -1, -1, -1)) != "":   # -1 = best-owned
+			n += 1
+	if n > 0:
+		status = "Refitting %d hull(s) to your latest weapons — they're in the yard." % n
+	else:
+		status = "No hull to refit (need docked ships + a better weapon in service)."
+
+
+## Refit one ship to the refit bay's chosen models (Phase B per-model refit).
+func _refit_selected_ship() -> void:
+	if sim.fleet_size() <= 0:
+		status = "No ship to refit."
+		return
+	var tgt: int = clampi(_refit_target, 0, sim.fleet_size() - 1)
+	var msg := String(sim.refit_ship(
+		tgt, _refit_model_id(0), _refit_model_id(1), _refit_model_id(2)))
+	status = msg if msg != "" else "Can't refit — dock the ship at the yard, or own the models."
+
+
+## The model id chosen in the refit bay for `kind` (0 PDC, 1 TORP, 2 RAIL).
+func _refit_model_id(kind: int) -> int:
+	var nn := sim.owned_model_count(kind)
+	if nn <= 0:
+		return -1
+	return sim.owned_model_id(kind, clampi(int(_refit_model_i[kind]), 0, nn - 1))
+
+
+func _cycle_refit_target(delta: int) -> void:
+	var n := sim.fleet_size()
+	if n > 0:
+		_refit_target = (_refit_target + delta + n) % n
+
+
+func _cycle_refit_model(kind: int, delta: int) -> void:
+	var n := sim.owned_model_count(kind)
+	if n > 0:
+		_refit_model_i[kind] = (int(_refit_model_i[kind]) + delta + n) % n
+
+
+## Transit the open ring-gate into the endgame (§0.1/§17) — the climax of the climb.
+func _transit_gate() -> void:
+	if sim.transit_gate():
+		ascend_flash = 1.0
+		status = "⟁ You transited the ring. There is no coming back the same."
+		# Jump the camera through to the far side — its first revealed world (§17).
+		for b in sim.body_count():
+			if sim.body_is_far_side(b):
+				_focus_body = b
+				_zoom = 8.0
+				break
+
+
+## Buy out the cheapest independent frontier colony (the empire layer, E1). One-press
+## expansion — but each acquisition angers the inner powers, so grow with care.
+## Develop the least-developed holding (Phase C, the tall growth axis) — invest credits
+## to scale its output, with no coalition alarm (unlike acquiring a new colony).
+func _develop_colony() -> void:
+	var msg := String(sim.develop_best())
+	status = msg if msg != "" else "Nothing to develop — acquire a colony first, or you're maxed/short on credits."
+
+
+## Cycle the empire-wide development doctrine (Phase C) — Industry / Trade / Growth tilt.
+func _cycle_doctrine() -> void:
+	status = String(sim.cycle_dev_doctrine())
+
+
+func _acquire_colony() -> void:
+	var best := -1
+	var best_cost := 1 << 30
+	for i in sim.colony_count():
+		if sim.colony_acquirable(i):
+			var cost: int = sim.colony_acquire_cost(i)
+			if cost >= 0 and cost < best_cost:
+				best_cost = cost
+				best = i
+	if best < 0:
+		status = "No independent colonies left to acquire."
+		return
+	var name := String(sim.colony_name(best))
+	var code: int = sim.acquire_colony(best)
+	match code:
+		0:
+			ascend_flash = 1.0
+			status = "⊕ %s joins the company — the inners are watching." % name
+			_focus_body = sim.colony_body(best)
+		3:
+			status = "Not enough credits to acquire %s (needs %d cr)." % [name, best_cost]
+		_:
+			status = "%s can't be acquired." % name
+
+
+## Diplomatically annex an independent colony (the empire layer, E4) — spends
+## Influence and needs good standing with the Independents, but angers the inners less.
+func _annex_colony() -> void:
+	var target := -1
+	for i in sim.colony_count():
+		if sim.colony_annexable(i):
+			target = i
+			break
+	if target < 0:
+		# Tell the player why nothing is annexable (the common gates).
+		if sim.influence() < 300:
+			status = "Annexation needs Influence (have %d/300) and Independent goodwill." % sim.influence()
+		else:
+			status = "No colony to annex — raise standing with the Independents first."
+		return
+	var name := String(sim.colony_name(target))
+	var code: int = sim.annex_colony(target)
+	match code:
+		0:
+			ascend_flash = 1.0
+			status = "⊕ %s joins us by treaty — cleaner than coin." % name
+			_focus_body = sim.colony_body(target)
+		3:
+			status = "The Independents don't trust us enough to annex %s yet." % name
+		4:
+			status = "Not enough Influence to annex %s (need 300)." % name
+		_:
+			status = "%s can't be annexed." % name
+
+
+## Seize a colony by force (the empire layer, E5) — assault the weakest-garrisoned
+## target with the fleet. The harshest political price of the three paths.
+func _seize_colony() -> void:
+	# Pick the lightest-garrisoned colony we don't already hold.
+	var target := -1
+	var best_garrison := 1 << 30
+	for i in sim.colony_count():
+		if not sim.colony_controlled(i):
+			var g: int = sim.colony_garrison(i)
+			if g < best_garrison:
+				best_garrison = g
+				target = i
+	if target < 0:
+		status = "No colony left to seize."
+		return
+	var name := String(sim.colony_name(target))
+	var code: int = sim.seize_colony(target, combat_band)
+	match code:
+		1:
+			ascend_flash = 1.0
+			status = "⚔ %s taken by force — the owner will not forget this." % name
+			_focus_body = sim.colony_body(target)
+			_open_diorama()
+		0:
+			flash = 1.0
+			status = "⚔ The assault on %s failed — we lost ships for nothing." % name
+			_open_diorama()
+		-3:
+			status = "No fleet to mount an assault — commission warships first."
+		_:
+			status = "%s can't be seized." % name
+
+
+## Court an independent company (the diplomacy layer, E8) — invest Influence to deepen
+## your best non-allied relationship toward alliance. Macro: a standing investment, not
+## a per-event choice. Allies' colonies join you free and their ships screen your trade.
+func _court_company() -> void:
+	# Advance the most-promising relationship that isn't already an ally.
+	var target := -1
+	var best_rel := -2000000000
+	for i in sim.company_count():
+		var st: int = sim.company_stance(i)
+		if st < 4:  # not yet Ally
+			var rel: int = sim.company_relation(i)
+			if rel > best_rel:
+				best_rel = rel
+				target = i
+	if target < 0:
+		status = "Every independent company is already allied with us."
+		return
+	var name := String(sim.company_name(target))
+	var code: int = sim.court_company(target)
+	match code:
+		0:
+			var sn: int = sim.company_stance(target)
+			var stance: String = ["Rival", "Cold", "Neutral", "Partner", "Ally"][sn]
+			status = "🤝 Courted %s — now %s." % [name, stance]
+		2:
+			status = "Not enough Influence to court %s (need 100)." % name
+		_:
+			status = "Can't court %s." % name
+
+
+## Defend the holdings against a great-power coalition strike (the empire layer, E3).
+func _defend_holdings() -> void:
+	var result: int = sim.defend_holdings(combat_band)
+	match result:
+		1:
+			ascend_flash = 1.0
+			status = "⚔ Coalition strike repelled — the holdings stand."
+			_open_diorama()
+		0:
+			flash = 1.0
+			status = "⚔ The line broke — the inners pried a holding loose."
+			_open_diorama()
+		-1:
+			status = "No fleet to answer the coalition. Commission warships."
+
+
+## Found the far-side bridgehead (§17, G3) — the first foothold beyond the ring.
+func _found_bridgehead() -> void:
+	var code: int = sim.found_bridgehead()
+	match code:
+		0:
+			ascend_flash = 1.0
+			status = "⛓ The bridgehead stands. We hold ground beyond the ring."
+		1:
+			status = "Transit the gate before you can plant a foothold."
+		2:
+			status = "Not enough credits to found the bridgehead."
+		3:
+			status = "The bridgehead already stands."
+
+
+## Reinforce the far-side bridgehead a level (§17, G3) — more integrity to weather
+## the incursions to come.
+func _upgrade_bridgehead() -> void:
+	var code: int = sim.upgrade_bridgehead()
+	match code:
+		0:
+			var lvl: int = sim.bridgehead_level()
+			status = "⛓ Bridgehead reinforced — now level %d." % lvl
+		2:
+			status = "Not enough credits to reinforce the bridgehead."
+		3:
+			status = "Found a bridgehead before you can reinforce it."
+
+
+## Defend the bridgehead against the pending incursion (§17, G4) — rally the fleet
+## and resolve the fight. The far side answers; you answer back.
+func _defend_bridgehead() -> void:
+	var result: int = sim.defend_bridgehead(combat_band)
+	match result:
+		1:
+			ascend_flash = 1.0
+			status = "⚔ Incursion repelled — the bridgehead holds the line."
+			_open_diorama()
+		0:
+			flash = 1.0
+			status = "⚔ The line broke — the bridgehead is hit."
+			_open_diorama()
+		-1:
+			status = "No fleet to answer the incursion. Commission warships."
+
+
+## Rename the flagship, cycling an evocative call-sign pool (§14, mobile-friendly —
+## no text entry). The hero ship gets a player-chosen identity (the Rocinante effect).
+const _SHIP_CALLSIGNS := [
+	"Valkyrie", "Tarrasque", "Sundancer", "Black Mesa", "Wayfarer", "Roci",
+	"Nemesis", "Firebrand", "Pale Horse", "Daybreak", "Old Faithful", "Specter",
+]
+var _callsign_idx := 0
+func _rename_flagship() -> void:
+	var fi: int = sim.flagship_index()
+	if fi < 0:
+		status = "No ship to rename — commission a hull first."
+		return
+	_callsign_idx = (_callsign_idx + 1) % _SHIP_CALLSIGNS.size()
+	var nm: String = _SHIP_CALLSIGNS[_callsign_idx]
+	if sim.rename_ship(fi, nm):
+		status = "Flagship renamed: %s." % String(sim.ship_name(fi))
+
+
+## ---- combat command + the §22 diorama --------------------------------------
+
+## Cycle the engagement range band (§9): close ⇄ medium ⇄ long.
+func _cycle_band() -> void:
+	combat_band = (combat_band + 1) % 3
+	status = "Engagement range: %s." % ["close", "medium", "long"][combat_band]
+
+
+## Flip the fleet's target priority (§9): biggest hull ⇄ most wounded.
+func _cycle_target() -> void:
+	sim.set_combat_target(1 - sim.combat_target())
+	status = "Target priority: %s." % ("most wounded" if sim.combat_target() == 1 else "biggest hull")
+
+
+## Step the retreat threshold (§9): fight-to-death → 25 → 50 → 75 → death.
+func _cycle_retreat() -> void:
+	var steps := [0, 25, 50, 75]
+	var idx := 0
+	for s in steps.size():
+		if steps[s] == sim.combat_retreat():
+			idx = s
+	sim.set_combat_retreat(steps[(idx + 1) % steps.size()])
+	var rt := sim.combat_retreat()
+	status = "Retreat threshold: %s." % ("never (fight to the death)" if rt == 0 else "%d%%" % rt)
+
+
+## Toggle hot vs disciplined railgun fire (§9 heat): more alpha, but it vents.
+func _cycle_fire() -> void:
+	sim.set_combat_aggressive(not sim.combat_aggressive())
+	status = "Railgun fire: %s." % ("AGGRESSIVE — more alpha, builds heat" if sim.combat_aggressive() else "disciplined — steady, no heat")
+
+
+## Throw the on-station fleet at a raider pack and play back the result (§9/§22).
+func _engage_raiders() -> void:
+	var r := sim.engage(combat_band)
+	if r == -1:
+		# Distinguish "no fleet" from "fleet is off defending elsewhere" (§6).
+		if sim.fleet_size() > 0 and sim.warships_on_station() == 0:
+			status = "Fleet is off-station — recall warships to the core to engage."
+		else:
+			status = "No warships to send — commission a hull in BUILD first."
+		return
+	_open_diorama()
+
+
+## Build the full-screen BattleLog playback overlay (§22), hidden until a fight.
+func _build_diorama() -> void:
+	_diorama = CanvasLayer.new()
+	_diorama.layer = 60
+	_diorama.visible = false
+	add_child(_diorama)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.03, 0.06, 0.93)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(e):
+		if (e is InputEventMouseButton and e.pressed) or (e is InputEventScreenTouch and e.pressed):
+			_close_diorama())
+	_diorama.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 90
+	box.offset_right = -90
+	box.offset_top = 44
+	box.offset_bottom = -44
+	box.add_theme_constant_override("separation", 8)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_diorama.add_child(box)
+	box.add_child(UiKit.kicker("Engagement Report"))
+	_dio_title = UiKit.label("", 22, UiKit.ACCENT)
+	box.add_child(_dio_title)
+	_dio_sub = UiKit.label("", 14, UiKit.TEXT_DIM)
+	box.add_child(_dio_sub)
+	# Live force rosters — two pip bars that deplete as kills play (§22 juice).
+	var forces := HBoxContainer.new()
+	forces.add_theme_constant_override("separation", 40)
+	box.add_child(forces)
+	_dio_force_a = _dio_force_label()
+	_dio_force_b = _dio_force_label()
+	forces.add_child(_dio_force_a)
+	forces.add_child(_dio_force_b)
+	box.add_child(UiKit.rule())
+	# The 3D battle scene (forged fleets trading fire) fills the upper area.
+	var vpc := SubViewportContainer.new()
+	vpc.stretch = true
+	vpc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vpc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vpc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(vpc)
+	var vp := SubViewport.new()
+	vp.own_world_3d = true
+	vp.transparent_bg = false
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vpc.add_child(vp)
+	_battle3d = BattleDiorama.new()
+	vp.add_child(_battle3d)
+	# A shorter play-by-play log beneath the battle.
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(0, 132)
+	sc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(sc)
+	_dio_log = RichTextLabel.new()
+	_dio_log.bbcode_enabled = true
+	_dio_log.fit_content = true
+	_dio_log.scroll_following = true
+	_dio_log.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dio_log.add_theme_font_size_override("normal_font_size", 14)
+	_dio_log.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sc.add_child(_dio_log)
+	box.add_child(UiKit.label("tap anywhere to dismiss", 11, UiKit.TEXT_DIM))
+
+
+## A roster label (bbcode) for one side's depleting force pips.
+func _dio_force_label() -> RichTextLabel:
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.fit_content = true
+	r.scroll_active = false
+	r.custom_minimum_size = Vector2(360, 0)
+	r.add_theme_font_size_override("normal_font_size", 16)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+
+## Render one side's force as filled/spent pips + a tally (§22 juice).
+func _dio_set_force(label: RichTextLabel, who: String, alive: int, total: int, col: Color) -> void:
+	var pips := ""
+	for i in mini(total, 16):
+		pips += "▰" if i < alive else "▱"
+	label.text = "[color=#%s]%s[/color]\n[color=#%s]%s[/color]  [color=#%s]%d/%d[/color]" % [
+		UiKit.TEXT_HI.to_html(false), who,
+		col.to_html(false), pips,
+		UiKit.TEXT.to_html(false), alive, total]
+
+
+## Pause the world and begin replaying the just-resolved battle.
+func _open_diorama() -> void:
+	speed_idx = 0
+	accum = 0.0
+	_dio_log.text = ""
+	_dio_idx = 0
+	_dio_timer = 0.0
+	_dio_playing = true
+	var bands := ["CLOSE", "MEDIUM", "LONG"]
+	_dio_title.text = "ENGAGEMENT · %s RANGE" % bands[clampi(sim.battle_band(), 0, 2)]
+	_dio_sub.text = "%s — %d hulls    vs    Raiders — %d hulls" % [
+		String(sim.corp_name()), sim.battle_start_count(0), sim.battle_start_count(1)]
+	# Rosters start at full strength and deplete as kills reveal.
+	_dio_start = [sim.battle_start_count(0), sim.battle_start_count(1)]
+	_dio_surv = [_dio_start[0], _dio_start[1]]
+	_dio_refresh_forces()
+	# Spawn the 3D fleets (player in Independent livery, raiders as scavenged Belt hulls).
+	_battle3d.setup(3, _dio_start[0], _dio_start[1])
+	_diorama.visible = true
+
+
+## Repaint both force rosters from the live surviving counts.
+func _dio_refresh_forces() -> void:
+	_dio_set_force(_dio_force_a, String(sim.corp_name()), _dio_surv[0], _dio_start[0], UiKit.GOOD)
+	_dio_set_force(_dio_force_b, "Raiders", _dio_surv[1], _dio_start[1], UiKit.BAD)
+
+
+func _close_diorama() -> void:
+	_dio_playing = false
+	_diorama.visible = false
+	if _battle3d:
+		_battle3d.stop()
+
+
+## Reveal one BattleLog beat per DIO_STEP, then the outcome (called each frame).
+func _play_diorama(delta: float) -> void:
+	if not _dio_playing:
+		return
+	_dio_timer += delta
+	var total := sim.battle_log_count()
+	while _dio_timer >= DIO_STEP and _dio_idx < total:
+		_dio_timer -= DIO_STEP
+		_dio_log.append_text(_dio_event_line(_dio_idx) + "\n")
+		var kind := sim.battle_event_kind(_dio_idx)
+		var side := sim.battle_event_side(_dio_idx)
+		# Drive the 3D scene's fire/explosion FX from the same beat.
+		_battle3d.on_beat(kind, side)
+		# A kill depletes the victim side's roster live (§22 juice).
+		if kind == 2:
+			_dio_surv[side] = maxi(0, _dio_surv[side] - 1)
+			_dio_refresh_forces()
+		_dio_idx += 1
+		if _dio_idx >= total:
+			_dio_log.append_text("\n" + _dio_outcome_line())
+			_dio_playing = false
+
+
+## One BattleLog beat rendered as a bbcode line, coloured by side (§19/§22).
+func _dio_event_line(i: int) -> String:
+	var side := sim.battle_event_side(i)
+	var who := String(sim.corp_name()) if side == 0 else "Raiders"
+	var col := UiKit.GOOD.to_html(false) if side == 0 else UiKit.BAD.to_html(false)
+	match sim.battle_event_kind(i):
+		0:   # Salvo
+			return "[color=#%s]%s[/color] torpedo salvo — %d leaker(s) breach the screen" % [
+				col, who, sim.battle_event_value(i)]
+		1:   # Volley
+			return "[color=#%s]%s[/color] railgun volley — %d damage" % [
+				col, who, sim.battle_event_value(i)]
+		2:   # Destroyed
+			return "    [color=#%s]✖ %s destroyed[/color]" % [
+				UiKit.BAD.to_html(false), String(sim.battle_event_name(i))]
+		3:   # Retreat
+			return "[color=#%s]%s breaks off and retreats[/color]" % [
+				UiKit.ACCENT.to_html(false), who]
+		4:   # Overheat
+			return "[color=#%s]%s vents heat — railguns hold fire[/color]" % [
+				UiKit.GOLD.to_html(false), who]
+	return ""
+
+
+## The closing verdict + survivor tally for the diorama.
+func _dio_outcome_line() -> String:
+	var head := ""
+	match sim.battle_winner():
+		0:
+			head = "[color=#%s]◆ FIELD HELD — the raiders break and run.[/color]" % UiKit.GOOD.to_html(false)
+		1:
+			head = "[color=#%s]✖ FLEET BROKEN — the raiders hold the field.[/color]" % UiKit.BAD.to_html(false)
+		_:
+			head = "[color=#%s]— STALEMATE — both sides withdraw.[/color]" % UiKit.TEXT_DIM.to_html(false)
+	var bounty := sim.battle_bounty()
+	var bline := ""
+	if sim.battle_winner() == 0 and bounty > 0:
+		bline = "\n[color=#%s]✚ Bounty +%d cr — the lanes are calmer.[/color]" % [UiKit.GOOD.to_html(false), bounty]
+	return "%s\n[color=#%s]Survivors — %s %d/%d  ·  Raiders %d/%d[/color]%s" % [
+		head, UiKit.TEXT.to_html(false),
+		String(sim.corp_name()), sim.battle_survivors(0), sim.battle_start_count(0),
+		sim.battle_survivors(1), sim.battle_start_count(1), bline]
 
 
 # ============================================================================
@@ -633,8 +1500,47 @@ func _build_fleet_view() -> void:
 		b.pressed.connect(func(): _set_fleet_tab(ti))
 		tabs.add_child(b)
 		_fleet_tabs.append(b)
+	# Expressive identity (§14): corp name + cycle name / livery.
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(spacer)
+	_corp_lbl = UiKit.label("", 13, UiKit.TEXT_HI)
+	tabs.add_child(_corp_lbl)
+	tabs.add_child(_make_op_button("RENAME", _cycle_corp_name))
+	tabs.add_child(_make_op_button("LIVERY", _cycle_livery_btn))
+	tabs.add_child(_make_op_button("FLAGSHIP", _rename_flagship))
 	_fleet_count = UiKit.label("", 11, UiKit.TEXT_DIM)
 	v.add_child(_fleet_count)
+	# Combat command (§9): doctrine knobs + the engage verb that opens the diorama.
+	var cmd := HBoxContainer.new()
+	cmd.add_theme_constant_override("separation", 6)
+	v.add_child(cmd)
+	cmd.add_child(UiKit.kicker("Doctrine"))
+	_combat_lbl = UiKit.label("", 12, UiKit.TEXT)
+	_combat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cmd.add_child(_combat_lbl)
+	cmd.add_child(_make_op_button("RANGE", _cycle_band))
+	cmd.add_child(_make_op_button("TARGET", _cycle_target))
+	cmd.add_child(_make_op_button("RETREAT", _cycle_retreat))
+	cmd.add_child(_make_op_button("FIRE", _cycle_fire))
+	cmd.add_child(_make_op_button("◆ ENGAGE", _engage_raiders))
+	# Refit bay (Phase B): pick a docked hull + a model per slot, then refit it (fee +
+	# time in the yard). Batch "REFIT FLEET" (best-owned) lives on the op deck below.
+	var rb := HBoxContainer.new()
+	rb.add_theme_constant_override("separation", 5)
+	v.add_child(rb)
+	rb.add_child(UiKit.kicker("Refit bay"))
+	rb.add_child(_tiny_btn("◂", func() -> void: _cycle_refit_target(-1)))
+	var rt := UiKit.label("—", 11, UiKit.TEXT_HI)
+	rt.custom_minimum_size = Vector2(112, 0)
+	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rb.add_child(rt)
+	_refit_lbl["target"] = rt
+	rb.add_child(_tiny_btn("▸", func() -> void: _cycle_refit_target(1)))
+	rb.add_child(_make_refit_picker(0, "P"))
+	rb.add_child(_make_refit_picker(1, "T"))
+	rb.add_child(_make_refit_picker(2, "R"))
+	rb.add_child(_make_op_button("⚒ REFIT", _refit_selected_ship))
 	v.add_child(UiKit.rule())
 	# Header row + grid.
 	var sc := ScrollContainer.new()
@@ -712,82 +1618,323 @@ func _build_build_view() -> void:
 	var sv := SubViewport.new()
 	sv.own_world_3d = true
 	sv.transparent_bg = true
-	sv.debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
 	svc.add_child(sv)
+	# Light the bench so the procedural hull reads: a key directional + a warm fill +
+	# ambient from a WorldEnvironment (the SubViewport owns its own world).
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.42, 0.46, 0.55)
+	e.ambient_light_energy = 1.15
+	env.environment = e
+	sv.add_child(env)
 	var scam := Camera3D.new()
-	scam.position = Vector3(0, 1.1, 4.2)
+	scam.position = Vector3(0.4, 1.5, 4.8)
 	sv.add_child(scam)
 	scam.look_at(Vector3.ZERO, Vector3.UP)   # after entering the tree (uses global xform)
-	var slight := OmniLight3D.new()
-	slight.position = Vector3(2, 3, 4)
-	slight.omni_range = 30
-	sv.add_child(slight)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-40, 125, 0)
+	key.light_energy = 1.7
+	sv.add_child(key)
+	# A camera-side fill so faces toward the viewer don't fall to shadow.
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-15, -35, 0)
+	fill.light_color = Color(0.85, 0.9, 1.0)
+	fill.light_energy = 0.7
+	sv.add_child(fill)
 	_ship_pivot = Node3D.new()
 	sv.add_child(_ship_pivot)
-	_build_blueprint_ship(_ship_pivot)
 	_build_caption = UiKit.label("", 15, UiKit.TEXT_HI)
 	centre.add_child(_build_caption)
+	# Ship designer (A2): arm weapons on the hull's slots + set the burn profile;
+	# the stats + the 3D hull update live, and COMMISSION builds your design.
+	centre.add_child(UiKit.kicker("Loadout — arm the slots"))
+	var drow1 := HBoxContainer.new()
+	drow1.add_theme_constant_override("separation", 16)
+	centre.add_child(drow1)
+	drow1.add_child(_make_stepper("pdc", "PDC"))
+	drow1.add_child(_make_stepper("torp", "TORP"))
+	var drow2 := HBoxContainer.new()
+	drow2.add_theme_constant_override("separation", 16)
+	centre.add_child(drow2)
+	drow2.add_child(_make_stepper("rail", "RAIL"))
+	drow2.add_child(_make_stepper("burn", "BURN%"))
+	# Per-slot model pickers (Phase B): choose which in-service weapon model arms each
+	# kind's slots — your fleet loadout is the macro decision.
+	centre.add_child(UiKit.kicker("Fit models (from your foundry)"))
+	centre.add_child(_make_model_picker(0, "PDC"))
+	centre.add_child(_make_model_picker(1, "TORP"))
+	centre.add_child(_make_model_picker(2, "RAIL"))
+	_design_lbl = UiKit.label("", 12, UiKit.TEXT)
+	centre.add_child(_design_lbl)
+	_reset_design()
+	_forge_ship()
 	_build_stats = UiKit.label("", 12, UiKit.TEXT_DIM)
 	centre.add_child(_build_stats)
 	_build_cost = UiKit.label("", 12, UiKit.TEXT)
 	centre.add_child(_build_cost)
+	_bom_lbl = UiKit.label("", 11, UiKit.TEXT_DIM)
+	centre.add_child(_bom_lbl)
 	var commission := UiKit.action_button("◆  COMMISSION HULL")
 	commission.pressed.connect(_commission_selected)
 	centre.add_child(commission)
+	var assemble := UiKit.action_button("⚙  ASSEMBLE FROM PARTS")
+	assemble.pressed.connect(_assemble_selected)
+	centre.add_child(assemble)
 
 	# Right: construction queue.
 	var right := VBoxContainer.new()
 	right.custom_minimum_size = Vector2(230, 0)
 	right.add_theme_constant_override("separation", 5)
 	hb.add_child(right)
+	# Shipyard (Phase B+): warships need your own yard (Tycho sells only civilians +
+	# corvettes). Build it (very expensive) and expand it to lay down bigger hulls.
+	right.add_child(UiKit.kicker("Shipyard"))
+	_yard_lbl = UiKit.label("", 12, UiKit.TEXT)
+	right.add_child(_yard_lbl)
+	var yrow := HBoxContainer.new()
+	yrow.add_theme_constant_override("separation", 5)
+	right.add_child(yrow)
+	yrow.add_child(_make_op_button("⚓ FOUND", _found_shipyard))
+	yrow.add_child(_make_op_button("⬆ EXPAND", _expand_shipyard))
+
 	right.add_child(UiKit.kicker("Construction Queue"))
 	_build_queue = VBoxContainer.new()
 	_build_queue.add_theme_constant_override("separation", 6)
 	right.add_child(_build_queue)
 
+	# Weapon arsenal / crafting (Phase B): scrap from combat crafts better weapons,
+	# which newly built ships fit. Advanced/faction designs antagonise the powers.
+	right.add_child(UiKit.kicker("Weapon Arsenal"))
+	_scrap_lbl = UiKit.label("", 12, UiKit.ACCENT)
+	right.add_child(_scrap_lbl)
+	var asc := ScrollContainer.new()
+	asc.custom_minimum_size = Vector2(0, 230)
+	asc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(asc)
+	_arsenal_box = VBoxContainer.new()
+	_arsenal_box.add_theme_constant_override("separation", 3)
+	asc.add_child(_arsenal_box)
 
-func _build_blueprint_ship(pivot: Node3D) -> void:
-	var mat := _emissive_mat(UiKit.ACCENT)
-	mat.emission_energy_multiplier = 0.6
-	# Hull.
-	var hull := MeshInstance3D.new()
-	var cap := CapsuleMesh.new()
-	cap.radius = 0.32
-	cap.height = 2.4
-	hull.mesh = cap
-	hull.rotation_degrees = Vector3(90, 0, 0)
-	hull.material_override = mat
-	pivot.add_child(hull)
-	# Bridge.
-	var bridge := MeshInstance3D.new()
-	var bx := BoxMesh.new()
-	bx.size = Vector3(0.4, 0.3, 0.6)
-	bridge.mesh = bx
-	bridge.position = Vector3(0, 0.32, 0.5)
-	bridge.material_override = mat
-	pivot.add_child(bridge)
-	# Nacelles.
-	for sx in [-1.0, 1.0]:
-		var nac := MeshInstance3D.new()
-		var nb := BoxMesh.new()
-		nb.size = Vector3(0.22, 0.22, 1.4)
-		nac.mesh = nb
-		nac.position = Vector3(0.5 * sx, -0.1, -0.3)
-		nac.material_override = mat
-		pivot.add_child(nac)
+
+## Build (or rebuild) the procedural ship in the BUILD bench for the selected class,
+## using the sim's hull slot counts + the player's faction livery (§24/§25).
+func _forge_ship() -> void:
+	if _ship_pivot == null:
+		return
+	for c in _ship_pivot.get_children():
+		c.queue_free()
+	# The player flies the Belt livery by default (home turf); the forge shows the
+	# player's chosen loadout (A2), so weapon models track the steppers.
+	var fac := 3
+	var ship := ShipForge.build(build_pick, fac, _des_pdc, _des_torp, _des_rail, 1000 + build_pick)
+	_ship_pivot.add_child(ship)
+
+
+## The weapon foundry list (Phase B): schematics you've earned → production lines you
+## tool up (time + scrap + credits). You can't buy advanced weapons. Rebuilt on change.
+func _refresh_arsenal() -> void:
+	if _arsenal_box == null:
+		return
+	var scrap := sim.scrap()
+	_scrap_lbl.text = "⚙ Scrap parts: %d" % scrap
+	# Signature folds in owned + schematic + producing counts so the list repaints as
+	# production lines finish.
+	var owned := 0
+	var known := 0
+	var building := 0
+	var wc := sim.weapon_count()
+	for i in wc:
+		if sim.weapon_owned(i):
+			owned += 1
+		if sim.weapon_known(i):
+			known += 1
+		if sim.weapon_producing(i) > 0:
+			building += 1
+	var sig := "%d|%d|%d|%d" % [scrap, owned, known, building]
+	if sig == _arsenal_sig:
+		return
+	_arsenal_sig = sig
+	for c in _arsenal_box.get_children():
+		c.queue_free()
+	var kinds := ["PDC", "TORPEDO", "RAILGUN"]
+	var last_kind := -1
+	for i in wc:
+		var k := sim.weapon_kind(i)
+		if k != last_kind:
+			last_kind = k
+			_arsenal_box.add_child(UiKit.kicker(kinds[clampi(k, 0, 2)]))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 5)
+		var ownd := sim.weapon_owned(i)
+		var nm := UiKit.label(String(sim.weapon_name(i)), 11, UiKit.TEXT_HI if ownd else UiKit.TEXT)
+		nm.custom_minimum_size = Vector2(118, 0)
+		row.add_child(nm)
+		if ownd:
+			row.add_child(UiKit.label("✓ in service", 10, UiKit.GOOD))
+		elif sim.weapon_producing(i) > 0:
+			row.add_child(UiKit.label("⏳ building", 10, UiKit.ACCENT))
+		elif sim.weapon_can_produce(i):
+			var b := _make_op_button("BUILD", _produce_weapon.bind(i))
+			b.custom_minimum_size = Vector2(64, 24)
+			row.add_child(b)
+		elif sim.weapon_known(i):
+			row.add_child(UiKit.label("need parts", 10, UiKit.TEXT_DIM))
+		else:
+			row.add_child(UiKit.label("🔒 schematic", 10, UiKit.TEXT_DIM))
+		_arsenal_box.add_child(row)
+		var d := UiKit.label(String(sim.weapon_desc(i)), 10, UiKit.TEXT_DIM)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size = Vector2(200, 0)
+		_arsenal_box.add_child(d)
+
+
+## Found a shipyard at home (Phase B+) — very expensive; unlocks warship building.
+func _found_shipyard() -> void:
+	var msg := String(sim.found_shipyard_home())
+	status = msg if msg != "" else "Can't found a shipyard — need 60,000 cr (or you already have one)."
+
+
+## Expand the shipyard a tier (unlocks the next hull class).
+func _expand_shipyard() -> void:
+	var msg := String(sim.expand_shipyard())
+	status = msg if msg != "" else "Can't expand — build a yard first, it's maxed, or short on credits."
+
+
+## Start producing weapon `i` (needs the schematic + scrap + credits + time).
+func _produce_weapon(i: int) -> void:
+	var msg := String(sim.produce_weapon(i))
+	status = msg if msg != "" else "Can't build that — need the schematic, scrap, or credits."
+	_arsenal_sig = ""
+	_refresh_arsenal()
+
+
+## A weapon/burn stepper for the designer (A2): [label] [−] value [+].
+func _make_stepper(kind: String, label: String) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hb.add_child(UiKit.label(label, 11, UiKit.TEXT_DIM))
+	hb.add_child(_make_op_button("−", func() -> void: _adjust_design(kind, -1)))
+	var val := UiKit.label("0", 13, UiKit.TEXT_HI)
+	val.custom_minimum_size = Vector2(40, 0)
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(val)
+	_des_vals[kind] = val
+	hb.add_child(_make_op_button("+", func() -> void: _adjust_design(kind, 1)))
+	return hb
+
+
+## A per-kind weapon-model picker (Phase B): [LABEL] [<] model-name [>] — cycles the
+## in-service models of that kind. The chosen model arms that kind's slots.
+func _make_model_picker(kind: int, label: String) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	var l := UiKit.label(label, 11, UiKit.TEXT_DIM)
+	l.custom_minimum_size = Vector2(40, 0)
+	hb.add_child(l)
+	hb.add_child(_make_op_button("<", func() -> void: _cycle_model(kind, -1)))
+	var nm := UiKit.label("—", 11, UiKit.TEXT_HI)
+	nm.custom_minimum_size = Vector2(150, 0)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(nm)
+	_des_model_lbl[kind] = nm
+	hb.add_child(_make_op_button(">", func() -> void: _cycle_model(kind, 1)))
+	return hb
+
+
+## A small single-char cycle button (compact, for the refit bay row).
+func _tiny_btn(txt: String, cb: Callable) -> Button:
+	var b := _make_op_button(txt, cb)
+	b.custom_minimum_size = Vector2(26, 26)
+	return b
+
+
+## A compact refit-bay model picker for `kind`: [label] ‹ name › — cycles owned models.
+func _make_refit_picker(kind: int, label: String) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hb.add_child(UiKit.label(label, 10, UiKit.TEXT_DIM))
+	hb.add_child(_tiny_btn("‹", func() -> void: _cycle_refit_model(kind, -1)))
+	var nm := UiKit.label("—", 10, UiKit.TEXT_HI)
+	nm.custom_minimum_size = Vector2(86, 0)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(nm)
+	_refit_lbl[kind] = nm
+	hb.add_child(_tiny_btn("›", func() -> void: _cycle_refit_model(kind, 1)))
+	return hb
+
+
+## The model id chosen for `kind` (0 PDC, 1 TORP, 2 RAIL), from the in-service models.
+func _des_model_id(kind: int) -> int:
+	var n := sim.owned_model_count(kind)
+	if n <= 0:
+		return -1
+	var idx: int = clampi(int(_des_model_i[kind]), 0, n - 1)
+	return sim.owned_model_id(kind, idx)
+
+
+## Cycle the chosen model for a kind (wrapping through the in-service models).
+func _cycle_model(kind: int, delta: int) -> void:
+	var n := sim.owned_model_count(kind)
+	if n <= 0:
+		return
+	_des_model_i[kind] = (int(_des_model_i[kind]) + delta + n) % n
+
+
+## Reset the draft loadout to the hull's full reference fit (every slot armed).
+func _reset_design() -> void:
+	_des_pdc = shipyard.pdc_mounts(build_pick)
+	_des_torp = shipyard.torpedo_mounts(build_pick)
+	_des_rail = shipyard.railgun_mounts(build_pick)
+	_des_burn = 100
+
+
+## Change a designer value (clamped to the hull's slots / burn range), then re-forge.
+func _adjust_design(kind: String, delta: int) -> void:
+	match kind:
+		"pdc": _des_pdc = clampi(_des_pdc + delta, 0, shipyard.pdc_mounts(build_pick))
+		"torp": _des_torp = clampi(_des_torp + delta, 0, shipyard.torpedo_mounts(build_pick))
+		"rail": _des_rail = clampi(_des_rail + delta, 0, shipyard.railgun_mounts(build_pick))
+		"burn": _des_burn = clampi(_des_burn + delta * 10, 10, 100)
+	_forge_ship()
 
 
 func _pick_build(i: int) -> void:
 	build_pick = i
 	for c in _build_list.get_child_count():
 		(_build_list.get_child(c) as Button).set_pressed_no_signal(c == i)
+	_reset_design()
+	_forge_ship()
 
 
 func _commission_selected() -> void:
-	if sim.commission_ship(build_pick):
-		status = "%s commissioned into the fleet." % String(shipyard.class_name(build_pick))
-	else:
-		status = "Can't build — short on crew or credits."
+	# Build the player's custom design (A2/Phase B): chosen weapon models per slot.
+	var code: int = sim.commission_designed(
+		build_pick,
+		_des_model_id(0), _des_pdc,
+		_des_model_id(1), _des_torp,
+		_des_model_id(2), _des_rail,
+		_des_burn)
+	match code:
+		0: status = "%s commissioned to your design." % String(shipyard.class_name(build_pick))
+		1: status = "Can't build — short on credits."
+		2: status = "Can't build — not enough trained crew."
+		4: status = "Need your own shipyard for this hull (Tycho sells only civilians + corvettes)."
+		_: status = "That design won't fit the hull."
+
+
+## Assemble the selected hull from the player's own component stock (§7d payoff).
+func _assemble_selected() -> void:
+	var cls := String(shipyard.class_name(build_pick))
+	match sim.assemble_ship(build_pick):
+		0:
+			status = "%s assembled from parts — the chain pays off." % cls
+		1:
+			status = "Missing components — need %s (build them up the chain)." % String(sim.ship_bom_desc(build_pick))
+		3:
+			status = "Not enough trained crew to assemble a %s." % cls
+		_:
+			status = "Can't assemble — short on the labour fee."
 
 
 # ============================================================================
@@ -814,7 +1961,7 @@ func _build_market_view() -> void:
 	_flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flowp.add_child(_flow)
 	var names := PackedStringArray()
-	for m in sim.market_count():
+	for m in _visible_market_count():
 		names.append(String(sim.market_name(m)))
 	_flow.set_markets(names)
 
@@ -925,6 +2072,18 @@ func _reset_view() -> void:
 # ============================================================================
 
 func _process(delta: float) -> void:
+	# Hard-pause when act-now dilemmas stack up (≥2): time can't resume until the whole
+	# menu is cleared — multiple demands force the player to decide (§0.4). A lone
+	# dilemma still uses the softer auto-pause-on-alert path below.
+	if sim.decision_count() >= 2:
+		if not _dilemma_lock:
+			status = "Multiple decisions pending — clear them all to resume."
+		_dilemma_lock = true
+	elif sim.decision_count() == 0:
+		_dilemma_lock = false
+	if _dilemma_lock:
+		speed_idx = 0
+		accum = 0.0
 	var mult: float = SPEEDS[speed_idx]
 	if mult > 0.0:
 		accum += delta * TICKS_PER_SECOND * mult
@@ -943,12 +2102,29 @@ func _process(delta: float) -> void:
 		ascend_flash = 1.0
 		status = "Ascended to %s — the ring-gate draws closer." % tier
 	last_tier = tier
+	# The endgame finale (§17, G5): the journey completes, in triumph or defeat.
+	var endgame: int = sim.endgame_outcome()
+	if endgame != _last_endgame and endgame != 0:
+		if endgame == 1:
+			ascend_flash = 1.0
+			status = "★ Victory — the far side is yours. The journey is complete."
+		else:
+			flash = 1.0
+			status = "✝ The bridgehead has fallen. The far side is lost."
+	_last_endgame = endgame
 	flash = maxf(0.0, flash - delta * 2.0)
 	ascend_flash = maxf(0.0, ascend_flash - delta)
+	# Ironman (§13): the world saves itself, so there's no scumming a bad call.
+	if ironman:
+		_autosave_accum += delta
+		if _autosave_accum >= IRONMAN_AUTOSAVE_SEC:
+			_autosave_accum = 0.0
+			sim.save_game(_ironman_path())
 	if view == V_SYSTEMS:
-		_update_world()
+		_update_world(delta)
 	if view == V_BUILD and _ship_pivot:
 		_ship_pivot.rotate_y(delta * 0.6)
+	_play_diorama(delta)
 	_sample_prices()
 	_refresh()
 
@@ -965,32 +2141,87 @@ func _sample_prices() -> void:
 	_chart.push(vals)
 
 
-func _update_world() -> void:
+## Smoothly move a marker toward its latest sim position (§28 view interpolation),
+## so traffic glides between sim ticks instead of snapping. Snaps on a big jump
+## (a respawn or a pooled slot reused by a different entity).
+func _smooth_to(node: Node3D, target: Vector3, delta: float, fresh: bool) -> void:
+	if fresh or node.position.distance_to(target) > 8.0:
+		node.position = target
+	else:
+		node.position = node.position.lerp(target, clampf(delta * VIEW_LERP, 0.0, 1.0))
+	# Orient the hull marker along its heading (toward the target), so it points down
+	# its lane instead of facing a fixed way (A5). Negligible when nearly stationary.
+	var d := target - node.position
+	if d.length() > 0.015:
+		node.look_at(node.position + d.normalized(), Vector3.UP)
+
+
+func _update_world(delta: float) -> void:
 	_update_camera()
+	var beyond: bool = sim.far_side_revealed()
 	for b in sim.body_count():
 		if b < _body_nodes.size():
 			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
+			# Reveal the far side only once the gate is transited (§17).
+			if sim.body_is_far_side(b):
+				_body_nodes[b].visible = beyond
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
-		var mi := _sphere(0.06, _hauler_mat)
+		var mi := _hull_marker(_hauler_mat)
 		_orrery_root.add_child(mi)
 		_hauler_pool.append(mi)
 	for i in _hauler_pool.size():
 		var node := _hauler_pool[i]
 		if i < n:
+			var fresh := not node.visible
 			node.visible = true
-			node.position = _world3d(sim.hauler_x(i), sim.hauler_y(i))
+			_smooth_to(node, _world3d(sim.hauler_x(i), sim.hauler_y(i)), delta, fresh)
 			var sel := i == selected
-			node.material_override = _select_mat if sel else _hauler_mat
+			var fi := sim.hauler_faction(i)
+			var livery: StandardMaterial3D = _hauler_mat if fi < 0 else _faction_haul_mats[clampi(fi, 0, 3)]
+			node.material_override = _select_mat if sel else livery
 			node.scale = Vector3.ONE * (1.6 if sel else 1.0)
 		else:
 			node.visible = false
+	# Player warships — positional now (§6); a moving one swells slightly.
+	var sn := sim.fleet_size()
+	while _ship_pool.size() < sn:
+		var sm := _hull_marker(_ship_mat)
+		_orrery_root.add_child(sm)
+		_ship_pool.append(sm)
+	for si in _ship_pool.size():
+		var sship := _ship_pool[si]
+		if si < sn:
+			var fresh := not sship.visible
+			sship.visible = true
+			_smooth_to(sship, _world3d(sim.ship_x(si), sim.ship_y(si)), delta, fresh)
+			sship.scale = Vector3.ONE * (1.4 if sim.ship_in_transit(si) else 1.0)
+		else:
+			sship.visible = false
+	# Player freighters — positional on their standing-route lanes now (§6).
+	var fn_ := sim.freighter_count()
+	while _freighter_pool.size() < fn_:
+		var fm := _hull_marker(_freighter_mat)
+		_orrery_root.add_child(fm)
+		_freighter_pool.append(fm)
+	for fi in _freighter_pool.size():
+		var fnode := _freighter_pool[fi]
+		if fi < fn_:
+			var fresh := not fnode.visible
+			fnode.visible = true
+			_smooth_to(fnode, _world3d(sim.freighter_x(fi), sim.freighter_y(fi)), delta, fresh)
+		else:
+			fnode.visible = false
 	_lane_mesh.clear_surfaces()
-	if n > 0:
+	if n > 0 or fn_ > 0:
 		_lane_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+		# Draw lanes from the *smoothed* marker positions so trail + marker agree.
 		for i in n:
-			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_x(i), sim.hauler_y(i)))
+			_lane_mesh.surface_add_vertex(_hauler_pool[i].position)
 			_lane_mesh.surface_add_vertex(_world3d(sim.hauler_dest_x(i), sim.hauler_dest_y(i)))
+		for i in fn_:
+			_lane_mesh.surface_add_vertex(_freighter_pool[i].position)
+			_lane_mesh.surface_add_vertex(_world3d(sim.freighter_dest_x(i), sim.freighter_dest_y(i)))
 		_lane_mesh.surface_end()
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
@@ -1009,6 +2240,171 @@ func _update_world() -> void:
 	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
 
 
+# ============================================================================
+# EMPIRE VIEW (holdings master-table + acquisition verbs — the empire layer E6)
+# ============================================================================
+
+func _build_empire_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+
+	# Headline: the empire rank + the next rung (the expansion spine, E6).
+	v.add_child(UiKit.kicker("The Company"))
+	_emp_header = UiKit.label("", 16, UiKit.TEXT_HI)
+	v.add_child(_emp_header)
+	# Meters: capacity / efficiency / coalition alarm / influence.
+	_emp_meters = UiKit.label("", 12, UiKit.TEXT)
+	v.add_child(_emp_meters)
+	v.add_child(UiKit.rule())
+
+	# Acquisition verbs — the three pathways + the defense (the empire master-deck).
+	v.add_child(UiKit.kicker("Acquire / Defend"))
+	var ops := HBoxContainer.new()
+	ops.add_theme_constant_override("separation", 6)
+	v.add_child(ops)
+	ops.add_child(_make_op_button("⊕ BUY", _acquire_colony))
+	ops.add_child(_make_op_button("⊕ ANNEX", _annex_colony))
+	ops.add_child(_make_op_button("⚔ SEIZE", _seize_colony))
+	ops.add_child(_make_op_button("⬆ DEVELOP", _develop_colony))
+	ops.add_child(_make_op_button("⚙ DOCTRINE", _cycle_doctrine))
+	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
+	ops.add_child(_make_op_button("🤝 COURT", _court_company))
+	v.add_child(UiKit.rule())
+
+	# The master-table: holdings + acquirable targets.
+	v.add_child(UiKit.kicker("Holdings & Targets"))
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	_emp_table = RichTextLabel.new()
+	_emp_table.bbcode_enabled = true
+	_emp_table.fit_content = true
+	_emp_table.scroll_active = false
+	_emp_table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_emp_table.add_theme_font_size_override("normal_font_size", 12)
+	sc.add_child(_emp_table)
+
+
+func _refresh_empire() -> void:
+	var holdings: int = sim.holding_count()
+	var cap: int = sim.admin_capacity()
+	var rank := String(sim.empire_rank())
+	var next_name := String(sim.next_empire_rank_name())
+	var head := "%s   ·   %d holding(s)" % [rank, holdings]
+	if holdings > 0:
+		head += "   ·   tallest L%d" % sim.peak_dev()   # Phase C: the tall axis
+	if next_name != "":
+		head += "   →   %s at %d" % [next_name, sim.next_empire_rank_at()]
+	_emp_header.text = head
+
+	var strain: int = sim.admin_strain()
+	var meters := "Admin %d/%d" % [holdings, cap]
+	if strain > 0:
+		meters += " ⚠ strained (%d%% efficiency)" % sim.holdings_efficiency_pct()
+	meters += "      Influence %d" % sim.influence()
+	meters += "      Doctrine: %s" % String(sim.dev_doctrine_name())
+	# Security (EP3): escorts on station vs. what the empire's shipping needs.
+	if holdings > 0:
+		var need: int = sim.escorts_needed()
+		var have: int = sim.warships_on_station()
+		if sim.empire_secure():
+			meters += "      Escorts %d/%d ✓" % [have, need]
+		else:
+			meters += "      ⚠ Escorts %d/%d — piracy bleeds you" % [have, need]
+		# Enforcement (EP4): a soured great power taxes/inspects your shipping.
+		if sim.worst_standing() <= -200:
+			meters += "      ⚠ customs sweeps (mend fences)"
+	# Per-faction alarm (E7): show whose sphere you've provoked, not a single gauge.
+	if holdings > 0:
+		var names := ["Earth", "Mars", "Belt"]
+		var parts := PackedStringArray()
+		for fi in 3:
+			parts.append("%s %d" % [names[fi], sim.faction_alarm(fi)])
+		var prefix := "Alarm  "
+		if sim.coalition_active():
+			prefix = "⚠ COALITION (led by %s)  " % names[sim.coalition_leader()]
+		meters += "\n%s%s" % [prefix, "  ·  ".join(parts)]
+	if sim.coalition_strike_pending():
+		meters += "  —  STRIKE INBOUND, DEFEND"
+	_emp_meters.text = meters
+
+	# Build the holdings + targets table.
+	var t := ""
+	t += "[color=#9fb0c0]── YOUR HOLDINGS ──[/color]\n"
+	var any_held := false
+	for i in sim.colony_count():
+		if sim.colony_controlled(i):
+			any_held = true
+			var fac := _faction_name(sim.colony_faction(i))
+			var good := String(sim.commodity_name(sim.colony_specialty(i)))
+			var dev: int = sim.colony_dev(i)
+			var devtxt := "[color=#e6c860]dev L%d[/color]" % dev
+			var dcost: int = sim.develop_cost(i)
+			if dcost >= 0:
+				devtxt += " [color=#7a8696](→L%d: %s cr)[/color]" % [dev + 1, _commas(dcost)]
+			else:
+				devtxt += " [color=#7a8696](max)[/color]"
+			var line := "[color=#78e68c]✦ %s[/color]  (%s)  ·  %s  ·  supplies [color=#cfd8e0]%s[/color]" % [String(sim.colony_name(i)), fac, devtxt, good]
+			# EP2: flag the ones that are markets you now own (fee-reduced + NPC tariff).
+			var body := sim.colony_body(i)
+			for m in sim.market_count():
+				if sim.market_body(m) == body and sim.market_is_owned(m):
+					line += "  ·  [color=#9fd8ff]your market[/color]"
+					break
+			t += line + "\n"
+	if sim.station_count() > 0:
+		t += "[color=#78e68c]✦ %d production station(s)[/color]\n" % sim.station_count()
+		any_held = true
+	if not any_held:
+		t += "[color=#6f8a93](none yet — acquire a frontier colony below)[/color]\n"
+	t += "\n[color=#9fb0c0]── ACQUIRABLE (independents) ──[/color]\n"
+	var any_target := false
+	for i in sim.colony_count():
+		if sim.colony_controlled(i):
+			continue
+		var fac_i: int = sim.colony_faction(i)
+		var name := String(sim.colony_name(i))
+		var garrison: int = sim.colony_garrison(i)
+		if fac_i == 3:  # Independents — buyable / annexable
+			any_target = true
+			var cost: int = sim.colony_acquire_cost(i)
+			var annex := "  ·  annex" if sim.colony_annexable(i) else ""
+			t += "[color=#cfd8e0]· %s[/color]  buy %d cr%s  ·  garrison %d\n" % [name, cost, annex, garrison]
+	if not any_target:
+		t += "[color=#6f8a93](the independent frontier is yours — seize a great power's colony for more)[/color]\n"
+	t += "\n[color=#9fb0c0]── SEIZABLE (by force) ──[/color]\n"
+	for i in sim.colony_count():
+		if sim.colony_controlled(i) or sim.colony_faction(i) == 3:
+			continue
+		var name2 := String(sim.colony_name(i))
+		var fac2 := _faction_name(sim.colony_faction(i))
+		t += "[color=#e0b0b0]⚔ %s[/color]  (%s)  ·  garrison %d\n" % [name2, fac2, sim.colony_garrison(i)]
+	# Independent companies — the negotiable actors (E8). Macro diplomacy.
+	if sim.company_count() > 0:
+		t += "\n[color=#9fb0c0]── INDEPENDENT RELATIONS  (Influence %d) ──[/color]\n" % sim.influence()
+		var stance_names := ["Rival", "Cold", "Neutral", "Partner", "Ally"]
+		var stance_cols := ["#e0708a", "#9fb0c0", "#cfd8e0", "#9fd8ff", "#78e68c"]
+		for i in sim.company_count():
+			var s: int = sim.company_stance(i)
+			t += "[color=%s]🤝 %s — %s[/color]  (rel %d)\n" % [stance_cols[s], String(sim.company_name(i)), stance_names[s], sim.company_relation(i)]
+	_emp_table.text = t
+
+
+func _faction_name(f: int) -> String:
+	match f:
+		0: return "Earth"
+		1: return "Mars"
+		2: return "Belt/OPA"
+		_: return "Independent"
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 		speed_idx = 0
@@ -1016,6 +2412,7 @@ func _notification(what: int) -> void:
 
 func _refresh() -> void:
 	_refresh_chrome()
+	_refresh_decisions()
 	match view:
 		V_SYSTEMS:
 			_refresh_systems()
@@ -1025,9 +2422,14 @@ func _refresh() -> void:
 			_refresh_build()
 		V_MARKET:
 			_refresh_market()
+		V_EMPIRE:
+			_refresh_empire()
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
-	_help.text = "[Space/1/2/3] time   [↑↓] commodity   [←→] market   [ [ / ] ] qty   [B]uy [S]ell   [Tab] target   [I]nterdict [E]xploit   [N]ew ship   [F]reighter [D]route [M]refinery   [K]/[J] contract   [H]salvage   [F5]/[F9] save·load"
+	if pc_mode:
+		_help.text = "PC ·  [Space/1/2/3] time   [F1–F4/F6] views   wheel: zoom · click: focus   [↑↓] commodity [←→] market   [B]uy [S]ell   [Tab] target [I]nterdict [E]xploit   [N]ew ship   [F5]/[F9] save·load   [F8] touch mode"
+	else:
+		_help.text = "Touch ·  [Space/1/2/3] time   pinch: zoom · tap: focus   [B]uy [S]ell   [I]nterdict [E]xploit   [F8] PC mode"
 
 
 func _refresh_chrome() -> void:
@@ -1072,7 +2474,24 @@ func _refresh_systems() -> void:
 	# Title = the focused body if it's a market, else the trade-cursor market.
 	_sys_title.text = String(sim.market_name(sel_market))
 	_sys_sub.text = "Trading Node  ·  Sol System"
-	_sys_status.text = "Status: Online   ·   %s   ·   Gate %d%%" % [sim.tier_name(), sim.gate_progress_pct()]
+	var holdings: int = sim.holding_count()
+	var cap: int = sim.admin_capacity()
+	# The expansion spine (E6): lead with the empire rank, then the holdings/cap.
+	var hold_txt := "%s · Holdings %d/%d" % [String(sim.empire_rank()), holdings, cap]
+	if sim.admin_strain() > 0:
+		# Overextended (E2): flag the strain + the income hit.
+		hold_txt = "⚠ Holdings %d/%d (strained · %d%%)" % [holdings, cap, sim.holdings_efficiency_pct()]
+	# Influence (E4): the statecraft resource for diplomatic annexation.
+	hold_txt += "   ·   Influence %d" % sim.influence()
+	# Coalition alarm (E3): warn as the great powers turn against your expansion.
+	if sim.coalition_active():
+		hold_txt += "   ·   ⚠ COALITION (alarm %d)" % sim.coalition_alarm()
+	elif sim.coalition_alarm() >= 300:
+		hold_txt += "   ·   inners wary (%d)" % sim.coalition_alarm()
+	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
+	if _defend_holdings_btn:
+		_defend_holdings_btn.visible = sim.coalition_strike_pending()
+	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%" % [sim.tier_name(), hold_txt, sim.gate_progress_pct()]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
 		c.queue_free()
@@ -1100,11 +2519,53 @@ func _refresh_systems() -> void:
 	_tg_patrol.set_pressed_no_signal(sim.patrol_enabled())
 	_tg_research.set_pressed_no_signal(sim.auto_research_enabled())
 	_tg_pause.set_pressed_no_signal(auto_pause)
-	# NOW goal + gate.
-	_sys_now.text = "%s  (%d/%d)\n%s" % [
-		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target(), sim.tier_briefing()]
-	_sys_gate_lbl.text = "RING-GATE  %d%%" % sim.gate_progress_pct()
+	# Active opening mission (§16), the NOW goal, and the gate mystery (§0.1).
+	var mt := String(sim.mission_title())
+	if mt != "":
+		_sys_mission.text = "%s  ·  %s" % [mt, String(sim.mission_hint())]
+	else:
+		_sys_mission.text = "Tutorial complete — the company is yours to run."
+	_sys_now.text = "NOW: %s (%d/%d)" % [
+		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
+	_sys_lore.text = "✦ %s" % String(sim.gate_lore())
+	if sim.gate_transited():
+		var outcome: int = sim.endgame_outcome()
+		if outcome == 1:
+			_sys_gate_lbl.text = "★ THE FAR SIDE IS YOURS  ·  the journey is won"
+		elif outcome == 2:
+			_sys_gate_lbl.text = "✝ THE BRIDGEHEAD HAS FALLEN  ·  the far side is lost"
+		elif sim.bridgehead_founded():
+			var bl: int = sim.bridgehead_level()
+			var tl: int = sim.endgame_target_level()
+			var sv: int = sim.incursions_survived()
+			var ti: int = sim.endgame_target_incursions()
+			if sim.incursion_pending():
+				var bi: int = sim.bridgehead_integrity()
+				var bm: int = sim.bridgehead_max_integrity()
+				_sys_gate_lbl.text = "⚠ INCURSION  ·  bridgehead %d/%d  ·  DEFEND" % [bi, bm]
+			else:
+				# The final goal (§17, G5): grow to the target level and hold the line.
+				_sys_gate_lbl.text = "ENDGAME  ·  bridgehead Lv%d/%d  ·  held %d/%d" % [bl, tl, sv, ti]
+		else:
+			_sys_gate_lbl.text = "BEYOND THE GATE  ·  plant the bridgehead"
+	else:
+		_sys_gate_lbl.text = "RING-GATE  %d%%   ·   mystery %d/7" % [sim.gate_progress_pct(), sim.gate_beats()]
 	_sys_gate.value = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
+	# The endgame transit verb lights up only at the open gate (§0.1/§17).
+	if _transit_btn:
+		_transit_btn.visible = sim.can_transit_gate()
+	# The far-side bridgehead verbs light up only past the ring (§17, G3): found it
+	# once, then reinforce it.
+	var beyond_now: bool = sim.gate_transited()
+	var has_bridge: bool = sim.bridgehead_founded()
+	var under_attack: bool = sim.incursion_pending()
+	if _bridge_found_btn:
+		_bridge_found_btn.visible = beyond_now and not has_bridge
+	if _bridge_upgrade_btn:
+		_bridge_upgrade_btn.visible = beyond_now and has_bridge and not under_attack
+	# The DEFEND verb (§17, G4) — only while an incursion is actually pressing.
+	if _defend_btn:
+		_defend_btn.visible = beyond_now and under_attack
 	# Feed.
 	var feed := ""
 	for a in mini(sim.alert_count(), 3):
@@ -1129,38 +2590,75 @@ func _queue_row(kind: String, desc: String) -> Control:
 
 
 func _refresh_fleet() -> void:
+	# Refit bay readout (Phase B): target ship + chosen model per kind.
+	if _refit_lbl.has("target"):
+		var fsz0 := sim.fleet_size()
+		if fsz0 > 0:
+			_refit_target = clampi(_refit_target, 0, fsz0 - 1)
+			var nm := String(sim.ship_name(_refit_target))
+			if sim.ship_refitting(_refit_target):
+				nm += " ⏳"
+			(_refit_lbl["target"] as Label).text = nm
+		else:
+			(_refit_lbl["target"] as Label).text = "—"
+		for kind in [0, 1, 2]:
+			if _refit_lbl.has(kind):
+				var mid := _refit_model_id(kind)
+				(_refit_lbl[kind] as Label).text = "—" if mid < 0 else String(sim.weapon_name(mid))
 	for c in _fleet_grid.get_children():
 		c.queue_free()
 	for h in ["SHIP", "STATUS", "TYPE", "LOCATION", "ASSIGNMENT", "FUEL/AMMO"]:
 		_fleet_grid.add_child(UiKit.label(h, 10, UiKit.ACCENT))
 	var shown := 0
 	var fsz := sim.fleet_size()
-	# Warships.
+	# Warships — real position + fuel from the sim (§6).
 	if fleet_tab != 2:   # not "single ships only"
 		for i in fsz:
-			if fleet_tab == 3 and (i % 2 == 0):   # IDLE: a deterministic subset
+			var moving := sim.ship_in_transit(i)
+			if fleet_tab == 3 and moving:   # IDLE tab: only docked ships
 				continue
-			var assign := "Patrol Sector" if sim.patrol_enabled() else "Standby"
-			var loc := String(sim.market_name(i % sim.market_count()))
-			var fuel := 0.45 + 0.5 * absf(sin(float(i) * 1.7 + 1.0))
-			_fleet_row(String(sim.ship_name(i)), true, "Warship", loc, assign,
-				fuel, UiKit.GOOD)
+			var loc := String(sim.ship_location(i))
+			var fuel := float(sim.ship_fuel_bp(i)) / 10000.0
+			var assign := "En route" if moving else ("Refuel needed" if fuel < 0.12 else "Docked")
+			var fcol: Color = UiKit.GOOD if fuel > 0.35 else (UiKit.ACCENT if fuel > 0.12 else UiKit.BAD)
+			var crew := "Capt. %s · %s" % [String(sim.ship_captain(i)), String(sim.ship_trait(i))]
+			_fleet_row(String(sim.ship_name(i)), fuel > 0.05, crew, loc, assign, fuel, fcol)
 			shown += 1
-	# Freighters.
+	# Freighters run the standing routes (§4) — positional on their lanes now (§6).
 	if fleet_tab == 0 or fleet_tab == 2 or fleet_tab == 3:
 		var fr := sim.freighters()
+		var flying := sim.freighter_count()
 		for i in fr:
-			var assign := String(sim.route_status()) if sim.route_count() > 0 else "Idle"
-			var loc := String(sim.market_name((i + 1) % sim.market_count()))
-			var fuel := 0.4 + 0.55 * absf(cos(float(i) * 2.1))
+			var en_route := i < flying
+			if fleet_tab == 3 and en_route:   # IDLE tab: only docked freighters
+				continue
+			var loc := String(sim.freighter_trip(i)) if en_route else "Ceres Yards"
+			var assign := ("In transit %d%%  ·  %d fuel" % [sim.freighter_progress(i), sim.freighter_fuel(i)]) if en_route else (
+				String(sim.route_status()) if sim.route_count() > 0 else "Idle")
 			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", loc, assign,
-				fuel, UiKit.ACCENT)
+				1.0, UiKit.GOOD if en_route else UiKit.ACCENT)
 			shown += 1
 	if shown == 0:
 		for _i in 6:
 			_fleet_grid.add_child(UiKit.label("—" if _i == 0 else "", 12, UiKit.TEXT_DIM))
-	_fleet_count.text = "%d ships  ·  flagship: %s" % [
-		fsz + sim.freighters(), String(sim.flagship_name()) if fsz > 0 else "—"]
+	var flag_capt := ""
+	if fsz > 0:
+		var fi: int = sim.flagship_index()
+		if fi >= 0:
+			flag_capt = "  ·  Capt. %s (%s)" % [String(sim.ship_captain(fi)), String(sim.ship_trait(fi))]
+	_fleet_count.text = "%d ships  ·  flagship: %s%s" % [
+		fsz + sim.freighters(), String(sim.flagship_name()) if fsz > 0 else "—", flag_capt]
+	if _corp_lbl:
+		_corp_lbl.text = String(sim.corp_name())
+		_corp_lbl.add_theme_color_override("font_color", sim.corp_livery_color())
+	if _combat_lbl:
+		var bands := ["close", "medium", "long"]
+		var tgt := "wounded" if sim.combat_target() == 1 else "biggest"
+		var rt := sim.combat_retreat()
+		var on_station: int = sim.warships_on_station()
+		var fire := "hot" if sim.combat_aggressive() else "disciplined"
+		_combat_lbl.text = "range %s · target %s · retreat %s · fire %s · %d on station" % [
+			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt), fire, on_station]
 
 
 func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: String, fuel: float, fuelcol: Color) -> void:
@@ -1173,6 +2671,43 @@ func _fleet_row(ship: String, ok: bool, type: String, loc: String, assign: Strin
 
 
 func _refresh_build() -> void:
+	# Slow turntable so the procedural hull shows off (§24).
+	if _ship_pivot:
+		_ship_pivot.rotate_y(get_process_delta_time() * 0.5)
+	_refresh_arsenal()
+	# Shipyard status (Phase B+): tier + what it can build, or the Tycho fallback.
+	if _yard_lbl:
+		var tier := sim.shipyard_tier()
+		if tier <= 0:
+			var corv := "corvettes ✓" if sim.can_buy_corvettes() else "corvettes (need OPA standing)"
+			_yard_lbl.text = "None — Tycho sells civilians + %s.\nFound a yard (60,000 cr) to build warships." % corv
+		else:
+			var ec := sim.expand_shipyard_cost()
+			var more := "  ·  expand → %s cr" % _commas(ec) if ec >= 0 else "  ·  max tier"
+			_yard_lbl.text = "Tier %d — builds up to %s%s" % [tier, String(sim.shipyard_max_hull()), more]
+	# Designer (A2): step values + live fit stats.
+	if _des_vals.has("pdc"):
+		(_des_vals["pdc"] as Label).text = "%d/%d" % [_des_pdc, shipyard.pdc_mounts(build_pick)]
+		(_des_vals["torp"] as Label).text = "%d/%d" % [_des_torp, shipyard.torpedo_mounts(build_pick)]
+		(_des_vals["rail"] as Label).text = "%d/%d" % [_des_rail, shipyard.railgun_mounts(build_pick)]
+		(_des_vals["burn"] as Label).text = "%d" % _des_burn
+	# Per-slot model picks: show the chosen model's name (or "—" if none owned).
+	for kind in [0, 1, 2]:
+		if _des_model_lbl.has(kind):
+			var mid := _des_model_id(kind)
+			(_des_model_lbl[kind] as Label).text = "—" if mid < 0 else String(sim.weapon_name(mid))
+	if _design_lbl:
+		var fit := shipyard.evaluate_fit(
+			build_pick,
+			_des_model_id(0), _des_pdc,
+			_des_model_id(1), _des_torp,
+			_des_model_id(2), _des_rail,
+			_des_burn)
+		var ok: bool = fit.get("ok", true)
+		_design_lbl.text = "Design:  alpha %d   ·   Δv %d   ·   mobility %d   ·   power %d/%d" % [
+			int(fit.get("alpha", 0)), int(fit.get("delta_v", 0)), int(fit.get("mobility", 0)),
+			int(fit.get("power_used", 0)), int(fit.get("power_cap", 0))]
+		_design_lbl.add_theme_color_override("font_color", UiKit.TEXT if ok else UiKit.BAD)
 	var nm := String(shipyard.class_name(build_pick))
 	_build_caption.text = nm
 	_build_stats.text = "railguns %d   ·   alpha %d   ·   Δv %d   ·   mobility %d" % [
@@ -1182,6 +2717,12 @@ func _refresh_build() -> void:
 	var tier := build_pick + 1
 	_build_cost.text = "Metal %s   ·   Electronics %s   ·   Crew %d   ·   ~%d days" % [
 		_commas(2000 * tier), _commas(800 * tier), 12 * tier, 6 * tier]
+	# §7d bill of materials for the assemble-from-parts path, lit green if held.
+	if _bom_lbl:
+		var have: bool = sim.can_assemble_ship(build_pick)
+		_bom_lbl.text = "Assemble from: %s%s" % [
+			String(sim.ship_bom_desc(build_pick)), "  ✓ in stock" if have else ""]
+		_bom_lbl.add_theme_color_override("font_color", UiKit.GOOD if have else UiKit.TEXT_DIM)
 	# Queue = active standing orders, presented as "projects".
 	for c in _build_queue.get_children():
 		c.queue_free()
@@ -1196,6 +2737,18 @@ func _refresh_build() -> void:
 		_build_queue.add_child(UiKit.label("Queue empty.", 11, UiKit.TEXT_DIM))
 
 
+func _visible_market_count() -> int:
+	# Far-side markets (§17) are contiguous at the end and hidden until the gate is
+	# transited; the board, ticker, and selection cycle only the visible ones.
+	if sim.far_side_revealed():
+		return sim.market_count()
+	var n := 0
+	for m in sim.market_count():
+		if not sim.market_is_far_side(m):
+			n += 1
+	return n
+
+
 func _refresh_market() -> void:
 	# Ticker grid.
 	for c in _ticker_grid.get_children():
@@ -1207,7 +2760,7 @@ func _refresh_market() -> void:
 		# Best spread = the dearest other market vs. here (the arbitrage you'd work).
 		var best := 0
 		var best_m := sel_market
-		for m in sim.market_count():
+		for m in _visible_market_count():
 			if m == sel_market:
 				continue
 			var d := sim.price(m, ci) - price
@@ -1239,7 +2792,7 @@ func _refresh_market() -> void:
 func _nearest_market(x: int, y: int) -> int:
 	var best := 0
 	var best_d := INF
-	for m in sim.market_count():
+	for m in _visible_market_count():
 		var bb := sim.market_body(m)
 		var d := Vector2(sim.body_x(bb) - x, sim.body_y(bb) - y).length()
 		if d < best_d:
@@ -1256,7 +2809,9 @@ func _pick_hauler(pos: Vector2) -> bool:
 	var best := -1
 	var best_d := 22.0
 	for hi in sim.hauler_count():
-		var d := _screen(_world3d(sim.hauler_x(hi), sim.hauler_y(hi))).distance_to(pos)
+		# Pick against the *rendered* (smoothed) marker so tap + visual agree (§28).
+		var mp: Vector3 = _hauler_pool[hi].position if hi < _hauler_pool.size() else _world3d(sim.hauler_x(hi), sim.hauler_y(hi))
+		var d := _screen(mp).distance_to(pos)
 		if d < best_d:
 			best_d = d
 			best = hi
@@ -1282,7 +2837,7 @@ func _pick_body(pos: Vector2) -> void:
 	_focus_body = best
 	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(best) == 2 else _zoom
 	var note := ""
-	for m in sim.market_count():
+	for m in _visible_market_count():
 		if sim.market_body(m) == best:
 			sel_market = m
 			note = " — trade cursor here"
@@ -1336,6 +2891,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
+	# While dilemmas are stacked, time is locked — ignore speed changes until cleared.
+	if _dilemma_lock and event.keycode in [KEY_SPACE, KEY_1, KEY_2, KEY_3]:
+		status = "Decisions pending — resolve them all to resume."
+		return
 	match event.keycode:
 		KEY_SPACE:
 			speed_idx = 0 if speed_idx != 0 else 1
@@ -1353,12 +2912,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			_select_view(V_BUILD)
 		KEY_F4:
 			_select_view(V_MARKET)
+		KEY_F6:
+			_select_view(V_EMPIRE)
+		KEY_F8:
+			_set_pc_mode(not pc_mode)
 		KEY_UP:
 			sel_comm = (sel_comm - 1 + sim.commodity_count()) % sim.commodity_count()
 		KEY_DOWN:
 			sel_comm = (sel_comm + 1) % sim.commodity_count()
 		KEY_LEFT, KEY_RIGHT:
-			sel_market = (sel_market + 1) % sim.market_count()
+			sel_market = (sel_market + 1) % _visible_market_count()
 		KEY_BRACKETLEFT:
 			trade_qty = maxi(QTY_STEP, trade_qty - QTY_STEP)
 		KEY_BRACKETRIGHT:
@@ -1401,7 +2964,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_F:
 			status = "Freighter commissioned." if sim.commission_freighter() else "Can't afford a freighter / no crew."
 		KEY_D:
-			var dest := (sel_market + 1) % sim.market_count()
+			var dest := (sel_market + 1) % _visible_market_count()
 			sim.set_trade_route(sel_comm, sel_market, dest, trade_qty, 1)
 			status = "Trade route set: %s %s→%s ×%d." % [
 				sim.commodity_name(sel_comm), sim.market_name(sel_market), sim.market_name(dest), trade_qty]
@@ -1410,33 +2973,33 @@ func _unhandled_input(event: InputEvent) -> void:
 			status = "Trade route cleared."
 		KEY_M:
 			if sim.found_refinery(sel_comm, sel_market, sel_market):
-				status = "Refinery founded: %s → refined @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
+				status = "Factory founded: %s → next tier @ %s." % [sim.commodity_name(sel_comm), sim.market_name(sel_market)]
 			else:
-				status = "Can't found refinery — pick a RAW commodity, or short on capital/slots."
+				status = "Can't found factory — pick a non-top-tier commodity, or short on capital/slots."
 		KEY_K:
 			status = "Contract accepted — deliver the goods before it lapses." if sim.accept_first_contract() else "No open contract to accept."
 		KEY_J:
 			status = "Contract delivered — paid and reputation lifted." if sim.fulfill_ready_contract() else "No contract you can fill from the warehouse."
 		KEY_L:
-			var err := sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
-			status = "Commodity data reloaded." if err == "" else "Reload failed: %s" % err
+			# Hot-reload both tuning overlays (§31): commodities + ship catalog.
+			var cerr: String = sim.reload_commodity_data(ProjectSettings.globalize_path("user://commodities.json"))
+			var serr: String = sim.reload_ship_data(ProjectSettings.globalize_path("user://ships.json"))
+			if cerr == "" and serr == "":
+				status = "Tuning data reloaded (commodities + ships)."
+			else:
+				status = "Reload failed: %s" % (cerr if cerr != "" else serr)
 		KEY_U:
 			var nxt := (sim.intensity() + 1) % 3
 			sim.set_intensity(nxt)
 			status = "Pressure intensity: %s." % INTENSITY_NAMES[nxt]
 		KEY_H:
 			status = "Wreck stripped — haul aboard." if sim.salvage_wreck() else "No derelict in range to salvage."
+		KEY_W:
+			_engage_raiders()
 		KEY_F5:
-			var serr := sim.save_game(ProjectSettings.globalize_path(SAVE_PATH))
-			status = "Game saved." if serr == "" else "Save failed: %s" % serr
+			_do_save()
 		KEY_F9:
-			var lerr := sim.load_game(ProjectSettings.globalize_path(SAVE_PATH))
-			if lerr == "":
-				speed_idx = 0
-				selected = 0
-				status = "Game loaded — paused. Press [1] to resume."
-			else:
-				status = "Load failed: %s" % lerr
+			_do_load()
 
 
 func _do_buy() -> void:
@@ -1494,6 +3057,43 @@ func _sphere(radius: float, mat: StandardMaterial3D) -> MeshInstance3D:
 	return mi
 
 
+## A small directional **hull** marker for the orrery (A5) — a long thin body that
+## points down its lane (oriented in _smooth_to), so ships read as ships, not dots.
+## Single mesh so picking/selection (material_override + scale) stay unchanged.
+func _hull_marker(mat: StandardMaterial3D) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.05, 0.04, 0.18)   # long, thin — a hull along its heading (+Z/-Z)
+	mi.mesh = bm
+	mi.material_override = mat
+	return mi
+
+
+## A tiny station glyph for a colony/holding on the orrery (A5) — a hab drum + cross
+## arms, faction-tinted. Parented to a (static) body node, so a multi-part node is fine.
+func _station_glyph(fcol: Color) -> Node3D:
+	var root := Node3D.new()
+	var mat := _emissive_mat(fcol)
+	var drum := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.02
+	cm.bottom_radius = 0.02
+	cm.height = 0.05
+	cm.radial_segments = 8
+	drum.mesh = cm
+	drum.material_override = mat
+	root.add_child(drum)
+	for ang in [0.0, 90.0]:
+		var arm := MeshInstance3D.new()
+		var b := BoxMesh.new()
+		b.size = Vector3(0.08, 0.006, 0.006)
+		arm.mesh = b
+		arm.rotation_degrees = Vector3(0, ang, 0)
+		arm.material_override = mat
+		root.add_child(arm)
+	return root
+
+
 func _ring(radius: float, col: Color) -> MeshInstance3D:
 	return _ring_mat(radius, _emissive_mat(col), 0.02)
 
@@ -1528,5 +3128,7 @@ func _body_colour_kind(b: int, kind: int) -> Color:
 			return Color(0.72, 0.66, 0.6)
 		4:
 			return Color(0.7, 0.72, 0.76)
+		6:
+			return Color(0.56, 0.44, 0.72)   # cold violet — the far side of the gate
 		_:
 			return _body_colour(b)

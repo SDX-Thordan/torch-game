@@ -15,3 +15,5 @@ godot = "0.2"
 # are already in the locked tree (transitive via gdext), so this adds no fetch.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Binary save format (§30): the shipping save is bincode; JSON stays the dev export.
+bincode = "1.3"

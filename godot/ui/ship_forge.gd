@@ -1,0 +1,563 @@
+class_name ShipForge
+extends RefCounted
+
+## Procedural Expanse-style ship generator (GDD §24/§25).
+##
+## Builds a Node3D warship from primitives following a shape grammar: a modular
+## spine of stacked box/cylinder hull sections, an aft drive cluster with a glowing
+## plume, a forward bridge, radiator fins, plating greebles, and **named weapon
+## hardpoints** that carry their own weapon models (PDC turrets / torpedo launchers /
+## railguns). Deterministic from a seed; the faction is a parameter set (Earth/Mars/
+## Belt/Independent) so a Martian hull reads differently from an Earther one.
+##
+## Pure shell art — no sim/determinism dependency. The §25 "bake to optimized mesh"
+## step is a later pass; this is the runtime-assembly realization.
+
+# Faction palettes (the §4 visual signatures): hull / accent / structural tone / band
+# style. Pulled well apart so the powers read at a glance —
+#   Earth/UNN : navy blue-grey, bold yellow-black hazard banding (the heavy navy).
+#   Mars/MCRN : sleek dark gunmetal, clean deep-red trim, minimal striping (high-tech).
+#   Belt/OPA  : scavenged ochre/rust, irregular slapped-on hazard patches (welded).
+#   Indie     : civilian light-grey + classic orange edge stripes (practical).
+const PALETTE := {
+	0: {"hull": Color(0.33, 0.44, 0.60), "accent": Color(0.55, 0.40, 0.14), "struct": Color(0.16, 0.21, 0.31), "band": "yellow", "name": "Earth"},
+	1: {"hull": Color(0.31, 0.32, 0.37), "accent": Color(0.64, 0.16, 0.13), "struct": Color(0.15, 0.15, 0.18), "band": "red", "name": "Mars"},
+	2: {"hull": Color(0.66, 0.55, 0.36), "accent": Color(0.80, 0.46, 0.14), "struct": Color(0.33, 0.27, 0.17), "band": "patch", "name": "Belt"},
+	3: {"hull": Color(0.75, 0.76, 0.79), "accent": Color(0.85, 0.49, 0.16), "struct": Color(0.30, 0.31, 0.34), "band": "edge", "name": "Indie"},
+}
+const TRIM := Color(0.11, 0.11, 0.13)
+const DARK := Color(0.06, 0.06, 0.07)
+
+# Faction hull-shape profiles (A3): each power builds to a different *grammar*, not
+# just a different palette. Earth (UNN) = boxy, wide, bilateral, institutional; Mars
+# (MCRN) = lean, narrow, angular, weapon-forward; Belt/OPA = welded, asymmetric,
+# salvaged drums + bolt-ons; Independent = modular practical (the baseline).
+const SHAPE := {
+	0: {"len": 0.92, "width": 1.24, "height": 0.80, "taper": 0.84,
+		"drums": false, "sponsons": true, "asym": 0.0, "bevel": 0.0, "boltons": false, "prow": "blunt"},
+	1: {"len": 1.30, "width": 0.74, "height": 1.05, "taper": 0.40,
+		"drums": false, "sponsons": false, "asym": 0.0, "bevel": 6.0, "boltons": false, "prow": "spear"},
+	2: {"len": 0.98, "width": 1.16, "height": 1.06, "taper": 0.90,
+		"drums": true, "sponsons": false, "asym": 0.17, "bevel": 0.0, "boltons": true, "prow": "ragged"},
+	3: {"len": 1.00, "width": 1.00, "height": 0.95, "taper": 0.66,
+		"drums": true, "sponsons": false, "asym": 0.05, "bevel": 0.0, "boltons": false, "prow": "step"},
+}
+
+
+static func _mat(col: Color, rough := 0.65, metal := 0.45) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.roughness = rough
+	m.metallic = metal
+	return m
+
+
+static func _emissive(col: Color, energy := 3.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.emission_energy_multiplier = energy
+	return m
+
+
+# A diagonal hazard-stripe material (the warning bands on the hulls). Colour varies by
+# faction — yellow for Earth's heavy navy, rust for Belt's scavenged patches.
+static func _hazard(col := Color(0.96, 0.74, 0.06)) -> StandardMaterial3D:
+	var img := Image.create(32, 32, false, Image.FORMAT_RGB8)
+	for y in 32:
+		for x in 32:
+			var band := int((x + y) / 6.0) % 2
+			img.set_pixel(x, y, col if band == 0 else Color(0.06, 0.06, 0.07))
+	var tex := ImageTexture.create_from_image(img)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = tex
+	m.roughness = 0.6
+	m.metallic = 0.2
+	return m
+
+
+static func _box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+	return mi
+
+
+# A cylinder aligned to an axis ("z" = along the ship's length, "y" = upright).
+static func _cyl(parent: Node3D, pos: Vector3, radius: float, height: float, mat: Material, axis := "z") -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = height
+	cm.radial_segments = 12
+	mi.mesh = cm
+	if axis == "z":
+		mi.rotation_degrees = Vector3(90, 0, 0)
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+	return mi
+
+
+# A thin rib ring around a drum section (the ribbed reactor/engine look).
+static func _ring(parent: Node3D, pos: Vector3, radius: float, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = 0.035
+	cm.radial_segments = 14
+	mi.mesh = cm
+	mi.rotation_degrees = Vector3(90, 0, 0)
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
+# A small sensor dome / dish atop the command tower.
+static func _dome(parent: Node3D, pos: Vector3, r: float, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = r
+	sm.height = r * 1.4
+	sm.radial_segments = 10
+	sm.rings = 5
+	mi.mesh = sm
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
+# ---- weapon models on hardpoints ------------------------------------------
+
+static func _pdc(parent: Node3D, pos: Vector3, mat: Material) -> void:
+	_box(parent, pos, Vector3(0.13, 0.05, 0.13), mat)
+	_cyl(parent, pos + Vector3(0, 0.05, 0), 0.05, 0.06, mat, "y")
+	for bx in [-0.02, 0.02]:
+		_cyl(parent, pos + Vector3(bx, 0.09, 0.07), 0.012, 0.16, _mat(DARK, 0.5, 0.7), "z")
+
+
+static func _torpedo(parent: Node3D, pos: Vector3, mat: Material) -> void:
+	_box(parent, pos, Vector3(0.2, 0.14, 0.24), mat)
+	var dark := _mat(DARK, 0.5, 0.6)
+	for ox in [-0.05, 0.05]:
+		for oy in [-0.035, 0.035]:
+			_cyl(parent, pos + Vector3(ox, oy, 0.12), 0.022, 0.05, dark, "z")
+
+
+static func _railgun(parent: Node3D, pos: Vector3, mat: Material, length: float) -> void:
+	_box(parent, pos, Vector3(0.17, 0.13, 0.34), mat)          # breech
+	_cyl(parent, pos + Vector3(0, 0.02, length * 0.5 + 0.18), 0.035, length, _mat(TRIM, 0.45, 0.7), "z")  # barrel
+
+
+# A railgun **turret** (Cruiser/Battleship) — a rotatable mount on the dorsal hull,
+# vs the Destroyer's fixed spinal gun.
+static func _railgun_turret(parent: Node3D, pos: Vector3, mat: Material, length: float) -> void:
+	var b: float = 0.15 + length * 0.08                        # turret scales with barrel length
+	_cyl(parent, pos, b, 0.07, mat, "y")                       # turret ring base
+	_box(parent, pos + Vector3(0, 0.07, 0), Vector3(b * 1.5, 0.13, b * 1.7), mat)   # turret body
+	# Twin barrels jutting forward, angled slightly up.
+	for bx in [-0.04, 0.04]:
+		var barrel := _cyl(parent, pos + Vector3(bx, 0.12, length * 0.5), 0.03, length, _mat(TRIM, 0.45, 0.7), "z")
+		barrel.rotation_degrees = Vector3(-8, 0, 0)
+
+
+# ---- civilian ships (A4) ---------------------------------------------------
+
+## A civilian hull (no weapons): kind 0 = freighter (stacked cargo containers),
+## 1 = miner (blunt hull + forward mining rig), 2 = tanker (big fuel drums). Faction
+## tints the livery. The trade backbone + prime interdiction targets (§8e).
+static func build_civilian(kind: int, faction: int, seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var root := Node3D.new()
+	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
+	var hull_mat := _mat(pal["hull"])
+	var trim_mat := _mat(TRIM, 0.8, 0.5)
+	var accent_mat := _mat(pal["accent"], 0.55, 0.4)
+	var glow := _emissive(Color(0.45, 0.72, 1.0), 4.0)
+
+	# A long thin spine all civilians share.
+	var L := 4.2
+	_box(root, Vector3(0, -0.18, 0), Vector3(0.16, 0.18, L * 0.96), trim_mat)
+
+	if kind == 2:
+		# Tanker: a row of big cylindrical fuel drums.
+		var n := 4
+		for i in n:
+			var z: float = lerpf(-L * 0.4, L * 0.34, float(i) / float(n - 1))
+			_cyl(root, Vector3(0, 0.2, z), 0.34, L / float(n) * 0.82, hull_mat, "z")
+			_box(root, Vector3(0, 0.2, z), Vector3(0.7, 0.02, 0.06), accent_mat)
+	elif kind == 1:
+		# Miner: a blunt blocky hull + a forward mining rig (frame + drill).
+		for i in 3:
+			var z2: float = lerpf(-L * 0.3, L * 0.25, float(i) / 2.0)
+			_box(root, Vector3(0, 0.1, z2), Vector3(0.66, 0.5, L / 3.2), hull_mat)
+		for sx in [-1.0, 1.0]:
+			_box(root, Vector3(sx * 0.28, 0.1, L * 0.46), Vector3(0.06, 0.06, 0.5), trim_mat)
+		_cyl(root, Vector3(0, 0.1, L * 0.62), 0.1, 0.5, _mat(Color(0.7, 0.5, 0.2), 0.5, 0.6), "z")
+	else:
+		# Freighter: a stack of mixed cargo containers on the spine.
+		var cols := [Color(0.7, 0.4, 0.2), Color(0.3, 0.5, 0.6), Color(0.6, 0.6, 0.62), Color(0.4, 0.45, 0.3)]
+		for i in 7:
+			var z3: float = lerpf(-L * 0.4, L * 0.28, float(i) / 6.0)
+			var cm: Material = _mat(cols[rng.randi() % cols.size()], 0.75, 0.2)
+			_box(root, Vector3(rng.randf_range(-0.05, 0.05), 0.18, z3), Vector3(0.5, 0.34, L / 7.4), cm)
+		# Forward bridge pod.
+		_box(root, Vector3(0, 0.36, L * 0.42), Vector3(0.34, 0.18, 0.4), hull_mat)
+
+	# Shared aft drive + plume (smaller than a warship's).
+	var az := -L * 0.5
+	_cyl(root, Vector3(0, 0.0, az), 0.16, 0.2, trim_mat, "z")
+	var cone := MeshInstance3D.new()
+	var ccm := CylinderMesh.new()
+	ccm.top_radius = 0.04
+	ccm.bottom_radius = 0.13
+	ccm.height = 0.16
+	ccm.radial_segments = 10
+	cone.mesh = ccm
+	cone.rotation_degrees = Vector3(-90, 0, 0)
+	cone.position = Vector3(0, 0, az - 0.14)
+	cone.material_override = glow
+	root.add_child(cone)
+	return root
+
+
+# ---- stations (A4) ---------------------------------------------------------
+
+## A modular station: a central spine of hab/industrial drums, radial solar-panel
+## wings, docking arms, and a slow spin. `tier` 0..2 scales it; faction tints it.
+static func build_station(faction: int, tier: int, seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var root := Node3D.new()
+	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
+	var hull_mat := _mat(pal["hull"])
+	var trim_mat := _mat(TRIM, 0.8, 0.5)
+	var accent_mat := _mat(pal["accent"], 0.55, 0.4)
+	var solar_mat := _mat(Color(0.10, 0.12, 0.28), 0.3, 0.7)
+
+	# Central stack of habitat drums (the core), upright along Y.
+	var drums := 2 + tier
+	for i in drums:
+		var y: float = (float(i) - float(drums - 1) * 0.5) * 0.6
+		var r: float = 0.5 + 0.12 * sin(float(i))
+		_cyl(root, Vector3(0, y, 0), r, 0.5, hull_mat if i % 2 == 0 else trim_mat, "y")
+		_cyl(root, Vector3(0, y, 0), r + 0.01, 0.06, accent_mat, "y")    # banding
+	# Radial docking arms + solar wings around the core.
+	var arms := 4 + tier
+	for a in arms:
+		var ang: float = TAU * float(a) / float(arms)
+		var dir := Vector3(cos(ang), 0, sin(ang))
+		var arm := _box(root, dir * 0.95, Vector3(1.0, 0.08, 0.08), trim_mat)
+		arm.look_at_from_position(dir * 0.95, Vector3.ZERO, Vector3.UP)
+		# A solar/radiator panel at the end of every other arm.
+		if a % 2 == 0:
+			var panel := _box(root, dir * 1.6, Vector3(0.9, 0.02, 0.5), solar_mat)
+			panel.look_at_from_position(dir * 1.6, Vector3.ZERO, Vector3.UP)
+		else:
+			# A docking pod.
+			_box(root, dir * 1.45, Vector3(0.26, 0.26, 0.26), hull_mat)
+	# A beacon light.
+	var beacon := OmniLight3D.new()
+	beacon.light_color = pal["accent"]
+	beacon.light_energy = 1.5
+	beacon.omni_range = 6.0
+	root.add_child(beacon)
+	return root
+
+
+# ---- the warship forge -----------------------------------------------------
+
+## Build a ship Node3D. class_idx 0..3 = Frigate..Battleship; faction 0..3; the
+## mount counts come from the sim's hull (TorchShipyard); seed makes it deterministic.
+static func build(class_idx: int, faction: int, pdc: int, torpedo: int, railgun: int, seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var root := Node3D.new()
+
+	var pal: Dictionary = PALETTE.get(faction, PALETTE[3])
+	var hull_col: Color = pal["hull"]
+	var accent_col: Color = pal["accent"]
+	var struct_col: Color = pal["struct"]
+	var band_mode: String = pal["band"]
+	# Weathered military-industrial materials: faction-tinted plating over a darker
+	# structural tone, faction-styled warning bands, dark recesses.
+	var hull_mat := _mat(hull_col, 0.7, 0.35)
+	var plate_mat := _mat(hull_col.lerp(struct_col, 0.4), 0.78, 0.4)
+	var struct_mat := _mat(struct_col, 0.8, 0.45)
+	var accent_mat := _mat(accent_col, 0.6, 0.4)
+	var trim_mat := _mat(TRIM, 0.8, 0.5)
+	var panel_mat := _mat(DARK, 0.6, 0.6)
+	var dome_mat := _emissive(Color(0.25, 0.55, 0.7), 0.6)
+	# The band material: Earth bold yellow hazard, Belt rust hazard, Mars/Indie a solid
+	# accent line (clean, not hazard-striped).
+	var band_mat: Material = accent_mat
+	if band_mode == "yellow":
+		band_mat = _hazard()
+	elif band_mode == "patch":
+		band_mat = _hazard(Color(0.80, 0.46, 0.10))
+	var glow := _emissive(Color(0.45, 0.72, 1.0), 4.0)
+
+	# Class envelope: bigger ships are longer, with more modular sections. Expanse
+	# hulls are **tower-like** (built around thrust gravity) — slim for their length,
+	# the engine the wide base, the bow the narrow top.
+	var t: float = float(class_idx) / 3.0
+	var sp: Dictionary = SHAPE.get(faction, SHAPE[3])
+	# Wide size spread so class reads at a glance (Corvette patrol boat → Battleship
+	# slab), then the faction profile reshapes the proportions & grammar.
+	var total_len: float = lerpf(2.8, 7.6, t) * float(sp["len"])
+	var width: float = lerpf(0.44, 1.30, t) * float(sp["width"])
+	var height_mul: float = float(sp["height"])
+	var taper: float = float(sp["taper"])
+	var asym: float = float(sp["asym"])
+	var bevel: float = float(sp["bevel"])
+	var use_drums: bool = sp["drums"]
+	var use_sponsons: bool = sp["sponsons"]
+	var use_boltons: bool = sp["boltons"]
+	var prow_kind: String = sp["prow"]
+	var sections: int = 4 + class_idx                 # 4 (corvette) .. 7 (battleship)
+
+	# Lower keel hull (the wide armored base the modules ride on).
+	_box(root, Vector3(0, -width * 0.22, 0), Vector3(width * 0.62, width * 0.34, total_len * 0.9), struct_mat)
+
+	# Stacked hull modules from aft (-Z) to fore (+Z), reshaped by the faction grammar.
+	var seg: float = total_len / float(sections)
+	var z: float = -total_len * 0.5 + seg * 0.55
+	var top_y: Array[float] = []
+	var seg_z: Array[float] = []
+	for i in sections:
+		var frac: float = float(i) / float(sections - 1)        # 0 aft .. 1 fore
+		var w: float = width * lerpf(1.0, taper, frac) * rng.randf_range(0.94, 1.04)
+		var h: float = width * height_mul * lerpf(0.92, 0.58, frac) * rng.randf_range(0.95, 1.04)
+		# Belt welds its sections on off-centre — an asymmetric, salvaged spine.
+		var ox: float = rng.randf_range(-asym, asym) * width if asym > 0.0 else 0.0
+		var is_drum: bool = use_drums and (i % 3 == 1) and frac < 0.7   # ribbed reactor drums
+		if is_drum:
+			var dr: float = maxf(w, h) * 0.52
+			_cyl(root, Vector3(ox, 0, z), dr, seg * 0.92, hull_mat, "z")
+			for k in 3:                                          # rib rings
+				_ring(root, Vector3(ox, 0, z + lerpf(-seg * 0.3, seg * 0.3, float(k) / 2.0)), dr + 0.01, trim_mat)
+		else:
+			var body := _box(root, Vector3(ox, -h * 0.08, z), Vector3(w, h * 0.7, seg * 0.94), hull_mat)
+			var deck := _box(root, Vector3(ox, h * 0.4, z), Vector3(w * 0.74, h * 0.36, seg * 0.78), plate_mat)
+			# Mars facets its decks — a slight roll gives the angular, hard-edged look.
+			if bevel > 0.0:
+				var br: float = rng.randf_range(-bevel, bevel)
+				body.rotation_degrees = Vector3(0, 0, br)
+				deck.rotation_degrees = Vector3(0, 0, br * 1.4)
+		# Earth bolts symmetric sponson pods on the flanks (bilateral, institutional).
+		if use_sponsons and frac < 0.78 and i % 2 == 1:
+			for sxp in [-1.0, 1.0]:
+				_box(root, Vector3(sxp * (w * 0.5 + 0.07), -h * 0.04, z), Vector3(0.16, h * 0.52, seg * 0.72), plate_mat)
+		# Belt hangs a salvaged tank/module off one flank, tied on by a strut.
+		if use_boltons and i % 2 == 0:
+			var bx: float = (1.0 if rng.randf() > 0.5 else -1.0) * (w * 0.5 + 0.12)
+			_cyl(root, Vector3(bx + ox, h * 0.12, z), maxf(w, h) * 0.24, seg * 0.66, trim_mat, "z")
+			_box(root, Vector3((bx + ox) * 0.55, h * 0.12, z), Vector3(0.2, 0.035, 0.035), panel_mat)
+		# Flank accent stripes down each side.
+		for sx in [-1.0, 1.0]:
+			_box(root, Vector3(ox + sx * w * 0.5, 0, z), Vector3(0.025, h * 0.5, seg * 0.66), accent_mat)
+		if not is_drum:
+			# Warning band, faction-styled.
+			match band_mode:
+				"yellow":     # Earth — a bold hazard band wrapping the whole section girth
+					_box(root, Vector3(ox, 0, z - seg * 0.18), Vector3(w * 1.04, h * 1.04, seg * 0.16), band_mat)
+				"red":        # Mars — a single thin clean red trim line along the deck shoulder
+					_box(root, Vector3(ox, h * 0.5, z), Vector3(w * 1.02, h * 0.07, seg * 0.7), band_mat)
+				"patch":      # Belt — an irregular hazard patch slapped onto one flank
+					var ps: float = (1.0 if rng.randf() > 0.5 else -1.0) * w * 0.32
+					_box(root, Vector3(ox + ps, h * 0.28, z), Vector3(w * 0.36, h * 0.42, seg * 0.34), band_mat)
+				_:            # Independent — a modest orange stripe along the deck edge
+					_box(root, Vector3(ox, h * 0.57, z), Vector3(w * 0.55, 0.022, seg * 0.4), band_mat)
+			# Stepped tier lip: a thin overhang at the fore edge so the hull reads as
+			# stacked tiers (broad base → narrow prow), not a smooth taper.
+			if i < sections - 1:
+				_box(root, Vector3(ox, h * 0.04, z + seg * 0.48), Vector3(w * 1.08, h * 0.96, seg * 0.1), plate_mat)
+		# Plating greebles (panel detail) on the decks and flanks.
+		for _g in range(3 + class_idx):
+			var gx: float = ox + rng.randf_range(-w * 0.46, w * 0.46)
+			var gy: float = (h * 0.58) * (1.0 if rng.randf() > 0.45 else -0.5)
+			var gz: float = z + rng.randf_range(-seg * 0.38, seg * 0.38)
+			var gs: float = rng.randf_range(0.035, 0.09)
+			_box(root, Vector3(gx, gy, gz), Vector3(gs, 0.018, gs * 1.5), panel_mat if rng.randf() > 0.5 else trim_mat)
+		top_y.append(h * 0.58)
+		seg_z.append(z)
+		z += seg
+
+	# Prow varies by faction grammar (boxy / spear / ragged / stepped).
+	var fz: float = seg_z[sections - 1]
+	match prow_kind:
+		"blunt":      # Earth — a wide, squared-off institutional nose
+			_box(root, Vector3(0, -width * 0.02, fz + seg * 0.5), Vector3(width * 0.52, width * 0.42, seg * 0.55), hull_mat)
+			_box(root, Vector3(0, width * 0.12, fz + seg * 0.5), Vector3(width * 0.36, width * 0.2, seg * 0.42), plate_mat)
+		"spear":      # Mars — a long pointed weapon prow + a forward chin lance
+			_box(root, Vector3(0, -width * 0.05, fz + seg * 0.55), Vector3(width * 0.3, width * 0.26, seg * 0.6), hull_mat)
+			_box(root, Vector3(0, -width * 0.08, fz + seg * 0.98), Vector3(width * 0.14, width * 0.14, seg * 0.62), plate_mat)
+			_cyl(root, Vector3(0, -width * 0.06, fz + seg * 1.45), 0.022, seg * 0.95, trim_mat, "z")
+		"ragged":     # Belt — an irregular, off-centre welded cap
+			var rx: float = (1.0 if rng.randf() > 0.5 else -1.0) * width * 0.09
+			_box(root, Vector3(rx, 0, fz + seg * 0.5), Vector3(width * 0.36, width * 0.32, seg * 0.5), hull_mat)
+			_cyl(root, Vector3(0, 0, fz + seg * 0.86), maxf(width * 0.13, 0.06), seg * 0.42, trim_mat, "z")
+		_:            # Independent — the stepped taper baseline
+			_box(root, Vector3(0, -width * 0.04, fz + seg * 0.55), Vector3(width * 0.34, width * 0.28, seg * 0.5), hull_mat)
+			_box(root, Vector3(0, -width * 0.02, fz + seg * 0.86), Vector3(width * 0.16, width * 0.16, seg * 0.34), plate_mat)
+	# Shared forward sensor mast + tip.
+	_cyl(root, Vector3(0, 0, fz + seg * 1.15), 0.012, seg * 0.6, trim_mat, "z")
+	_dome(root, Vector3(0, 0, fz + seg * 1.42), 0.03, dome_mat)
+
+	# Command tower: a tall, stepped superstructure (the reference's prominent bridge
+	# stack) — three tiers narrowing upward with a hazard band + sensor domes + a dish.
+	var tz: float = lerpf(seg_z[0], fz, 0.58)
+	var ty: float = width * 0.5
+	_box(root, Vector3(0, ty, tz), Vector3(width * 0.44, width * 0.32, seg * 1.0), plate_mat)            # base tier
+	_box(root, Vector3(0, ty + width * 0.04, tz + seg * 0.22), Vector3(width * 0.46, width * 0.1, seg * 0.12), band_mat)  # banded front
+	_box(root, Vector3(0, ty + width * 0.26, tz - seg * 0.06), Vector3(width * 0.3, width * 0.22, seg * 0.62), hull_mat)  # mid tier
+	_box(root, Vector3(0, ty + width * 0.46, tz - seg * 0.1), Vector3(width * 0.18, width * 0.16, seg * 0.34), plate_mat)  # top tier
+	_dome(root, Vector3(width * 0.06, ty + width * 0.58, tz - seg * 0.1), 0.04, dome_mat)
+	_dome(root, Vector3(-width * 0.06, ty + width * 0.56, tz), 0.03, dome_mat)
+	var dish := MeshInstance3D.new()                                              # radar dish
+	var dm := CylinderMesh.new()
+	dm.top_radius = width * 0.12
+	dm.bottom_radius = width * 0.12
+	dm.height = 0.02
+	dm.radial_segments = 12
+	dish.mesh = dm
+	dish.rotation_degrees = Vector3(60, 0, 0)
+	dish.position = Vector3(0, ty + width * 0.6, tz - seg * 0.12)
+	dish.material_override = plate_mat
+	root.add_child(dish)
+
+	# Fat aft engine block (the wide "base" of the tower): a ribbed drum + the drive
+	# cluster. Epstein-drive count by class — Corvette/Destroyer 1, Cruiser/Battleship 4
+	# (a 2×2 cluster, like the Pella/Donnager).
+	var az: float = -total_len * 0.5
+	var eb: float = width * 0.66
+	_cyl(root, Vector3(0, 0, az + 0.02), eb, 0.34, trim_mat, "z")
+	for k in 3:
+		_ring(root, Vector3(0, 0, az + lerpf(-0.12, 0.12, float(k) / 2.0)), eb + 0.012, panel_mat)
+	var bell_pos: Array = []
+	var s: float = width * 0.42
+	var bsize: float = width * 0.34
+	if class_idx >= 2:                                   # Cruiser/Battleship: 4 drives (2×2)
+		bell_pos = [Vector2(-s, -s), Vector2(s, -s), Vector2(-s, s), Vector2(s, s)]
+		bsize = width * 0.2
+	else:                                                # Corvette/Destroyer: 1 big central drive
+		bell_pos = [Vector2(0, 0)]
+	for bp in bell_pos:
+		_cyl(root, Vector3(bp.x, bp.y, az - 0.16), bsize, 0.22, panel_mat, "z")
+		var cone := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = bsize * 0.25
+		cm.bottom_radius = bsize * 1.05
+		cm.height = 0.26
+		cm.radial_segments = 12
+		cone.mesh = cm
+		cone.rotation_degrees = Vector3(-90, 0, 0)
+		cone.position = Vector3(bp.x, bp.y, az - 0.34)
+		cone.material_override = glow
+		root.add_child(cone)
+	var plume := OmniLight3D.new()
+	plume.position = Vector3(0, 0, az - 0.32)
+	plume.light_color = Color(0.5, 0.75, 1.0)
+	plume.light_energy = 2.4
+	plume.omni_range = total_len
+	root.add_child(plume)
+
+	# Radiator fins (thin angled panels mid-hull).
+	for sx in [-1.0, 1.0]:
+		var fin := _box(root, Vector3(sx * width * 0.62, 0.0, -total_len * 0.1), Vector3(0.02, width * 0.5, total_len * 0.26), _mat(Color(0.18, 0.18, 0.22), 0.4, 0.7))
+		fin.rotation_degrees = Vector3(0, 0, sx * 16.0)
+
+	# ---- weapon hardpoints (weapons are their own models on sockets) ----
+	for p in pdc:                                       # PDC turrets ring the upper deck
+		var si: int = clampi((p * sections) / maxi(pdc, 1), 0, sections - 1)
+		var side: float = -1.0 if p % 2 == 0 else 1.0
+		_pdc(root, Vector3(side * width * 0.24, top_y[si] + 0.03, seg_z[si] + rng.randf_range(-0.1, 0.1)), hull_mat)
+	for tp in torpedo:                                  # torpedo launchers forward
+		var side2: float = -1.0 if tp % 2 == 0 else 1.0
+		var fwd: float = seg_z[sections - 1] - 0.1 - float(tp / 2) * 0.18
+		_torpedo(root, Vector3(side2 * width * 0.22, top_y[sections - 1] * 0.2, fwd), accent_mat)
+	# Railguns by class (the Expanse-ship mapping, §8b): a Destroyer mounts a single
+	# **fixed/spinal** gun jutting far forward (like the MCRN heavy frigate); a Cruiser
+	# (Pella) and Battleship (Donnager) mount railgun **turrets** on the dorsal hull.
+	if class_idx == 1 and railgun > 0:
+		# Destroyer: a long fixed spinal gun jutting well past the prow (the silhouette tell).
+		_railgun(root, Vector3(0, -width * 0.02, fz + seg * 1.0), hull_mat, 2.2)
+	elif railgun > 0:
+		for rg in railgun:
+			# Space turrets along the dorsal spine (fore for one, fore+aft for two).
+			var ti: int = clampi(int(round(lerpf(float(sections) * 0.45, float(sections) * 0.8, float(rg) / maxf(float(railgun - 1), 1.0)))), 1, sections - 1)
+			_railgun_turret(root, Vector3(0, top_y[ti] + 0.06, seg_z[ti]), hull_mat, lerpf(1.0, 1.25, t))
+
+	return root
+
+
+# ---- A6: bake to an optimized single mesh (§25) ----------------------------
+
+## Build a ship and **bake** it: collapse its ~80 primitive MeshInstance3D children
+## into one ArrayMesh with a single surface per material (so a hull is 1 node / ~9
+## draw calls instead of ~80). Returns a Node3D holding the baked mesh + the drive
+## light. Use this for fleets (the §22 diorama, future orrery hulls); `build()` keeps
+## the editable node tree for the BUILD bench.
+static func build_baked(class_idx: int, faction: int, pdc: int, torpedo: int, railgun: int, seed: int) -> Node3D:
+	var src := build(class_idx, faction, pdc, torpedo, railgun, seed)
+	var baked := bake(src)
+	src.free()              # discard the unbaked tree (geometry already copied)
+	return baked
+
+
+## Merge every MeshInstance3D under `src` into one ArrayMesh (one surface per unique
+## material), preserving any Light3D nodes. Pure geometry merge — no atlas yet.
+static func bake(src: Node3D, keep_lights := true) -> Node3D:
+	var by_mat: Dictionary = {}     # material (or "∅") -> SurfaceTool
+	_collect_geo(src, Transform3D.IDENTITY, by_mat)
+	var am := ArrayMesh.new()
+	for key in by_mat:
+		am = (by_mat[key] as SurfaceTool).commit(am)
+	var out := Node3D.new()
+	var mi := MeshInstance3D.new()
+	mi.mesh = am
+	out.add_child(mi)
+	if keep_lights:
+		_collect_lights(src, Transform3D.IDENTITY, out)
+	return out
+
+
+static func _collect_geo(node: Node, xform: Transform3D, by_mat: Dictionary) -> void:
+	for child in node.get_children():
+		if not (child is Node3D):
+			continue
+		var ct: Transform3D = xform * (child as Node3D).transform
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh != null:
+			var mi := child as MeshInstance3D
+			var mat: Material = mi.material_override
+			var key: Variant = mat if mat != null else "∅"
+			var st: SurfaceTool = by_mat.get(key)
+			if st == null:
+				st = SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				if mat != null:
+					st.set_material(mat)
+				by_mat[key] = st
+			for s in mi.mesh.get_surface_count():
+				st.append_from(mi.mesh, s, ct)
+		_collect_geo(child, ct, by_mat)
+
+
+static func _collect_lights(node: Node, xform: Transform3D, into: Node3D) -> void:
+	for child in node.get_children():
+		if not (child is Node3D):
+			continue
+		var ct: Transform3D = xform * (child as Node3D).transform
+		if child is Light3D:
+			var l := child.duplicate() as Light3D
+			l.transform = ct
+			into.add_child(l)
+		_collect_lights(child, ct, into)

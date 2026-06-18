@@ -278,13 +278,33 @@ pub fn default_commodities() -> Vec<CommodityDef> {
             demand_jitter,
         }
     }
+    // The production chain is a 3-line × 4-tier grid (§7d): each commodity refines
+    // into the one **+3 indices** along (the next tier in its line), so the order is
+    // tier-major. Three lines — water/organics, metals, volatiles/energy — each
+    // climbing Raw → Refined → Components → Assembled, value rising ~3–4× per tier
+    // while stock volume halves (finished goods are dearer and scarcer).
     vec![
+        // ---- Tier 0: Raw (mined) ----
         c("Ice", 20, 8, 60, 1200, 2400, 35),
         c("Ore", 30, 12, 90, 1000, 2000, 30),
         c("Volatiles", 45, 18, 140, 800, 1600, 22),
+        // ---- Tier 1: Refined (primary processing) ----
         c("Remass", 70, 28, 210, 700, 1400, 18),
         c("Metals", 110, 44, 330, 600, 1200, 14),
         c("ReactorFuel", 180, 72, 540, 400, 800, 9),
+        // ---- Tier 2: Components (manufactured parts) ----
+        // Finished goods carry *no demand jitter* (jitter 0): they're made-to-order
+        // capital goods with administered prices, not volatile spot commodities — so
+        // they sit stable at anchor and aren't an instant-arbitrage faucet (their high
+        // absolute prices would otherwise turn tiny jitter into huge spreads). This
+        // also keeps the lower-tier RNG stream byte-identical (jitter 0 draws no RNG).
+        c("Composites", 240, 96, 720, 350, 700, 0),
+        c("Alloys", 380, 152, 1140, 300, 600, 0),
+        c("Circuitry", 620, 248, 1860, 200, 400, 0),
+        // ---- Tier 3: Assembled (finished goods) ----
+        c("Habitats", 820, 328, 2460, 175, 350, 0),
+        c("Machinery", 1300, 520, 3900, 150, 300, 0),
+        c("Drives", 2100, 840, 6300, 100, 200, 0),
     ]
 }
 
@@ -367,10 +387,19 @@ pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
     // ~(base+ceiling)/2 (deficit). Both stay well within [floor, ceiling].
     let glut = |d: &CommodityDef| (d.target_stock + d.max_stock) / 2;
     let scarce = |d: &CommodityDef| d.target_stock / 2;
+    // The designed producer/consumer spread (Belt-cheap-raw ↔ inner-cheap-refined)
+    // applies only to the **lower two tiers** (raw + refined). Components and
+    // assembled goods (tiers 2–3) sit at their anchor everywhere: finished goods are
+    // *produced* by the player up the §7d chain, not arbitraged by ambient haulers —
+    // so the deeper chain adds production depth without a giant NPC-speculation faucet.
+    let traded_tiers = 2 * RAW.len(); // commodities below this index carry a spread
     let setpoints = |raw_cheap: bool, defs: &[CommodityDef]| -> Vec<i64> {
         defs.iter()
             .enumerate()
             .map(|(i, d)| {
+                if i >= traded_tiers {
+                    return d.target_stock; // tiers 2–3: anchor price, no NPC spread
+                }
                 let cheap = RAW.contains(&i) == raw_cheap;
                 if cheap {
                     glut(d)
@@ -400,7 +429,20 @@ pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
     let bodies = super::orbit::default_system();
     for c in super::frontier::market_colonies() {
         let name = bodies[c.body].name;
-        let frontier: Vec<i64> = defs.iter().map(|d| d.target_stock * 7 / 10).collect();
+        // Frontier hubs sit a notch into scarcity on the *traded* tiers (a moderate
+        // long-haul draw), but at anchor on finished goods (tiers 2–3) — same reason
+        // as the inner markets: those are produced, not arbitraged.
+        let frontier: Vec<i64> = defs
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                if i >= traded_tiers {
+                    d.target_stock
+                } else {
+                    d.target_stock * 7 / 10
+                }
+            })
+            .collect();
         markets.push(Market::with_setpoints(
             name,
             c.body,
@@ -410,6 +452,40 @@ pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
         ));
     }
     markets
+}
+
+/// The **far-side** markets (§17 endgame) — built separately from the inner economy
+/// and appended after it by `Sim::new`, then stepped with a *dedicated* RNG, so the
+/// pre-transit economy is byte-identical (§7c gate + QA untouched). They sit **deep
+/// in scarcity** (everything dear, isolated from Sol's supply) — the frontier where
+/// goods are worth a fortune and nothing arrives unless you bring it.
+pub fn far_side_markets(defs: Vec<CommodityDef>) -> Vec<Market> {
+    let bodies = super::orbit::default_system();
+    // Deep scarcity on the traded tiers (quarter-stock ⇒ near-ceiling prices);
+    // finished goods at anchor (administered, like everywhere else).
+    let scarce_far: Vec<i64> = defs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            if i >= 2 * RAW.len() {
+                d.target_stock
+            } else {
+                d.target_stock / 4
+            }
+        })
+        .collect();
+    super::frontier::far_side_market_colonies()
+        .into_iter()
+        .map(|c| {
+            Market::with_setpoints(
+                bodies[c.body].name,
+                c.body,
+                c.faction,
+                defs.clone(),
+                scarce_far.clone(),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

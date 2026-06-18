@@ -42,7 +42,8 @@ impl Faction {
         }
     }
 
-    fn index(self) -> usize {
+    /// Index into a per-faction array, in [`Faction::ALL`] order.
+    pub fn index(self) -> usize {
         match self {
             Faction::Earth => 0,
             Faction::Mars => 1,
@@ -66,6 +67,13 @@ pub enum RepTier {
 const INTERDICT_PENALTY: i64 = 50;
 /// …and how much it pleases their rival.
 const RIVAL_BONUS: i64 = 20;
+/// How much taking a frontier asset alarms each inner power (Earth & Mars distrust
+/// a rising outer corporation, §4 cold war) — the political cost of expansion.
+const EXPAND_INNER_ALARM: i64 = 40;
+/// …and how much it pleases the Belt, your home power (Belter ground gained).
+const EXPAND_HOME_APPROVAL: i64 = 25;
+/// How far seizing a faction's colony by force enrages the owner (E5) — open war.
+const SEIZE_PENALTY: i64 = 200;
 /// Standing is clamped to this magnitude.
 const STANDING_CAP: i64 = 1_000;
 
@@ -113,6 +121,35 @@ impl Relations {
     pub fn on_player_interdict(&mut self, victim: Faction) {
         self.adjust(victim, -INTERDICT_PENALTY);
         if let Some(rival) = victim.rival() {
+            self.adjust(rival, RIVAL_BONUS);
+        }
+    }
+
+    /// The player took control of a frontier asset (the empire layer): the inner
+    /// powers (Earth & Mars) grow wary of a rising outer corporation, while the Belt
+    /// — your home — is pleased to see Belter ground gained. This is the political
+    /// cost that keeps expansion from being free (be careful not to overextend).
+    pub fn on_player_expand(&mut self) {
+        self.adjust(Faction::Earth, -EXPAND_INNER_ALARM);
+        self.adjust(Faction::Mars, -EXPAND_INNER_ALARM);
+        self.adjust(Faction::Belt, EXPAND_HOME_APPROVAL);
+    }
+
+    /// The player **diplomatically annexed** a colony (the empire layer, E4): a
+    /// peaceful merger costs the inners *less* goodwill than a hostile buyout — the
+    /// reward for the patient, reputation-built path.
+    pub fn on_player_annex(&mut self) {
+        self.adjust(Faction::Earth, -EXPAND_INNER_ALARM / 2);
+        self.adjust(Faction::Mars, -EXPAND_INNER_ALARM / 2);
+        self.adjust(Faction::Belt, EXPAND_HOME_APPROVAL);
+    }
+
+    /// The player **seized** a colony by force (the empire layer, E5): open
+    /// aggression. The asset's `owner` faction is enraged and its rival quietly
+    /// pleased — the harshest political price of the three acquisition paths.
+    pub fn on_player_seize(&mut self, owner: Faction) {
+        self.adjust(owner, -SEIZE_PENALTY);
+        if let Some(rival) = owner.rival() {
             self.adjust(rival, RIVAL_BONUS);
         }
     }
@@ -171,6 +208,20 @@ mod tests {
         assert_eq!(r.standing(Faction::Earth), -INTERDICT_PENALTY);
         assert_eq!(r.standing(Faction::Mars), RIVAL_BONUS); // Earth's rival approves
         assert_eq!(r.standing(Faction::Belt), 0); // bystander unmoved
+    }
+
+    #[test]
+    fn expanding_alarms_the_inners_and_pleases_the_home_belt() {
+        let mut r = Relations::new();
+        r.on_player_expand();
+        assert!(r.standing(Faction::Earth) < 0, "Earth grows wary");
+        assert!(r.standing(Faction::Mars) < 0, "Mars grows wary");
+        assert!(r.standing(Faction::Belt) > 0, "the Belt approves");
+        // Keep expanding and the inners harden toward hostility — overextension bites.
+        for _ in 0..20 {
+            r.on_player_expand();
+        }
+        assert_eq!(r.tier(Faction::Earth), RepTier::Hostile);
     }
 
     #[test]

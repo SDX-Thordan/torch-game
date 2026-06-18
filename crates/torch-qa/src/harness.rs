@@ -32,6 +32,12 @@ pub struct Sample {
     pub act_now_open: usize,
     /// Standings in [`Faction::ALL`] order: Earth, Mars, Belt, Independents.
     pub standings: [i64; 4],
+    /// Holdings the player controls — stations + colonies (the empire layer, E6).
+    pub holdings: usize,
+    /// The great powers' alarm at the player's expansion, 0..=1000 (E3/E6).
+    pub coalition_alarm: i64,
+    /// The tallest holding's development level (Phase C, the *tall* axis).
+    pub peak_dev: i64,
 }
 
 impl Sample {
@@ -66,6 +72,9 @@ impl Sample {
             surfaced_alerts: surfaced.len(),
             act_now_open,
             standings,
+            holdings: sim.holding_count(),
+            coalition_alarm: sim.coalition_alarm(),
+            peak_dev: sim.peak_dev(),
         }
     }
 }
@@ -119,6 +128,11 @@ pub struct Transcript {
     pub wrecks_salvaged: u64,
     /// Player ships lost across all engagements (the felt cost of combat, §13).
     pub battle_losses: u64,
+    /// Pirate raids on the player's trade empire (EP3) — fires when escorts fall short.
+    pub empire_raids: u64,
+    /// Faction customs inspections of the player's shipping (EP4) — fires while a
+    /// great power is soured and you hold assets.
+    pub inspections: u64,
     /// Distinct event *kinds* the run produced — a breadth-of-systems proxy.
     pub distinct_event_kinds: u32,
     /// Highest pressure gauge reached at any sample (§13 tension peak, 0..=100).
@@ -160,6 +174,8 @@ impl Transcript {
             wrecks_sighted: 0,
             wrecks_salvaged: 0,
             battle_losses: 0,
+            empire_raids: 0,
+            inspections: 0,
             distinct_event_kinds: 0,
             peak_pressure: 0,
             battles_won: 0,
@@ -317,6 +333,24 @@ pub fn run(seed: u64, ticks: u64, sample_every: u64, mut strat: Box<dyn Strategy
                 Event::ThreatForecast { .. } => t.forecasts += 1,
                 Event::WreckSighted { .. } => t.wrecks_sighted += 1,
                 Event::WreckSalvaged { .. } => t.wrecks_salvaged += 1,
+                // The endgame transit + bridgehead + incursion beats (§17) — personas
+                // don't reach them, so just fold them into the ascent tally.
+                Event::GateTransited
+                | Event::BridgeheadFounded
+                | Event::BridgeheadUpgraded { .. }
+                | Event::IncursionStruck { .. }
+                | Event::BridgeheadDamaged { .. }
+                | Event::BridgeheadFell
+                | Event::EndgameWon
+                | Event::EndgameLost
+                | Event::ColonyAcquired { .. }
+                | Event::CoalitionStrike { .. }
+                | Event::HoldingLost { .. } => t.tier_ascended_events += 1,
+                // Piracy on the empire (EP3) — counted via its own telemetry, not the
+                // NPC-hauler interdiction tally (kept distinct).
+                Event::EmpireRaided { .. } => t.empire_raids += 1,
+                // Faction inspections (EP4) — political enforcement telemetry.
+                Event::Inspected { .. } => t.inspections += 1,
                 Event::Tick { .. } => {}
             }
         }
@@ -357,6 +391,24 @@ fn event_kind_bit(e: &Event) -> u32 {
         Event::ThreatForecast { .. } => 1 << 6,
         Event::WreckSighted { .. } => 1 << 7,
         Event::WreckSalvaged { .. } => 1 << 8,
+        // The endgame transit + bridgehead + incursion beats are the supreme ascents —
+        // fold them into the ascent bit so the variety denominator is unchanged (no
+        // persona reaches them anyway).
+        Event::GateTransited
+        | Event::BridgeheadFounded
+        | Event::BridgeheadUpgraded { .. }
+        | Event::IncursionStruck { .. }
+        | Event::BridgeheadDamaged { .. }
+        | Event::BridgeheadFell
+        | Event::EndgameWon
+        | Event::EndgameLost
+        | Event::ColonyAcquired { .. }
+        | Event::CoalitionStrike { .. }
+        | Event::HoldingLost { .. } => 1 << 4,
+        // Piracy on the empire (EP3) — folds into the piracy/interdiction bit.
+        Event::EmpireRaided { .. } => 1 << 2,
+        // Faction inspections (EP4) — political; folds into the interdiction bit too.
+        Event::Inspected { .. } => 1 << 2,
     }
 }
 

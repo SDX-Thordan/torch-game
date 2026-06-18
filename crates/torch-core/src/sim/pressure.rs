@@ -37,8 +37,28 @@ const LEVEL_DECAY: i32 = 1;
 const RAID_GAIN: i32 = 30;
 const SCARCITY_GAIN: i32 = 20;
 const WAR_GAIN: i32 = 25;
+const INCURSION_GAIN: i32 = 35;
 /// Basis-point denominator for intensity scaling.
 const BP: i32 = 10_000;
+
+// ---- the far-side endgame: incursions (§17, G4) ----
+// An escalating threat from beyond the ring, *only* active once the player has
+// transited (the `endgame` flag is off until then, so the pre-transit world is
+// byte-identical). The longer you hold the far side, the more often and harder it
+// answers — "now it knows your face" (the GATE_ANSWER payoff).
+
+/// Ticks between incursions at the moment you transit (the gentlest cadence).
+const BASE_INCURSION_PERIOD: u64 = 120;
+/// The cadence floor — incursions never come closer than this (escalation cap).
+const INCURSION_MIN_PERIOD: u64 = 40;
+/// Every this-many ticks held on the far side, the cadence tightens one step…
+const INCURSION_RAMP: u64 = 240;
+/// …by this many ticks.
+const INCURSION_PERIOD_STEP: u64 = 10;
+/// Severity (bridgehead damage / pack strength) of the first incursion…
+const BASE_INCURSION_SEVERITY: i64 = 30;
+/// …rising this much every [`INCURSION_RAMP`] ticks held (the count climbing).
+const INCURSION_SEVERITY_STEP: i64 = 10;
 
 /// The independent **pressure-intensity** difficulty setting (§13): scales raid
 /// cadence and gauge gains without rubber-banding the player's earned power.
@@ -73,12 +93,14 @@ impl Intensity {
     }
 }
 
-/// The three layered pressures (§13). The discriminant indexes the gauges.
+/// The layered pressures (§13/§17). The discriminant indexes the gauges. The
+/// fourth, **Incursion**, is the far-side endgame threat — dormant until transit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PressureKind {
     FactionWar = 0,
     Piracy = 1,
     Scarcity = 2,
+    Incursion = 3,
 }
 
 /// The pressure/tension/pacing model (§13). Owns the raid schedule, the forecast
@@ -87,23 +109,36 @@ pub enum PressureKind {
 pub struct PressureSystem {
     intensity: Intensity,
     /// Gauges per [`PressureKind`], `0..=LEVEL_MAX`.
-    levels: [i32; 3],
+    levels: [i32; 4],
     /// Tick the next raid window opens.
     next_raid: u64,
     /// Whether the upcoming raid has already been forecast.
     forecast_sent: bool,
     /// Tick of the most recent flashpoint, for the governor.
     last_flashpoint: Option<u64>,
+    // ---- far-side endgame (§17, G4) — all dormant until `endgame` is set ----
+    /// Whether the far-side incursion layer is live (set at gate transit).
+    endgame: bool,
+    /// The tick the player transited — the escalation clock's zero.
+    beyond_start: u64,
+    /// Tick the next incursion lands.
+    next_incursion: u64,
+    /// Whether the upcoming incursion has been telegraphed.
+    incursion_forecast_sent: bool,
 }
 
 impl PressureSystem {
     pub fn new(intensity: Intensity) -> Self {
         Self {
             intensity,
-            levels: [0; 3],
+            levels: [0; 4],
             next_raid: intensity.raid_period(),
             forecast_sent: false,
             last_flashpoint: None,
+            endgame: false,
+            beyond_start: 0,
+            next_incursion: 0,
+            incursion_forecast_sent: false,
         }
     }
 
@@ -120,6 +155,12 @@ impl PressureSystem {
     /// Current gauge for `kind` (`0..=LEVEL_MAX`).
     pub fn level(&self, kind: PressureKind) -> i32 {
         self.levels[kind as usize]
+    }
+
+    /// Ease a gauge (a player answering a threat — Phase A raid dilemma). Floored at 0.
+    pub fn relieve(&mut self, kind: PressureKind, amount: i32) {
+        let l = &mut self.levels[kind as usize];
+        *l = (*l - amount).max(0);
     }
 
     /// The loudest gauge — the shell's overall threat read (§23c audio state).
@@ -176,6 +217,68 @@ impl PressureSystem {
     /// Mark `now` as a flashpoint for the governor (an acute spike just landed).
     pub fn mark_flashpoint(&mut self, now: u64) {
         self.last_flashpoint = Some(now);
+    }
+
+    // ---- the far-side endgame: incursions (§17, G4) ----
+
+    /// Light the incursion layer at the transit tick (§17). Idempotent — a second
+    /// call (e.g. a reload that re-asserts the endgame) leaves the clock alone.
+    pub fn begin_endgame(&mut self, now: u64) {
+        if !self.endgame {
+            self.endgame = true;
+            self.beyond_start = now;
+            self.next_incursion = now + BASE_INCURSION_PERIOD;
+            self.incursion_forecast_sent = false;
+        }
+    }
+
+    /// Whether the far-side incursion layer is live (post-transit).
+    pub fn endgame(&self) -> bool {
+        self.endgame
+    }
+
+    /// Incursion cadence right now — tightens as the player holds the far side
+    /// (§17 escalation), floored at [`INCURSION_MIN_PERIOD`].
+    fn incursion_period(&self, now: u64) -> u64 {
+        let steps = now.saturating_sub(self.beyond_start) / INCURSION_RAMP;
+        BASE_INCURSION_PERIOD
+            .saturating_sub(steps * INCURSION_PERIOD_STEP)
+            .max(INCURSION_MIN_PERIOD)
+    }
+
+    /// The strength of an incursion arriving at `now` (bridgehead damage on a
+    /// failed defense, and the raider-pack size) — climbs with time-in-Beyond.
+    pub fn incursion_severity(&self, now: u64) -> i64 {
+        let steps = (now.saturating_sub(self.beyond_start) / INCURSION_RAMP) as i64;
+        BASE_INCURSION_SEVERITY + steps * INCURSION_SEVERITY_STEP
+    }
+
+    /// Telegraph an incoming incursion (§13 forecasting carried into the endgame).
+    pub fn should_forecast_incursion(&self, now: u64) -> bool {
+        self.endgame && !self.incursion_forecast_sent && now + FORECAST_LEAD >= self.next_incursion
+    }
+
+    pub fn mark_incursion_forecast_sent(&mut self) {
+        self.incursion_forecast_sent = true;
+    }
+
+    /// Ticks until the forecast incursion strikes.
+    pub fn incursion_eta(&self, now: u64) -> u64 {
+        self.next_incursion.saturating_sub(now)
+    }
+
+    /// The incursion is due (only ever in the endgame). No governor — the far side
+    /// does not wait its turn (§17); the pacing dial is the cadence itself.
+    pub fn incursion_ready(&self, now: u64) -> bool {
+        self.endgame && now >= self.next_incursion
+    }
+
+    /// Called after an incursion lands: raise the Incursion gauge and schedule the
+    /// next at the (escalating) cadence; re-arm the telegraph.
+    pub fn after_incursion(&mut self, now: u64) {
+        self.raise(PressureKind::Incursion, INCURSION_GAIN);
+        self.next_incursion = now + self.incursion_period(now);
+        self.incursion_forecast_sent = false;
     }
 
     /// Feed the gauges from the world event stream and record acute flashpoints.
@@ -327,6 +430,59 @@ mod tests {
             1,
         );
         assert!(h.level(PressureKind::Scarcity) > c.level(PressureKind::Scarcity));
+    }
+
+    #[test]
+    fn incursions_are_dormant_until_the_endgame() {
+        // Pre-transit the incursion layer is entirely off — no forecast, no strike,
+        // the gauge never moves (so the pre-transit world is byte-identical, §17).
+        let p = PressureSystem::new(Intensity::Normal);
+        assert!(!p.endgame());
+        for t in 0..1000 {
+            assert!(!p.should_forecast_incursion(t));
+            assert!(!p.incursion_ready(t));
+        }
+        assert_eq!(p.level(PressureKind::Incursion), 0);
+    }
+
+    #[test]
+    fn incursions_fire_and_escalate_after_transit() {
+        let mut p = PressureSystem::new(Intensity::Normal);
+        p.begin_endgame(0);
+        assert!(p.endgame());
+        let first = p.next_incursion;
+        assert_eq!(first, BASE_INCURSION_PERIOD);
+        // Telegraphed ahead, then ready on schedule.
+        assert!(p.should_forecast_incursion(first - FORECAST_LEAD));
+        assert!(!p.incursion_ready(first - 1));
+        assert!(p.incursion_ready(first));
+        let early_sev = p.incursion_severity(first);
+        // Drive a long run of incursions; the cadence tightens and severity climbs.
+        let mut now = first;
+        let mut prev_gap = BASE_INCURSION_PERIOD;
+        for _ in 0..30 {
+            assert!(p.incursion_ready(now));
+            p.after_incursion(now);
+            let gap = p.next_incursion - now;
+            assert!(gap <= prev_gap, "cadence never loosens");
+            assert!(gap >= INCURSION_MIN_PERIOD, "cadence floored");
+            prev_gap = gap;
+            now = p.next_incursion;
+        }
+        assert!(
+            p.incursion_severity(now) > early_sev,
+            "severity escalates with time held"
+        );
+        assert!(p.level(PressureKind::Incursion) > 0);
+    }
+
+    #[test]
+    fn begin_endgame_is_idempotent() {
+        let mut p = PressureSystem::new(Intensity::Normal);
+        p.begin_endgame(100);
+        let scheduled = p.next_incursion;
+        p.begin_endgame(500); // a reload re-asserting the endgame must not reset the clock
+        assert_eq!(p.next_incursion, scheduled);
     }
 
     #[test]
