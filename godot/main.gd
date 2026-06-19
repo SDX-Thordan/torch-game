@@ -42,7 +42,7 @@ const V_EMPIRE := 4
 const V_RESEARCH := 5
 const V_LEDGER := 6
 const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪", "⚛", "▤"]
-const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE", "RESEARCH", "LEDGER"]
+const VIEW_CAP := ["SYSTEMS", "FLEETS", "SHIPYARD", "MARKET", "EMPIRE", "RESEARCH", "LEDGER"]
 const VIEW_TITLE := [
 	"Orrery — Sol System",
 	"Fleet Management",
@@ -182,6 +182,8 @@ var _acquire_ctx_btn: Button
 var _develop_btn: Button
 var _send_btn: Button
 var _sys_mission: Label
+var _sys_census: Label
+var _census_static := ""   # the static body census (planets/moons/asteroids — computed once)
 var _tg_patrol: CheckButton
 var _tg_research: CheckButton
 var _tg_pause: CheckButton
@@ -988,6 +990,11 @@ func _build_systems_view() -> void:
 	var gv := VBoxContainer.new()
 	gv.add_theme_constant_override("separation", 4)
 	goal.add_child(gv)
+	# System summary (mockup's "Sol System" card) — a one-line census of what's out there.
+	gv.add_child(UiKit.kicker("Sol System  ·  Home System"))
+	_sys_census = UiKit.label("", 11, UiKit.TEXT_DIM)
+	gv.add_child(_sys_census)
+	gv.add_child(UiKit.rule())
 	gv.add_child(UiKit.kicker("Objective"))
 	_sys_mission = UiKit.label("", 12, UiKit.ACCENT)
 	_sys_mission.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -3523,6 +3530,19 @@ func _refresh_systems() -> void:
 	# The panel re-centres on whatever you tapped — the object is the subject, not just the
 	# market. Identity + a contextual detail block (yield / miner / influence / development).
 	_refresh_object_panel()
+	# System census (mockup card): static body counts (cached) + your live holdings.
+	if _census_static == "":
+		var planets := 0
+		var asteroids := 0
+		var moons := 0
+		for b in sim.body_count():
+			match sim.body_kind(b):
+				1, 2, 3: planets += 1   # planet / gas giant / dwarf
+				4: moons += 1
+				7: asteroids += 1
+		_census_static = "%d worlds · %d moons · %d asteroids" % [planets, moons, asteroids]
+	_sys_census.text = "Star G2V  ·  %s  ·  your: %d outpost(s), %d holding(s)" % [
+		_census_static, sim.outpost_count(), sim.holding_count()]
 	var holdings: int = sim.holding_count()
 	var cap: int = sim.admin_capacity()
 	# The expansion spine (E6): lead with the empire rank, then the holdings/cap.
