@@ -151,6 +151,10 @@ pub struct Hauler {
     /// Mounted Ramshackle torpedoes (OPA Q-Runner only), 0..=`class.torpedo_mounts()`.
     #[serde(default)]
     pub torpedo: u8,
+    /// The convoy this hull belongs to (stable id), if any — a hauler convoyed with a miner
+    /// gives it the Phase 4 efficiency synergy. `None` for old saves / an unassigned hull.
+    #[serde(default)]
+    pub convoy: Option<u32>,
 }
 
 impl Hauler {
@@ -379,7 +383,13 @@ impl Corp {
             commissioned_tick: tick,
             pdc: 0,
             torpedo: 0,
+            convoy: None,
         });
+    }
+
+    /// Whether any owned hauler belongs to convoy `id` (drives the miner+hauler synergy).
+    pub fn convoy_has_hauler(&self, id: u32) -> bool {
+        self.haulers.iter().any(|h| h.convoy == Some(id))
     }
 
     /// Mutable access to owned hauler `i` (for arming it).

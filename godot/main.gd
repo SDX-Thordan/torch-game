@@ -179,6 +179,7 @@ var _ctx_actions: VBoxContainer            # the contextual-action stack (no per
 var _mine_btn: Button
 var _miner_tier_btn: Button                   # cycles the miner class to deploy (0/1/2)
 var miner_tier := 0                            # 0 Prospector · 1 Harvester · 2 Refinery Barge
+var _convoy_btn: Button                        # form a miner+hauler convoy at the focused body
 var _hauler_tier_btn: Button                   # cycles the hauler class to buy (0/1/2)
 var hauler_tier := 0                           # 0 Light · 1 Heavy · 2 Bulk
 var _withdraw_btn: Button
@@ -1087,6 +1088,10 @@ func _build_systems_view() -> void:
 	_withdraw_btn = _make_op_button("⤴ Withdraw Miner", _withdraw_miner_here)
 	_withdraw_btn.visible = false
 	fo.add_child(_withdraw_btn)
+	# — Pair this miner with a hauler in a convoy → it mines +50% faster (the synergy).
+	_convoy_btn = _make_op_button("⛟ Form Convoy", _form_convoy_here)
+	_convoy_btn.visible = false
+	fo.add_child(_convoy_btn)
 	# — An uninhabited body: plant an outpost (the station that develops into a base), or
 	#   develop the one you already have here.
 	_outpost_btn = _make_op_button("⚑ Build Outpost", _found_outpost_here)
@@ -1315,6 +1320,18 @@ func _deploy_miner() -> void:
 func _withdraw_miner_here() -> void:
 	var msg := String(sim.withdraw_miner(_focus_body))
 	status = msg if msg != "" else "No miner here to withdraw."
+
+
+## Form a convoy pairing the focused body's miner with a free hauler — the §Phase 4 synergy.
+func _form_convoy_here() -> void:
+	var msg := String(sim.form_mining_convoy(_focus_body))
+	if msg != "":
+		ascend_flash = 0.6
+		status = msg
+	elif sim.freighters() == 0:
+		status = "Buy a hauler first — a convoy pairs a miner with a hauler to ferry its ore."
+	else:
+		status = "No free hauler to convoy here (all are assigned elsewhere)."
 
 
 ## Found the player's shipyard on the tapped (uninhabited) body — your first body-built station.
@@ -3868,6 +3885,10 @@ func _refresh_object_panel() -> void:
 			var mcls := sim.miner_class_at(fb)
 			detail = "[color=#f0a030]⛏ %s[/color] working here — extracting [color=#cfd8e0]%s[/color] (×%d yield)" % [
 				String(sim.miner_class_name(mcls)), String(sim.body_mineral_name(fb)), sim.miner_class_yield(mcls)]
+			if sim.miner_has_convoy_synergy(fb):
+				detail += "\n[color=#78e68c]⛟ Convoyed with a hauler — +50% (the hauler ferries its ore).[/color]"
+			elif sim.can_form_convoy(fb):
+				detail += "\n[color=#7a8696]⛟ Form a convoy with a hauler for +50% (verb below).[/color]"
 		else:
 			detail = "Mineable %s — yields [color=#cfd8e0]%s[/color]\n[color=#7a8696]Deploy a mining rig: Prospector / Harvester / Refinery Barge (cycle the class below).[/color]" % [kind.to_lower(), String(sim.body_mineral_name(fb))]
 	_sys_sub.text = sub
@@ -3925,6 +3946,7 @@ func _refresh_systems() -> void:
 			_mine_btn.text = "⛏ Send %s (%s)" % [
 				String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
 		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
+		_convoy_btn.visible = fb > 0 and sim.can_form_convoy(fb)
 		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
 		var outpost_ready: bool = has_outpost and not outpost_building
 		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)

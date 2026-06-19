@@ -263,6 +263,16 @@ const MINER_NAMES: [&str; 12] = [
     "Tailings Joy",
 ];
 
+/// A **convoy** — a named group the player forms over their civilian ships (miners + haulers,
+/// later escorted by warships, Phase 5). Its point now: a miner grouped with a hauler in the
+/// same convoy works **more efficiently** — the hauler ferries its ore so it never stops to run
+/// it home. Members carry the convoy's stable `id` (so removing a ship just drops it).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Convoy {
+    pub id: u32,
+    pub name: String,
+}
+
 /// A deployed **mining ship** (§3.1) — a dedicated, named, tiered hull stationed at a body,
 /// extracting its raw mineral into your warehouse each tick. The early industrial step.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -279,6 +289,10 @@ pub struct Miner {
     /// Tick it entered service (§14 service history); 0 for old saves.
     #[serde(default)]
     pub commissioned_tick: u64,
+    /// The convoy this rig belongs to (stable id), if any — a miner convoyed with a hauler
+    /// gets the Phase 4 synergy. `None` for old saves / a lone rig.
+    #[serde(default)]
+    pub convoy: Option<u32>,
 }
 
 /// A custom warship design (A2) held in the build queue: the chosen weapon model + count
@@ -521,6 +535,9 @@ const OUTPOST_TRIBUTE_PER_LEVEL: i64 = 30;
 const MAX_OUTPOSTS: usize = 16;
 /// A miner working an outpost's body extracts +50% (it hauls to the station on-site).
 const OUTPOST_MINER_BONUS_BP: i64 = 5_000;
+/// Output bonus (basis points) for a miner convoyed with a hauler (Phase 4 synergy) — the
+/// hauler ferries its ore so the rig mines continuously instead of stopping to run it home.
+const CONVOY_SYNERGY_BP: i64 = 5_000;
 /// Founding an outpost is a **slow build — ~180 days** (6 ticks = 1 day): you commit the
 /// macro decision and the credits, then wait it out (the relaxing, un-clicky pace).
 pub const OUTPOST_BUILD_TICKS: u64 = 1080;
@@ -907,6 +924,11 @@ pub struct Sim {
     pending_ships: Vec<PendingShip>,
     /// Deployed mining ships (early industry) — each extracts a body's raw per tick.
     miners: Vec<Miner>,
+    /// Player-formed convoys (Phase 4) — named groups over the civilian fleet; a miner convoyed
+    /// with a hauler works more efficiently. Empty by default (inert / byte-identical).
+    convoys: Vec<Convoy>,
+    /// Monotonic id for the next convoy (so member refs stay stable across removals).
+    next_convoy_id: u32,
     /// Player-founded outposts (the body-built station layer) — empty by default (inert).
     outposts: Vec<Outpost>,
     /// Tick the next Earth/Mars war flashpoint fires (player collateral). Fires more in
@@ -1028,6 +1050,8 @@ impl Sim {
             shipyard_ready_tick: 0,
             pending_ships: Vec::new(),
             miners: Vec::new(),
+            convoys: Vec::new(),
+            next_convoy_id: 1,
             outposts: Vec::new(),
             next_war_flashpoint: 100,
             contested: default_colonies()
@@ -2075,9 +2099,94 @@ impl Sim {
             class,
             name,
             commissioned_tick: self.tick,
+            convoy: None,
         });
         self.complete_op();
         Ok(())
+    }
+
+    // ---- convoys (Phase 4): group civilian ships; the miner+hauler synergy ----------
+
+    /// The player's formed convoys.
+    pub fn convoys(&self) -> &[Convoy] {
+        &self.convoys
+    }
+
+    /// Form a new named convoy, returning its stable id.
+    pub fn form_convoy(&mut self, name: String) -> u32 {
+        let id = self.next_convoy_id;
+        self.next_convoy_id += 1;
+        let name = if name.is_empty() {
+            format!("Convoy {id}")
+        } else {
+            name
+        };
+        self.convoys.push(Convoy { id, name });
+        id
+    }
+
+    /// Assign the miner working `body` to convoy `id` (or `None` to detach). Returns success.
+    pub fn set_miner_convoy(&mut self, body: usize, id: Option<u32>) -> bool {
+        if let Some(id) = id {
+            if !self.convoys.iter().any(|c| c.id == id) {
+                return false;
+            }
+        }
+        if let Some(m) = self.miners.iter_mut().find(|m| m.body == body) {
+            m.convoy = id;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Assign hauler `i` to convoy `id` (or `None` to detach). Returns success.
+    pub fn set_hauler_convoy(&mut self, i: usize, id: Option<u32>) -> bool {
+        if let Some(id) = id {
+            if !self.convoys.iter().any(|c| c.id == id) {
+                return false;
+            }
+        }
+        if let Some(h) = self.corp.hauler_mut(i) {
+            h.convoy = id;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// One-press convoy at a mining body: form a convoy named for the body, put the miner there
+    /// into it, and assign the first unconvoyed hauler to it — instantly granting the synergy.
+    /// Returns the convoy id, or `None` if there's no miner here or no free hauler.
+    pub fn form_mining_convoy(&mut self, body: usize) -> Option<u32> {
+        if !self.miners.iter().any(|m| m.body == body) {
+            return None;
+        }
+        let free_hauler = self
+            .corp
+            .haulers()
+            .iter()
+            .position(|h| h.convoy.is_none())?;
+        let body_name = self.bodies.get(body).map(|b| b.name).unwrap_or("Belt");
+        let name = format!("{body_name} Convoy");
+        let id = self.form_convoy(name);
+        self.set_miner_convoy(body, Some(id));
+        self.set_hauler_convoy(free_hauler, Some(id));
+        Some(id)
+    }
+
+    /// The convoy id of the miner working `body`, if any (for the shell readout).
+    pub fn miner_convoy_at(&self, body: usize) -> Option<u32> {
+        self.miners
+            .iter()
+            .find(|m| m.body == body)
+            .and_then(|m| m.convoy)
+    }
+
+    /// Whether the miner at `body` is in a convoy that also has a hauler (the active synergy).
+    pub fn miner_has_convoy_synergy(&self, body: usize) -> bool {
+        self.miner_convoy_at(body)
+            .is_some_and(|id| self.corp.convoy_has_hauler(id))
     }
 
     /// Whether the player has a miner deployed at `body`.
@@ -2476,14 +2585,17 @@ impl Sim {
                     .outpost_at(m.body)
                     .is_some_and(|o| o.is_ready(self.tick));
                 // Yield scales with the rig's class (Prospector ×1 keeps the original rate);
-                // a co-located ready outpost still adds its hauling bonus on top.
+                // a co-located ready outpost adds its hauling bonus, and a hauler in the same
+                // convoy adds the Phase 4 synergy (the hauler ferries ore so the rig never stops).
                 let base = MINER_OUTPUT_PER_TICK * m.class.yield_mult();
-                let bonus = if has_ready_outpost {
-                    base * OUTPOST_MINER_BONUS_BP / 10_000
-                } else {
-                    0
-                };
-                (m.commodity, base + bonus)
+                let mut bonus_bp = 0;
+                if has_ready_outpost {
+                    bonus_bp += OUTPOST_MINER_BONUS_BP;
+                }
+                if m.convoy.is_some_and(|id| self.corp.convoy_has_hauler(id)) {
+                    bonus_bp += CONVOY_SYNERGY_BP;
+                }
+                (m.commodity, base + base * bonus_bp / 10_000)
             })
             .collect();
         for (c, qty) in deposits {
@@ -3379,6 +3491,8 @@ impl Sim {
             shipyard_body: self.shipyard_body,
             pending_ships: self.pending_ships.clone(),
             miners: self.miners.clone(),
+            convoys: self.convoys.clone(),
+            next_convoy_id: self.next_convoy_id,
             outposts: self.outposts.clone(),
             next_war_flashpoint: self.next_war_flashpoint,
             contested_player_influence: self.contested.iter().map(|c| c.player_influence).collect(),
@@ -3487,6 +3601,7 @@ impl Sim {
                     commissioned_tick: 0,
                     pdc: 0,
                     torpedo: 0,
+                    convoy: None,
                 })
                 .collect()
         } else {
@@ -3535,6 +3650,8 @@ impl Sim {
         self.shipyard_body = s.shipyard_body;
         self.pending_ships = s.pending_ships.clone();
         self.miners = s.miners.clone();
+        self.convoys = s.convoys.clone();
+        self.next_convoy_id = s.next_convoy_id.max(1);
         self.outposts = s.outposts.clone();
         if s.next_war_flashpoint > 0 {
             self.next_war_flashpoint = s.next_war_flashpoint;
@@ -7121,6 +7238,54 @@ mod tests {
             bulk.corp().best_hauler_cargo() >= big_qty,
             "a Bulk hull lifts the fat route whole"
         );
+    }
+
+    #[test]
+    fn a_miner_convoyed_with_a_hauler_out_yields_a_lone_rig() {
+        use crate::sim::corp::HaulerClass;
+        // Phase 4 synergy: pair a miner with a hauler in a convoy and it mines faster (the
+        // hauler ferries the ore so the rig never stops). Measured against a lone rig.
+        let mineral_at = |sim: &Sim| sim.body_mineral(sim.markets()[0].body());
+        let run = |convoyed: bool| -> i64 {
+            let mut sim = Sim::new(0);
+            sim.corp_mut().credit(200_000);
+            let belt = sim.markets()[0].body();
+            sim.buy_miner(belt).unwrap();
+            sim.commission_hauler(HaulerClass::Light).unwrap();
+            if convoyed {
+                assert!(sim.form_mining_convoy(belt).is_some());
+                assert!(sim.miner_has_convoy_synergy(belt));
+            }
+            let m = mineral_at(&sim);
+            let before = sim.corp().cargo(m);
+            for _ in 0..50 {
+                sim.step();
+            }
+            sim.corp().cargo(m) - before
+        };
+        let lone = run(false);
+        let convoyed = run(true);
+        assert!(
+            convoyed > lone,
+            "a convoyed miner ({convoyed}) out-yields a lone one ({lone})"
+        );
+    }
+
+    #[test]
+    fn convoys_are_inert_until_formed_byte_identical() {
+        // With no convoys formed, the world is byte-identical to one that never had the layer.
+        let mut a = Sim::new(6);
+        let mut b = Sim::new(6);
+        let belt = a.markets()[0].body();
+        a.buy_miner(belt).unwrap();
+        b.buy_miner(belt).unwrap();
+        for _ in 0..300 {
+            a.step();
+            let _ = b.convoys();
+            b.step();
+        }
+        assert_eq!(a.corp().credits(), b.corp().credits());
+        assert_eq!(a.miners(), b.miners());
     }
 
     #[test]

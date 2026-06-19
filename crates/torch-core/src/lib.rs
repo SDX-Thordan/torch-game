@@ -1870,6 +1870,42 @@ impl TorchSim {
         self.sim.miner_at(body.max(0) as usize)
     }
 
+    // ---- convoys (Phase 4): the miner+hauler synergy --------------------------------
+
+    /// One-press convoy at the mining body: form a convoy, put the miner + a free hauler in it,
+    /// granting the synergy. Returns a feedback message (empty if no miner / no free hauler).
+    #[func]
+    fn form_mining_convoy(&mut self, body: i64) -> GString {
+        match self.sim.form_mining_convoy(body.max(0) as usize) {
+            Some(_) => GString::from(
+                "Convoy formed — the hauler ferries the ore, so the rig mines +50% faster.",
+            ),
+            None => GString::new(),
+        }
+    }
+
+    /// Whether a convoy can be formed at `body` now (a miner here, not already convoyed, + at
+    /// least one free hauler).
+    #[func]
+    fn can_form_convoy(&self, body: i64) -> bool {
+        let b = body.max(0) as usize;
+        self.sim.miner_at(b)
+            && self.sim.miner_convoy_at(b).is_none()
+            && self.sim.corp().haulers().iter().any(|h| h.convoy.is_none())
+    }
+
+    /// Whether the miner at `body` is in a convoy with a hauler (the active synergy).
+    #[func]
+    fn miner_has_convoy_synergy(&self, body: i64) -> bool {
+        self.sim.miner_has_convoy_synergy(body.max(0) as usize)
+    }
+
+    /// Number of formed convoys.
+    #[func]
+    fn convoy_count(&self) -> i64 {
+        self.sim.convoys().len() as i64
+    }
+
     /// Recall the miner working `body` (the "until withdrawn" half of the loop). Returns a
     /// feedback message (empty if there was none there).
     #[func]

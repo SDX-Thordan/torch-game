@@ -141,6 +141,12 @@ pub struct SaveState {
     /// Deployed mining ships (early industry).
     #[serde(default)]
     pub miners: Vec<super::world::Miner>,
+    /// Player-formed convoys (Phase 4) + the next id; empty for old saves. Membership rides on
+    /// the miners/haulers themselves (their `convoy` field).
+    #[serde(default)]
+    pub convoys: Vec<super::world::Convoy>,
+    #[serde(default)]
+    pub next_convoy_id: u32,
     /// Player-founded outposts (the body-built station layer); empty for old saves.
     #[serde(default)]
     pub outposts: Vec<super::world::Outpost>,
