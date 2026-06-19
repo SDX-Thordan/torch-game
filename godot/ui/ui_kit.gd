@@ -74,6 +74,8 @@ static func rule(color: Color = LINE) -> Control:
 ## A thin progress/gauge bar (fuel, construction %, pressure …).
 static func gauge(ratio: float, color: Color = ACCENT, width: int = 90, height: int = 8) -> ProgressBar:
 	var pb := ProgressBar.new()
+	if width == 0:
+		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pb.custom_minimum_size = Vector2(width, height)
 	pb.min_value = 0.0
 	pb.max_value = 1.0
@@ -182,3 +184,78 @@ static func action_button(text: String) -> Button:
 	b.add_theme_stylebox_override("pressed", sb)
 	b.add_theme_stylebox_override("hover", hv)
 	return b
+
+
+## A view-level header block: large bold title + dim subtitle. Add at the top of each view.
+static func view_header(title: String, sub: String = "") -> VBoxContainer:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tl := label(title, 15, TEXT_HI)
+	tl.add_theme_constant_override("line_spacing", 0)
+	v.add_child(tl)
+	if sub != "":
+		v.add_child(label(sub, 11, TEXT_DIM))
+	return v
+
+
+## A stat card for summary strips: caption (kicker) + large value + optional delta.
+## Call stat_strip() for the container, then add these as children.
+static func stat_card(caption: String, value_str: String,
+		delta: String = "", delta_col: Color = GOOD) -> PanelContainer:
+	var p := make_panel(BG_INSET, LINE, 6)
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 1)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(v)
+	v.add_child(kicker(caption))
+	var val := label(value_str, 16, TEXT_HI)
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(val)
+	if delta != "":
+		var dl := label(delta, 10, delta_col)
+		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(dl)
+	return p
+
+
+## A uniform horizontal strip container for stat_card()s.
+static func stat_strip() -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return h
+
+
+## A label+value info row (used in summaries, economy breakdowns, etc.).
+## lbl_text left-aligned & expands; val_text right-pinned.
+static func info_row(lbl_text: String, val_text: String,
+		lbl_col: Color = TEXT_DIM, val_col: Color = TEXT_HI,
+		size: int = 12) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ll := label(lbl_text, size, lbl_col)
+	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(ll)
+	h.add_child(label(val_text, size, val_col))
+	return h
+
+
+## A thin left-accent panel for named sub-sections (the "card with coloured edge" pattern).
+static func section_card(accent_col: Color = ACCENT) -> PanelContainer:
+	var p := PanelContainer.new()
+	var sb := panel_box(BG_INSET, LINE, 6)
+	sb.border_width_left = 2
+	sb.border_color = accent_col
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+
+## A colored status dot (●) used in fleet/relation rows.
+static func dot(color: Color) -> Label:
+	var l := label("●", 11, color)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l

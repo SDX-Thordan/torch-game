@@ -145,6 +145,10 @@ var _date: Label
 var _emp_header: Label
 var _emp_meters: Label
 var _emp_table: RichTextLabel
+# Empire view additional layout nodes (new layout).
+var _emp_strip: HBoxContainer      # summary stat strip (rebuilt each refresh)
+var _emp_economy: VBoxContainer    # economy summary rows
+var _emp_fleet_sum: Label          # fleet & ship summary text
 var _res_credits: Label
 var _res_ore: Label
 var _res_fuel: Label
@@ -214,6 +218,7 @@ var _dilemma_lock := false                    # hard pause until a stacked dilem
 # Fleet view.
 var _fleet_grid: GridContainer
 var _fleet_count: Label
+var _fleet_strip: HBoxContainer    # fleet summary stat strip
 var _corp_lbl: Label
 var corp_name_idx := 0
 var save_slot := 0                           # active manual slot, 0..SAVE_SLOTS-1 (§30)
@@ -2046,6 +2051,15 @@ func _build_fleet_view() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	panel.add_child(v)
+
+	# View header.
+	v.add_child(UiKit.view_header("FLEET MANAGEMENT", "Command and control your naval forces."))
+
+	# Summary stat strip (rebuilt each refresh).
+	_fleet_strip = UiKit.stat_strip()
+	v.add_child(_fleet_strip)
+	v.add_child(UiKit.rule())
+
 	# Tabs.
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 4)
@@ -2943,24 +2957,42 @@ func _build_empire_view() -> void:
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_content.add_child(panel)
 	_views.append(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	panel.add_child(v)
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 8)
+	panel.add_child(root)
 
-	# Headline: the empire rank + the next rung (the expansion spine, E6).
-	v.add_child(UiKit.kicker("The Company"))
-	_emp_header = UiKit.label("", 16, UiKit.TEXT_HI)
-	v.add_child(_emp_header)
-	# Meters: capacity / efficiency / coalition alarm / influence.
-	_emp_meters = UiKit.label("", 12, UiKit.TEXT)
-	v.add_child(_emp_meters)
-	v.add_child(UiKit.rule())
+	# View header.
+	root.add_child(UiKit.view_header("EMPIRE OVERVIEW",
+		"Manage your domains, assets, logistics, and strategic operations."))
 
-	# Acquisition verbs — the three pathways + the defense (the empire master-deck).
-	v.add_child(UiKit.kicker("Acquire / Defend"))
+	# Summary stat strip (rebuilt each refresh to show live counts).
+	_emp_strip = UiKit.stat_strip()
+	root.add_child(_emp_strip)
+	root.add_child(UiKit.rule())
+
+	# Two-column body: left (expand) + right sidebar (fixed).
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 14)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+
+	# ---- LEFT COLUMN ----
+	var left := VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_theme_constant_override("separation", 8)
+	body.add_child(left)
+
+	left.add_child(UiKit.kicker("ECONOMY SUMMARY"))
+	_emp_economy = VBoxContainer.new()
+	_emp_economy.add_theme_constant_override("separation", 3)
+	left.add_child(_emp_economy)
+	left.add_child(UiKit.rule())
+
+	# Acquisition verbs.
+	left.add_child(UiKit.kicker("ACQUIRE / DEFEND"))
 	var ops := HBoxContainer.new()
 	ops.add_theme_constant_override("separation", 6)
-	v.add_child(ops)
+	left.add_child(ops)
 	ops.add_child(_make_op_button("⊕ BUY", _acquire_colony))
 	ops.add_child(_make_op_button("⊕ ANNEX", _annex_colony))
 	ops.add_child(_make_op_button("⚔ SEIZE", _seize_colony))
@@ -2968,17 +3000,16 @@ func _build_empire_view() -> void:
 	ops.add_child(_make_op_button("⚙ DOCTRINE", _cycle_doctrine))
 	ops.add_child(_make_op_button("⛨ DEFEND", _defend_holdings))
 	ops.add_child(_make_op_button("🤝 COURT", _court_company))
-	# Contested hubs (early game): gather influence over a fought-over colony, then claim it.
 	ops.add_child(_make_op_button("◎ COURT HUB", _court_contested))
 	ops.add_child(_make_op_button("◎ CLAIM HUB", _claim_contested))
-	v.add_child(UiKit.rule())
+	left.add_child(UiKit.rule())
 
-	# The master-table: holdings + acquirable targets.
-	v.add_child(UiKit.kicker("Holdings & Targets"))
+	# Holdings & targets master table.
+	left.add_child(UiKit.kicker("HOLDINGS & TARGETS"))
 	var sc := ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(sc)
+	left.add_child(sc)
 	_emp_table = RichTextLabel.new()
 	_emp_table.bbcode_enabled = true
 	_emp_table.fit_content = true
@@ -2987,37 +3018,108 @@ func _build_empire_view() -> void:
 	_emp_table.add_theme_font_size_override("normal_font_size", 12)
 	sc.add_child(_emp_table)
 
+	# ---- RIGHT SIDEBAR ----
+	var right := VBoxContainer.new()
+	right.custom_minimum_size = Vector2(272, 0)
+	right.add_theme_constant_override("separation", 6)
+	body.add_child(right)
+
+	# Fleet & ship summary.
+	right.add_child(UiKit.kicker("FLEET & SHIP SUMMARY"))
+	_emp_fleet_sum = UiKit.label("", 12, UiKit.TEXT)
+	_emp_fleet_sum.autowrap_mode = TextServer.AUTOWRAP_WORD
+	right.add_child(_emp_fleet_sum)
+	right.add_child(UiKit.rule())
+
+	# Admin status (empire rank + admin cap + meters).
+	right.add_child(UiKit.kicker("ADMIN STATUS"))
+	_emp_header = UiKit.label("", 13, UiKit.TEXT_HI)
+	_emp_header.autowrap_mode = TextServer.AUTOWRAP_WORD
+	right.add_child(_emp_header)
+	_emp_meters = UiKit.label("", 12, UiKit.TEXT)
+	_emp_meters.autowrap_mode = TextServer.AUTOWRAP_WORD
+	right.add_child(_emp_meters)
+
 
 func _refresh_empire() -> void:
 	var holdings: int = sim.holding_count()
 	var cap: int = sim.admin_capacity()
 	var rank := String(sim.empire_rank())
 	var next_name := String(sim.next_empire_rank_name())
-	var head := "%s   ·   %d holding(s)" % [rank, holdings]
+
+	# ---- Stat strip (rebuilt each refresh) ----
+	for c in _emp_strip.get_children():
+		c.queue_free()
+	var fsz: int = sim.fleet_size()
+	var frt: int = sim.freighters()
+	var mkt_c: int = sim.market_count()
+	var sy_tier: int = sim.shipyard_tier()
+	_emp_strip.add_child(UiKit.stat_card("HOLDINGS", str(holdings), "cap %d" % cap,
+		UiKit.BAD if sim.admin_strain() > 0 else UiKit.GOOD))
+	_emp_strip.add_child(UiKit.stat_card("WARSHIPS", str(fsz)))
+	_emp_strip.add_child(UiKit.stat_card("FREIGHTERS", str(frt)))
+	_emp_strip.add_child(UiKit.stat_card("MARKETS", str(mkt_c)))
+	_emp_strip.add_child(UiKit.stat_card("SHIPYARD", ("Tier %d" % sy_tier) if sy_tier > 0 else "None",
+		"" if sy_tier > 0 else "build one"))
+	_emp_strip.add_child(UiKit.stat_card("INFLUENCE", str(sim.influence()),
+		"+" if sim.influence() > 0 else ""))
+
+	# ---- Economy summary ----
+	for c in _emp_economy.get_children():
+		c.queue_free()
+	# Daily credit rate comes from _rate_snap comparison (already computed in _refresh_chrome).
+	# Read from the rate label text so we don't duplicate the computation.
+	var rate_cr_text := _rate_credits.text if _rate_credits else "—"
+	var rate_ore_text := _rate_ore.text if _rate_ore else "—"
+	var rate_fuel_text := _rate_fuel.text if _rate_fuel else "—"
+	var rate_inf_text := _rate_influence.text if _rate_influence else "—"
+	_emp_economy.add_child(UiKit.info_row("Credits balance", rate_cr_text,
+		UiKit.TEXT_DIM, UiKit.GOOD if not rate_cr_text.begins_with("-") else UiKit.BAD))
+	_emp_economy.add_child(UiKit.info_row("Ore flow", rate_ore_text))
+	_emp_economy.add_child(UiKit.info_row("Fuel flow", rate_fuel_text))
+	_emp_economy.add_child(UiKit.info_row("Influence flow", rate_inf_text, UiKit.TEXT_DIM,
+		Color(0.85, 0.72, 0.4)))
+	_emp_economy.add_child(UiKit.info_row("Holdings efficiency",
+		("%d%%" % sim.holdings_efficiency_pct()) if holdings > 0 else "—",
+		UiKit.TEXT_DIM,
+		UiKit.GOOD if sim.admin_strain() == 0 else UiKit.BAD))
+
+	# ---- Fleet summary (right sidebar) ----
+	var flag_name := String(sim.flagship_name()) if fsz > 0 else "—"
+	var on_st: int = sim.warships_on_station()
+	var flt_lines := PackedStringArray()
+	flt_lines.append("Warships: %d  ·  %d on station" % [fsz, on_st])
+	flt_lines.append("Freighters: %d" % frt)
+	flt_lines.append("Flagship: %s" % flag_name)
+	if fsz > 0:
+		var fi: int = sim.flagship_index()
+		if fi >= 0:
+			flt_lines.append("Capt. %s · %s" % [String(sim.ship_captain(fi)), String(sim.ship_trait(fi))])
+	_emp_fleet_sum.text = "\n".join(flt_lines)
+
+	# ---- Admin status (right sidebar) ----
+	var head := "%s" % rank
 	if holdings > 0:
-		head += "   ·   tallest L%d" % sim.peak_dev()   # Phase C: the tall axis
+		head += "   ·   tallest L%d" % sim.peak_dev()
 	if next_name != "":
-		head += "   →   %s at %d" % [next_name, sim.next_empire_rank_at()]
+		head += "\n→ %s at %d" % [next_name, sim.next_empire_rank_at()]
 	_emp_header.text = head
 
 	var strain: int = sim.admin_strain()
 	var meters := "Admin %d/%d" % [holdings, cap]
 	if strain > 0:
 		meters += " ⚠ strained (%d%% efficiency)" % sim.holdings_efficiency_pct()
-	meters += "      Influence %d" % sim.influence()
-	meters += "      Doctrine: %s" % String(sim.dev_doctrine_name())
-	# Security (EP3): escorts on station vs. what the empire's shipping needs.
+	meters += "\nInfluence %d" % sim.influence()
+	meters += "  ·  Doctrine: %s" % String(sim.dev_doctrine_name())
 	if holdings > 0:
 		var need: int = sim.escorts_needed()
 		var have: int = sim.warships_on_station()
 		if sim.empire_secure():
-			meters += "      Escorts %d/%d ✓" % [have, need]
+			meters += "\nEscorts %d/%d ✓" % [have, need]
 		else:
-			meters += "      ⚠ Escorts %d/%d — piracy bleeds you" % [have, need]
-		# Enforcement (EP4): a soured great power taxes/inspects your shipping.
+			meters += "\n⚠ Escorts %d/%d — piracy bleeds you" % [have, need]
 		if sim.worst_standing() <= -200:
-			meters += "      ⚠ customs sweeps (mend fences)"
-	# Per-faction alarm (E7): show whose sphere you've provoked, not a single gauge.
+			meters += "\n⚠ customs sweeps (mend fences)"
 	if holdings > 0:
 		var names := ["Earth", "Mars", "Belt"]
 		var parts := PackedStringArray()
@@ -3028,20 +3130,16 @@ func _refresh_empire() -> void:
 			prefix = "⚠ COALITION (led by %s)  " % names[sim.coalition_leader()]
 		meters += "\n%s%s" % [prefix, "  ·  ".join(parts)]
 	if sim.coalition_strike_pending():
-		meters += "  —  STRIKE INBOUND, DEFEND"
+		meters += "\n— STRIKE INBOUND, DEFEND"
 	_emp_meters.text = meters
 
-	# Build the holdings + targets table.
+	# ---- Holdings & targets table (unchanged logic, same bbcode) ----
 	var t := ""
-	# Contested hubs first — the early-game focus: the major colonies the powers fight
-	# over, a gauge of each power's grip + your standing toward claiming it (the Ganymede
-	# conflict). Eros/Pallas/Vesta/Tycho (belt) + Europa/Ganymede/Titan (jovian/cronian).
 	if sim.contested_count() > 0:
 		t += "[color=#9fb0c0]── CONTESTED HUBS  (the powers fight over these) ──[/color]\n"
 		var sel := _focus_contested()
 		for i in sim.contested_count():
 			var cb := sim.contested_body(i)
-			# Skip ones you've already claimed (they show under YOUR HOLDINGS).
 			var claimed := false
 			for j in sim.colony_count():
 				if sim.colony_controlled(j) and sim.colony_body(j) == cb:
@@ -3058,7 +3156,6 @@ func _refresh_empire() -> void:
 			var pcol := "#78e68c" if pi >= thr else "#e6c860"
 			var claim := "  ·  [color=#78e68c]CLAIMABLE[/color]" if pi >= thr else ""
 			t += "     [color=#7a8696]your standing[/color] [color=%s]%d/%d[/color]%s\n" % [pcol, pi, thr, claim]
-		t += "\n"
 	t += "[color=#9fb0c0]── YOUR HOLDINGS ──[/color]\n"
 	var any_held := false
 	for i in sim.colony_count():
@@ -3074,10 +3171,9 @@ func _refresh_empire() -> void:
 			else:
 				devtxt += " [color=#7a8696](max)[/color]"
 			var line := "[color=#78e68c]✦ %s[/color]  (%s)  ·  %s  ·  supplies [color=#cfd8e0]%s[/color]" % [String(sim.colony_name(i)), fac, devtxt, good]
-			# EP2: flag the ones that are markets you now own (fee-reduced + NPC tariff).
-			var body := sim.colony_body(i)
+			var body2 := sim.colony_body(i)
 			for m in sim.market_count():
-				if sim.market_body(m) == body and sim.market_is_owned(m):
+				if sim.market_body(m) == body2 and sim.market_is_owned(m):
 					line += "  ·  [color=#9fd8ff]your market[/color]"
 					break
 			t += line + "\n"
@@ -3094,7 +3190,7 @@ func _refresh_empire() -> void:
 		var fac_i: int = sim.colony_faction(i)
 		var name := String(sim.colony_name(i))
 		var garrison: int = sim.colony_garrison(i)
-		if fac_i == 3:  # Independents — buyable / annexable
+		if fac_i == 3:
 			any_target = true
 			var cost: int = sim.colony_acquire_cost(i)
 			var annex := "  ·  annex" if sim.colony_annexable(i) else ""
@@ -3108,7 +3204,6 @@ func _refresh_empire() -> void:
 		var name2 := String(sim.colony_name(i))
 		var fac2 := _faction_name(sim.colony_faction(i))
 		t += "[color=#e0b0b0]⚔ %s[/color]  (%s)  ·  garrison %d\n" % [name2, fac2, sim.colony_garrison(i)]
-	# Independent companies — the negotiable actors (E8). Macro diplomacy.
 	if sim.company_count() > 0:
 		t += "\n[color=#9fb0c0]── INDEPENDENT RELATIONS  (Influence %d) ──[/color]\n" % sim.influence()
 		var stance_names := ["Rival", "Cold", "Neutral", "Partner", "Ally"]
@@ -3166,19 +3261,41 @@ func _build_diplomacy_view() -> void:
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_content.add_child(panel)
 	_views.append(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	panel.add_child(v)
-	v.add_child(UiKit.kicker("The Great Powers — your standing"))
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 8)
+	panel.add_child(root)
+
+	# View header.
+	root.add_child(UiKit.view_header("DIPLOMACY",
+		"Engage with independent companies and navigate the great powers."))
+	root.add_child(UiKit.rule())
+
+	# Two-column body.
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 14)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+
+	# Left: faction standings.
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(260, 0)
+	left.add_theme_constant_override("separation", 6)
+	body.add_child(left)
+	left.add_child(UiKit.kicker("THE GREAT POWERS"))
 	_dip_powers = VBoxContainer.new()
-	_dip_powers.add_theme_constant_override("separation", 4)
-	v.add_child(_dip_powers)
-	v.add_child(UiKit.rule())
-	v.add_child(UiKit.kicker("Independent Companies — court them with Influence"))
+	_dip_powers.add_theme_constant_override("separation", 6)
+	left.add_child(_dip_powers)
+
+	# Right: independent companies (scrollable).
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 6)
+	body.add_child(right)
+	right.add_child(UiKit.kicker("INDEPENDENT COMPANIES — court with Influence"))
 	var sc := ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(sc)
+	right.add_child(sc)
 	_dip_companies = VBoxContainer.new()
 	_dip_companies.add_theme_constant_override("separation", 6)
 	_dip_companies.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3186,17 +3303,44 @@ func _build_diplomacy_view() -> void:
 
 
 func _refresh_diplomacy() -> void:
+	# Great powers: cards with standing bar.
 	for c in _dip_powers.get_children():
 		c.queue_free()
+	var faction_descs := ["United Nations · Earth & Luna", "MCRN · Mars", "OPA · Belt", "Independent"]
 	for f in 4:
 		var st: int = sim.faction_standing(f)
+		var tier_name := String(sim.faction_tier(f))
 		var col := UiKit.GOOD if st > 50 else (UiKit.BAD if st < -50 else UiKit.TEXT)
-		_dip_powers.add_child(UiKit.label("[%s] %s — standing %d (%s)" % [
-			_FAC_COL_NAME(f), String(sim.faction_name(f)), st, String(sim.faction_tier(f))], 13, col))
+		var card := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 6)
+		var cv := VBoxContainer.new()
+		cv.add_theme_constant_override("separation", 4)
+		card.add_child(cv)
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 8)
+		cv.add_child(top)
+		top.add_child(UiKit.dot(col))
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		top.add_child(info)
+		info.add_child(UiKit.label(String(sim.faction_name(f)), 14, UiKit.TEXT_HI))
+		info.add_child(UiKit.label(faction_descs[clampi(f, 0, 3)], 10, UiKit.TEXT_DIM))
+		var right_v := VBoxContainer.new()
+		right_v.alignment = BoxContainer.ALIGNMENT_CENTER
+		top.add_child(right_v)
+		var st_sign := "+" if st >= 0 else ""
+		right_v.add_child(UiKit.label("%s%d" % [st_sign, st], 14, col))
+		right_v.add_child(UiKit.label(tier_name, 10, UiKit.TEXT_DIM))
+		# Standing bar: filled proportionally in [-500, 500].
+		var ratio := clampf((float(st) + 500.0) / 1000.0, 0.0, 1.0)
+		cv.add_child(UiKit.gauge(ratio, col, 0, 6))
+		_dip_powers.add_child(card)
+
+	# Independent companies.
 	for c in _dip_companies.get_children():
 		c.queue_free()
 	if sim.company_count() == 0:
 		_dip_companies.add_child(UiKit.label("(no independent companies in range)", 12, UiKit.TEXT_DIM))
+		return
 	var stance_names := ["Rival", "Cold", "Neutral", "Partner", "Ally"]
 	var stance_cols := [UiKit.BAD, UiKit.TEXT_DIM, UiKit.TEXT, Color(0.62, 0.85, 1.0), UiKit.GOOD]
 	for i in sim.company_count():
@@ -3204,12 +3348,16 @@ func _refresh_diplomacy() -> void:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 10)
 		row.add_child(hb)
+		var s: int = sim.company_stance(i)
+		hb.add_child(UiKit.dot(stance_cols[s]))
 		var info := VBoxContainer.new()
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		hb.add_child(info)
-		var s: int = sim.company_stance(i)
-		info.add_child(UiKit.label("🤝 %s" % String(sim.company_name(i)), 14, UiKit.TEXT_HI))
-		info.add_child(UiKit.label("%s  ·  relation %d" % [stance_names[s], sim.company_relation(i)], 11, stance_cols[s]))
+		info.add_child(UiKit.label(String(sim.company_name(i)), 14, UiKit.TEXT_HI))
+		var rel: int = sim.company_relation(i)
+		info.add_child(UiKit.label("%s  ·  relation %d" % [stance_names[s], rel], 11, stance_cols[s]))
+		# Relation progress bar (0-100).
+		info.add_child(UiKit.gauge(clampf(float(rel) / 100.0, 0.0, 1.0), stance_cols[s], 0, 5))
 		if s < 4:
 			hb.add_child(_make_op_button("Court", _court_company_idx.bind(i)))
 		else:
@@ -3839,6 +3987,16 @@ func _refresh_fleet() -> void:
 			if _refit_lbl.has(kind):
 				var mid := _refit_model_id(kind)
 				(_refit_lbl[kind] as Label).text = "—" if mid < 0 else String(sim.weapon_name(mid))
+	# Rebuild the fleet stat strip.
+	for c in _fleet_strip.get_children():
+		c.queue_free()
+	var total_fleet: int = sim.fleet_size() + sim.freighters()
+	var on_station: int = sim.warships_on_station()
+	_fleet_strip.add_child(UiKit.stat_card("TOTAL SHIPS", str(total_fleet)))
+	_fleet_strip.add_child(UiKit.stat_card("WARSHIPS", str(sim.fleet_size())))
+	_fleet_strip.add_child(UiKit.stat_card("FREIGHTERS", str(sim.freighters())))
+	_fleet_strip.add_child(UiKit.stat_card("ON STATION", str(on_station)))
+	_fleet_strip.add_child(UiKit.stat_card("CREW", str(sim.trained_crew())))
 	for c in _fleet_grid.get_children():
 		c.queue_free()
 	for h in ["SHIP", "STATUS", "TYPE", "LOCATION", "ASSIGNMENT", "FUEL/AMMO"]:
