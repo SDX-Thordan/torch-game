@@ -177,6 +177,8 @@ var _sys_now: Label
 var _defend_holdings_btn: Button
 var _ctx_actions: VBoxContainer            # the contextual-action stack (no persistent buttons)
 var _mine_btn: Button
+var _miner_tier_btn: Button                   # cycles the miner class to deploy (0/1/2)
+var miner_tier := 0                            # 0 Prospector · 1 Harvester · 2 Refinery Barge
 var _withdraw_btn: Button
 var _outpost_btn: Button
 var _dev_outpost_btn: Button
@@ -1072,7 +1074,11 @@ func _build_systems_view() -> void:
 	_ctx_actions = fo
 	# Every verb here is keyed to what you *tapped* (set visible in `_refresh_systems`):
 	# the object is the centre, and only the actions it affords appear.
-	# — A belt/outer-moon site: send an autonomous miner, or recall the one working it.
+	# — A belt/outer-moon site: send an autonomous miner (tiered — cycle the class), or
+	#   recall the one working it.
+	_miner_tier_btn = _make_op_button("◇ Class: Prospector", _cycle_miner_tier)
+	_miner_tier_btn.visible = false
+	fo.add_child(_miner_tier_btn)
 	_mine_btn = _make_op_button("⛏ Send Miner", _deploy_miner)
 	_mine_btn.visible = false
 	fo.add_child(_mine_btn)
@@ -1283,6 +1289,14 @@ func _resolve_decision(opt: int) -> void:
 
 ## Buy + deploy a miner at the focused body (early-game industry) — it mines that body's
 ## raw into your warehouse. Tap a body first to choose where (and what) to mine.
+## Cycle the mining-ship class to deploy (Prospector → Harvester → Refinery Barge).
+func _cycle_miner_tier() -> void:
+	miner_tier = (miner_tier + 1) % 3
+	status = "Mining rig: %s — %s cr, ×%d yield, %d crew." % [
+		String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier)),
+		sim.miner_class_yield(miner_tier), sim.miner_class_crew(miner_tier)]
+
+
 func _deploy_miner() -> void:
 	if _focus_body <= 0 or sim.body_kind(_focus_body) == 5:
 		status = "Tap a body first (an asteroid/moon), then ⛏ MINE its mineral."
@@ -1290,8 +1304,9 @@ func _deploy_miner() -> void:
 	if not sim.can_mine_body(_focus_body):
 		status = "Off-limits — miners work only the belts & outer moons/rings, not the Earth/Mars AO."
 		return
-	var msg := String(sim.buy_miner(_focus_body))
-	status = msg if msg != "" else "Can't deploy a miner — need 9,000 cr (or the miner cap is reached)."
+	var msg := String(sim.commission_miner(_focus_body, miner_tier))
+	status = msg if msg != "" else "Can't deploy a %s — need %s cr (or the miner cap is reached)." % [
+		String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
 
 
 ## Recall the miner working the focused body (the "until withdrawn" half of the loop).
@@ -3499,7 +3514,7 @@ func _ledger_sort_by(col: int) -> void:
 func _ledger_columns(t: int) -> Array:
 	match t:
 		0: return ["Ship", "Location", "Status", "Battles", "Won", "Age (d)"]
-		1: return ["Body", "Mineral", "Output/t", "On outpost"]
+		1: return ["Rig", "Class", "Body", "Mineral", "Output/t", "On outpost"]
 		2: return ["Body", "Level", "Status", "Tribute/t"]
 		3: return ["Colony", "Faction", "Control", "Dev", "Supplies"]
 		_: return ["Market", "Body", "Yours"]
@@ -3518,8 +3533,12 @@ func _ledger_rows(t: int) -> Array:
 			for i in sim.miner_count():
 				var mb := sim.miner_body(i)
 				var boosted: bool = sim.outpost_level_at(mb) > 0
-				rows.append([String(sim.body_name(mb)), String(sim.body_mineral_name(mb)),
-					(3 if boosted else 2), ("✦ +50%" if boosted else "—")])
+				var cls := sim.miner_class(i)
+				var base: int = 2 * sim.miner_class_yield(cls)   # MINER_OUTPUT_PER_TICK × tier
+				var outp: int = base + (base / 2 if boosted else 0)
+				rows.append([String(sim.miner_name(i)), String(sim.miner_class_name(cls)),
+					String(sim.body_name(mb)), String(sim.body_mineral_name(mb)),
+					outp, ("✦ +50%" if boosted else "—")])
 		2:
 			for i in sim.outpost_count():
 				var ob := sim.outpost_body(i)
@@ -3801,9 +3820,11 @@ func _refresh_object_panel() -> void:
 				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
 		if sim.miner_at(fb):
-			detail = "[color=#f0a030]⛏ Miner working here[/color] — extracting [color=#cfd8e0]%s[/color]" % String(sim.body_mineral_name(fb))
+			var mcls := sim.miner_class_at(fb)
+			detail = "[color=#f0a030]⛏ %s[/color] working here — extracting [color=#cfd8e0]%s[/color] (×%d yield)" % [
+				String(sim.miner_class_name(mcls)), String(sim.body_mineral_name(fb)), sim.miner_class_yield(mcls)]
 		else:
-			detail = "Mineable %s — yields [color=#cfd8e0]%s[/color]" % [kind.to_lower(), String(sim.body_mineral_name(fb))]
+			detail = "Mineable %s — yields [color=#cfd8e0]%s[/color]\n[color=#7a8696]Deploy a mining rig: Prospector / Harvester / Refinery Barge (cycle the class below).[/color]" % [kind.to_lower(), String(sim.body_mineral_name(fb))]
 	_sys_sub.text = sub
 	_sys_object.text = detail
 	_sys_object.visible = detail != ""
@@ -3851,7 +3872,13 @@ func _refresh_systems() -> void:
 		var coni := _contested_index_for_body(fb)
 		var owned: bool = ci >= 0 and sim.colony_controlled(ci)
 		var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
-		_mine_btn.visible = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
+		var can_mine_here: bool = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
+		_mine_btn.visible = can_mine_here
+		_miner_tier_btn.visible = can_mine_here
+		if can_mine_here:
+			_miner_tier_btn.text = "◇ Class: %s" % String(sim.miner_class_name(miner_tier))
+			_mine_btn.text = "⛏ Send %s (%s)" % [
+				String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
 		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
 		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
 		var outpost_ready: bool = has_outpost and not outpost_building
@@ -4384,7 +4411,9 @@ func _refresh_outliner() -> void:
 		_outliner_group("Miners (%d)" % sim.miner_count())
 		for i in sim.miner_count():
 			var mb: int = sim.miner_body(i)
-			_outliner_row("⛏", String(sim.body_name(mb)), mb, V_SYSTEMS)
+			var nm := String(sim.miner_name(i))
+			var label := "%s · %s" % [nm, String(sim.body_name(mb))] if nm != "" else String(sim.body_name(mb))
+			_outliner_row("⛏", label, mb, V_SYSTEMS)
 	# Your built stations (outpost → colony → hub → capital).
 	if sim.outpost_count() > 0:
 		_outliner_group("Stations (%d)" % sim.outpost_count())

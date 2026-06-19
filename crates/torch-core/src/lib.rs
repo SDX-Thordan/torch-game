@@ -1752,6 +1752,72 @@ impl TorchSim {
             .unwrap_or(-1)
     }
 
+    /// Miner `i`'s christened call-sign (e.g. "Pallas Pick"), or "".
+    #[func]
+    fn miner_name(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .miners()
+                .get(i.max(0) as usize)
+                .map(|m| m.name.as_str())
+                .unwrap_or(""),
+        )
+    }
+
+    /// Miner `i`'s class index (0 Prospector · 1 Harvester · 2 Refinery Barge).
+    #[func]
+    fn miner_class(&self, i: i64) -> i64 {
+        self.sim
+            .miners()
+            .get(i.max(0) as usize)
+            .map(|m| match m.class {
+                sim::world::MinerClass::Prospector => 0,
+                sim::world::MinerClass::Harvester => 1,
+                sim::world::MinerClass::RefineryBarge => 2,
+            })
+            .unwrap_or(0)
+    }
+
+    /// The class index of the miner working `body` (0/1/2), or -1 if none.
+    #[func]
+    fn miner_class_at(&self, body: i64) -> i64 {
+        let b = body.max(0) as usize;
+        self.sim
+            .miners()
+            .iter()
+            .find(|m| m.body == b)
+            .map(|m| match m.class {
+                sim::world::MinerClass::Prospector => 0,
+                sim::world::MinerClass::Harvester => 1,
+                sim::world::MinerClass::RefineryBarge => 2,
+            })
+            .unwrap_or(-1)
+    }
+
+    /// Display name for miner class index `c` ("Prospector"/"Harvester"/"Refinery Barge").
+    #[func]
+    fn miner_class_name(&self, c: i64) -> GString {
+        GString::from(sim::world::MinerClass::from_index(c).name())
+    }
+
+    /// Credit cost of miner class index `c`.
+    #[func]
+    fn miner_class_cost(&self, c: i64) -> i64 {
+        sim::world::MinerClass::from_index(c).cost()
+    }
+
+    /// Trained crew miner class index `c` ties up.
+    #[func]
+    fn miner_class_crew(&self, c: i64) -> i64 {
+        sim::world::MinerClass::from_index(c).crew()
+    }
+
+    /// Yield multiplier (×N over the base rate) of miner class index `c`.
+    #[func]
+    fn miner_class_yield(&self, c: i64) -> i64 {
+        sim::world::MinerClass::from_index(c).yield_mult()
+    }
+
     /// The raw mineral mining `body` would yield (commodity name) — the deploy hint.
     #[func]
     fn body_mineral_name(&self, body: i64) -> GString {
@@ -1766,18 +1832,34 @@ impl TorchSim {
         self.sim.can_mine_body(body.max(0) as usize)
     }
 
-    /// Buy + deploy a miner at `body`. Returns a feedback message (empty on failure).
+    /// Buy + deploy a base Prospector miner at `body`. Returns a feedback message.
     #[func]
     fn buy_miner(&mut self, body: i64) -> GString {
+        self.commission_miner(body, 0)
+    }
+
+    /// Commission a mining ship of class `c` (0 Prospector · 1 Harvester · 2 Refinery Barge)
+    /// at `body` — the tiered dedicated-ship version. Returns a feedback message (empty on
+    /// failure).
+    #[func]
+    fn commission_miner(&mut self, body: i64, c: i64) -> GString {
         let b = body.max(0) as usize;
-        match self.sim.buy_miner(b) {
+        let class = sim::world::MinerClass::from_index(c);
+        match self.sim.commission_miner(b, class) {
             Ok(()) => {
-                let c = self.sim.body_mineral(b);
+                let m = self.sim.body_mineral(b);
                 GString::from(format!(
-                    "Miner deployed — mining {} for your warehouse.",
-                    self.sim.markets()[0].defs()[c].name
+                    "{} deployed — mining {} for your warehouse (×{} yield).",
+                    class.name(),
+                    self.sim.markets()[0].defs()[m].name,
+                    class.yield_mult()
                 ))
             }
+            Err(sim::world::MinerError::NoCrew) => GString::from(format!(
+                "Not enough trained crew — a {} needs {} crew.",
+                class.name(),
+                class.crew()
+            )),
             Err(_) => GString::new(),
         }
     }
