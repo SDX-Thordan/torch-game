@@ -146,7 +146,7 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   uninhabited body (Build Outpost), **develop** it through levels (each pays a per-level credit
   tribute), and a **co-located miner hauls to it for +50%** output. Wired to the object panel +
   contextual verbs. Player-only ⇒ byte-identical.
-- [~] **Outpost → colony progression** — full chain: found outpost → develop (L1-5) → build Mine/Storage/Hangar → **grow population by supplying Ice** (the basic good; gates promotion) → promote to Colony (3× yield). Next rungs: colony→hub→capital, Storage/Hangar effects, per-asset inventory (#10).
+- [~] **Outpost → colony → hub → capital progression** — full ladder: found outpost → develop (L1-5) → build Mine/Storage/Hangar → **grow population by supplying Ice** (the basic good; gates each promotion) → promote up the rungs (Colony ×3 / Hub ×6 / Capital ×12 yield), each gated on a rising population threshold (700/1400/2400) + credits (90k×rank) + a multi-year build, with only one Capital allowed. Next: Hub as a trading endpoint hosting a shipyard, deeper Storage/Hangar effects, per-asset freighter hauling (#10).
   production, each a building with its own effect) instead of a flat level; an outpost
   **developing into a named colony** (joining the holdings/colony track); and true
   **miner→nearest-station routing** (today the boost is on-body co-location). Shell-ready.

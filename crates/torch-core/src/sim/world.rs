@@ -248,6 +248,25 @@ pub const FAC_ALL: u8 = FAC_MINE | FAC_STORAGE | FAC_HANGAR;
 /// Settlement ranks.
 pub const RANK_OUTPOST: u8 = 0;
 pub const RANK_COLONY: u8 = 1;
+pub const RANK_HUB: u8 = 2;
+pub const RANK_CAPITAL: u8 = 3;
+/// Yield multiplier by rank — a settlement out-produces the rung below it.
+pub fn rank_yield_mult(rank: u8) -> i64 {
+    match rank {
+        RANK_COLONY => 3,
+        RANK_HUB => 6,
+        RANK_CAPITAL => 12,
+        _ => 1,
+    }
+}
+/// Population needed to promote **out of** the given rank (to the next one).
+pub fn promote_pop_threshold(rank: u8) -> i64 {
+    match rank {
+        RANK_OUTPOST => 700,  // → Colony
+        RANK_COLONY => 1_400, // → Hub
+        _ => 2_400,           // Hub → Capital
+    }
+}
 
 impl Outpost {
     /// Whether the outpost's current construction has finished (it's operational).
@@ -404,7 +423,6 @@ const OUTPOST_MINE_OUTPUT: i64 = 2;
 /// **triples** its yield (tribute + production). The headline progression step.
 const OUTPOST_PROMOTE_COST: i64 = 90_000;
 const OUTPOST_PROMOTE_TICKS: u64 = 2160;
-const COLONY_RANK_MULT: i64 = 3;
 /// Population: the basic good is **Ice** (commodity 0). A supplied outpost draws settlers; an
 /// unsupplied one stagnates. Promotion to a colony needs `PROMOTE_POP` people.
 const ICE_COMMODITY: usize = 0;
@@ -1997,7 +2015,8 @@ impl Sim {
 
     /// Whether the outpost at `body` has facility `kind` (a `FAC_*` bit) built.
     pub fn outpost_has_facility(&self, body: usize, kind: u8) -> bool {
-        self.outpost_at(body).is_some_and(|o| o.facilities & kind != 0)
+        self.outpost_at(body)
+            .is_some_and(|o| o.facilities & kind != 0)
     }
 
     /// The local-storage capacity of `o` — deepened by a Storage facility, scaled by level (§10).
@@ -2039,31 +2058,41 @@ impl Sim {
         Ok(())
     }
 
-    /// Whether the outpost at `body` is ready to be **promoted to a colony**: operational, still
-    /// an outpost (not yet promoted), at max level, with all three facilities built.
+    /// Whether the player already holds a Capital (only one is allowed — the late-game seat).
+    pub fn has_capital(&self) -> bool {
+        self.outposts.iter().any(|o| o.rank >= RANK_CAPITAL)
+    }
+
+    /// Whether the settlement at `body` is ready to **promote to the next rank** (outpost →
+    /// colony → hub → capital): operational, below Capital, maxed level, all facilities built,
+    /// and enough population. Only **one** Capital is allowed.
     pub fn can_promote_outpost(&self, body: usize) -> bool {
+        let capital_held = self.has_capital();
         self.outpost_at(body).is_some_and(|o| {
             o.is_ready(self.tick)
-                && o.rank == RANK_OUTPOST
+                && o.rank < RANK_CAPITAL
                 && o.level >= MAX_OUTPOST_LEVEL
                 && o.facilities & FAC_ALL == FAC_ALL
-                && o.population >= PROMOTE_POP
+                && o.population >= promote_pop_threshold(o.rank)
+                && (o.rank != RANK_HUB || !capital_held) // only one Capital
         })
     }
 
-    /// **Promote** a fully-built outpost to a colony (the headline progression step) — a major
-    /// ~1-year build that triples its yield. Gated by [`can_promote_outpost`].
+    /// **Promote** a settlement to its next rank (the headline progression) — a major ~1-year
+    /// build that multiplies its yield. Cost escalates with the target rank.
     pub fn promote_outpost(&mut self, body: usize) -> Result<(), OutpostError> {
         if !self.can_promote_outpost(body) {
             return Err(OutpostError::BadSite);
         }
-        if self.corp.credits() < OUTPOST_PROMOTE_COST {
+        let next = self.outpost_at(body).map(|o| o.rank + 1).unwrap_or(1);
+        let cost = OUTPOST_PROMOTE_COST * next as i64;
+        if self.corp.credits() < cost {
             return Err(OutpostError::CantAfford);
         }
-        self.corp.debit(OUTPOST_PROMOTE_COST);
+        self.corp.debit(cost);
         let tick = self.tick;
         if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
-            o.rank = RANK_COLONY;
+            o.rank = next;
             o.ready_tick = tick + OUTPOST_PROMOTE_TICKS;
         }
         self.complete_op();
@@ -2141,7 +2170,7 @@ impl Sim {
             );
         }
         // A promoted colony triples its yield (tribute + production) over a bare outpost.
-        let rank_mult = |o: &Outpost| if o.rank >= RANK_COLONY { COLONY_RANK_MULT } else { 1 };
+        let rank_mult = |o: &Outpost| rank_yield_mult(o.rank);
         let tribute: i64 = self
             .outposts
             .iter()
@@ -2183,7 +2212,10 @@ impl Sim {
             if !self.outposts[i].is_ready(tick) {
                 continue;
             }
-            let cap = self.outposts[i].level * POP_CAP_PER_LEVEL;
+            // Population cap grows with both level and rank, so a colony can grow the people a
+            // hub needs, and a hub the people a capital needs.
+            let cap =
+                self.outposts[i].level * POP_CAP_PER_LEVEL * (self.outposts[i].rank as i64 + 1);
             let fed = self.corp.cargo(ICE_COMMODITY) >= ICE_FEED_PER_TICK;
             let pop = self.outposts[i].population;
             if fed && pop < cap {
@@ -3907,7 +3939,9 @@ impl Sim {
     /// The credit cost to raise colony `i` one development level (escalates with level).
     /// `None` if it can't be developed (not controlled, maxed, or a build is in progress).
     pub fn develop_cost(&self, i: usize) -> Option<i64> {
-        if !self.colony_controlled(i) || self.colony_dev(i) >= MAX_DEV || self.colony_build_days(i) > 0
+        if !self.colony_controlled(i)
+            || self.colony_dev(i) >= MAX_DEV
+            || self.colony_build_days(i) > 0
         {
             return None;
         }
@@ -6358,7 +6392,11 @@ mod tests {
         assert_eq!(sim.outpost_build_remaining(body), Some(180));
         let c0 = sim.corp().credits();
         sim.step();
-        assert_eq!(sim.corp().credits(), c0, "an outpost under construction pays nothing");
+        assert_eq!(
+            sim.corp().credits(),
+            c0,
+            "an outpost under construction pays nothing"
+        );
         // Fast-forward past the build: it comes online and pays tribute.
         while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
             sim.step();
@@ -6366,7 +6404,10 @@ mod tests {
         assert!(sim.outpost_build_remaining(body).is_none());
         let c1 = sim.corp().credits();
         sim.step();
-        assert!(sim.corp().credits() > c1, "an operational outpost pays tribute");
+        assert!(
+            sim.corp().credits() > c1,
+            "an operational outpost pays tribute"
+        );
         // A miner on the (ready) outpost's body hauls to the on-site station: +50% output.
         let mineral = sim.body_mineral(body);
         sim.buy_miner(body).unwrap();
@@ -6416,7 +6457,10 @@ mod tests {
         for _ in 0..10 {
             sim.step();
         }
-        assert!(sim.outpost_stored(body).0 > 0, "a Mine fills the local store");
+        assert!(
+            sim.outpost_stored(body).0 > 0,
+            "a Mine fills the local store"
+        );
         assert_eq!(
             sim.corp().cargo(mineral),
             wh_before,
@@ -6470,7 +6514,10 @@ mod tests {
         while sim.outpost_at(body).unwrap().population < PROMOTE_POP {
             sim.step();
         }
-        assert!(sim.can_promote_outpost(body), "maxed + facilities + population ⇒ promotable");
+        assert!(
+            sim.can_promote_outpost(body),
+            "maxed + facilities + population ⇒ promotable"
+        );
         assert_eq!(sim.outpost_at(body).unwrap().rank, RANK_OUTPOST);
         sim.corp_mut().credit(100_000);
         sim.promote_outpost(body).unwrap();
@@ -6481,7 +6528,59 @@ mod tests {
         for _ in 0..30 {
             sim.step();
         }
-        assert!(sim.corp().credits() > c0, "a promoted colony pays a fat tribute");
+        assert!(
+            sim.corp().credits() > c0,
+            "a promoted colony pays a fat tribute"
+        );
+    }
+
+    #[test]
+    fn a_colony_climbs_through_hub_to_a_single_capital() {
+        // The full ladder: Outpost → Colony → Hub → Capital. Each rung needs the prior
+        // promotion finished, more population, and more credits; there can be only one Capital.
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(50_000_000);
+        let body = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Io")
+            .unwrap();
+        sim.found_outpost(body).unwrap();
+        let finish_build = |sim: &mut Sim| {
+            while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+                sim.step();
+            }
+        };
+        finish_build(&mut sim);
+        while sim.outpost_at(body).unwrap().level < MAX_OUTPOST_LEVEL {
+            sim.corp_mut().credit(200_000);
+            sim.develop_outpost(body).unwrap();
+            finish_build(&mut sim);
+        }
+        for kind in [FAC_MINE, FAC_STORAGE, FAC_HANGAR] {
+            sim.corp_mut().credit(200_000);
+            sim.build_facility(body, kind).unwrap();
+            finish_build(&mut sim);
+        }
+        sim.corp_mut().store(ICE_COMMODITY, 100_000); // plenty to grow on
+                                                      // Walk the three promotions, each gated on its own (rising) population threshold.
+        for expected in [RANK_COLONY, RANK_HUB, RANK_CAPITAL] {
+            let need = promote_pop_threshold(expected - 1);
+            while sim.outpost_at(body).unwrap().population < need {
+                sim.corp_mut().store(ICE_COMMODITY, 1_000); // keep it fed
+                sim.step();
+            }
+            assert!(
+                sim.can_promote_outpost(body),
+                "rung {expected}: maxed + facilities + population ⇒ promotable"
+            );
+            sim.corp_mut().credit(1_000_000);
+            sim.promote_outpost(body).unwrap();
+            assert_eq!(sim.outpost_at(body).unwrap().rank, expected);
+            finish_build(&mut sim);
+        }
+        assert!(sim.has_capital());
+        // A Capital is the top — no further promotion.
+        assert!(!sim.can_promote_outpost(body), "Capital is the top rung");
     }
 
     #[test]

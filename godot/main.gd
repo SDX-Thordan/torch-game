@@ -1306,12 +1306,13 @@ func _build_facility(kind: int) -> void:
 
 ## Promote the focused (fully-built) outpost to a colony.
 func _promote_outpost_here() -> void:
+	var next := String(sim.outpost_next_rank_name(_focus_body))
 	var msg := String(sim.promote_outpost(_focus_body))
 	if msg != "":
 		ascend_flash = 1.0
 		status = msg
 	else:
-		status = "Can't promote — the outpost must be maxed, fully facilitated, and you need 90,000 cr."
+		status = "Can't promote to %s — it must be maxed, fully facilitated, hold enough population, and you need the credits." % next
 
 
 ## Buy out the independent colony on the focused body — a mid-game goal (much pricier than
@@ -3630,10 +3631,12 @@ func _refresh_object_panel() -> void:
 			# Still under construction — the slow "set it and wait" build (~180 days).
 			detail = "[color=#e6c860]⚙ Under construction[/color] — [color=#cfd8e0]%d days[/color] until it comes online (L%d)." % [bdays, lvl]
 		else:
-			var is_colony: bool = sim.outpost_rank(fb) >= 1
-			var rank_name := "Colony" if is_colony else "Outpost"
+			var rank: int = sim.outpost_rank(fb)
+			var rank_name := String(sim.outpost_rank_name(fb))
+			var glyphs: Array = ["⚑", "★", "✦", "♔"]
+			var glyph: String = glyphs[clampi(rank, 0, 3)]
 			sub = "Your %s  ·  %s" % [rank_name.to_lower(), kind]
-			detail = "[color=#78e68c]%s %s[/color] — level [color=#e6c860]L%d[/color]" % ["★" if is_colony else "⚑", rank_name, lvl]
+			detail = "[color=#78e68c]%s %s[/color] — level [color=#e6c860]L%d[/color]" % [glyph, rank_name, lvl]
 			var ocost: int = sim.outpost_develop_cost(fb)
 			detail += "  [color=#7a8696](→L%d: %s cr, ~120 days)[/color]" % [lvl + 1, _commas(ocost)] if ocost >= 0 else "  [color=#7a8696](max)[/color]"
 			# Facilities — the progression rungs (Mine = produces raw goods).
@@ -3651,17 +3654,19 @@ func _refresh_object_panel() -> void:
 				var ship := "[color=#78e68c]→ shipped to your warehouse[/color]" if sim.outpost_has_facility(fb, 2) else "[color=#e6a060]⚠ no Hangar — stuck on-site[/color]"
 				detail += "\nStored %s: [color=#cfd8e0]%s/%s[/color]  %s" % [String(sim.body_mineral_name(fb)), _commas(stored), _commas(scap), ship]
 			var pop: int = sim.outpost_population(fb)
-			var pop_need: int = sim.outpost_promote_population()
+			var pop_need: int = sim.outpost_promote_population(fb)
+			var next_rank := String(sim.outpost_next_rank_name(fb))
 			var has_ice: bool = sim.cargo(_idx_water) >= 1
 			detail += "\nPopulation: [color=#cfd8e0]%d[/color] %s" % [pop, ("[color=#78e68c](↑ growing — fed Ice)[/color]" if has_ice else "[color=#e6a060](stalled — supply Ice to grow)[/color]")]
-			if is_colony:
-				detail += "\n[color=#9fd8ff]★ Promoted colony — triple yield.[/color]"
+			detail += "  ·  yield ×%d" % int(([1, 3, 6, 12] as Array)[clampi(rank, 0, 3)])
+			if rank >= 3:
+				detail += "\n[color=#9fd8ff]♔ Your Capital — the seat of your power.[/color]"
 			elif not sim.outpost_has_facility(fb, 0):
 				detail += "\n[color=#e6a060]⚠ No Mine — produces no raw goods yet (only tribute).[/color]"
 			elif sim.can_promote_outpost(fb):
-				detail += "\n[color=#78e68c]★ Ready to promote to a Colony (★ verb below).[/color]"
+				detail += "\n[color=#78e68c]★ Ready to promote to a %s (★ verb below).[/color]" % next_rank
 			elif pop < pop_need:
-				detail += "\n[color=#7a8696]To promote: max level + all facilities + %d/%d population.[/color]" % [pop, pop_need]
+				detail += "\n[color=#7a8696]To %s: max level + all facilities + %d/%d population.[/color]" % [next_rank, pop, pop_need]
 			if sim.miner_at(fb):
 				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
@@ -3727,6 +3732,8 @@ func _refresh_systems() -> void:
 		_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
 		_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
 		_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
+		if _promote_btn.visible:
+			_promote_btn.text = "★ Promote to %s" % String(sim.outpost_next_rank_name(fb))
 		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
 		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
 		_court_btn.visible = coni >= 0 and not owned
