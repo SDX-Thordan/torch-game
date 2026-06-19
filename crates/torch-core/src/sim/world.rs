@@ -191,11 +191,94 @@ pub enum CraftError {
 }
 
 /// A deployed mining ship (early industry): stationed at a body, it extracts the body's
-/// raw mineral into your warehouse each tick. Cheap + civilian (from Tycho).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// A mining ship's **class** (§8e) — the dedicated extractor now comes in tiers, each a
+/// pricier, crew-heavier, higher-yield asset. The base **Prospector** is the cheap first
+/// step (byte-identical to the old single miner); the **Harvester** and **Refinery Barge**
+/// are deliberate mid-game investments — every hull is a costly asset that gates expansion.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MinerClass {
+    #[default]
+    Prospector,
+    Harvester,
+    RefineryBarge,
+}
+
+impl MinerClass {
+    /// Output multiplier over the base extraction rate.
+    pub fn yield_mult(self) -> i64 {
+        match self {
+            MinerClass::Prospector => 1,
+            MinerClass::Harvester => 3,
+            MinerClass::RefineryBarge => 6,
+        }
+    }
+    /// Purchase price — the Prospector keeps the original [`MINER_COST`].
+    pub fn cost(self) -> i64 {
+        match self {
+            MinerClass::Prospector => MINER_COST,
+            MinerClass::Harvester => 30_000,
+            MinerClass::RefineryBarge => 75_000,
+        }
+    }
+    /// Trained crew the hull ties up — the §8c bottleneck as the real gate (the Prospector
+    /// is crewless to keep the early first-move byte-identical; the bigger rigs cost crew).
+    pub fn crew(self) -> i64 {
+        match self {
+            MinerClass::Prospector => 0,
+            MinerClass::Harvester => 10,
+            MinerClass::RefineryBarge => 24,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            MinerClass::Prospector => "Prospector",
+            MinerClass::Harvester => "Harvester",
+            MinerClass::RefineryBarge => "Refinery Barge",
+        }
+    }
+    /// 0/1/2 round-trip for the shell.
+    pub fn from_index(i: i64) -> MinerClass {
+        match i {
+            1 => MinerClass::Harvester,
+            2 => MinerClass::RefineryBarge,
+            _ => MinerClass::Prospector,
+        }
+    }
+}
+
+/// Evocative call-signs for mining rigs, assigned by deployment order (deterministic — no
+/// RNG draw, so buying a miner never perturbs the shared market RNG, §27).
+const MINER_NAMES: [&str; 12] = [
+    "Pallas Pick",
+    "Dusty Maru",
+    "Ceres Mole",
+    "Vesta Digger",
+    "Rock Hopper",
+    "Deep Seam",
+    "Ironside",
+    "Coreshaper",
+    "Slag Hauler",
+    "Gritwork",
+    "Lodebreaker",
+    "Tailings Joy",
+];
+
+/// A deployed **mining ship** (§3.1) — a dedicated, named, tiered hull stationed at a body,
+/// extracting its raw mineral into your warehouse each tick. The early industrial step.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Miner {
     pub body: usize,
     pub commodity: usize,
+    /// The rig's class/tier — scales yield, cost, and crew. Defaults to Prospector so old
+    /// saves (and the byte-identical first move) read as the original single miner.
+    #[serde(default)]
+    pub class: MinerClass,
+    /// Christened call-sign (e.g. "Pallas Pick"); empty for old saves.
+    #[serde(default)]
+    pub name: String,
+    /// Tick it entered service (§14 service history); 0 for old saves.
+    #[serde(default)]
+    pub commissioned_tick: u64,
 }
 
 /// A custom warship design (A2) held in the build queue: the chosen weapon model + count
@@ -232,6 +315,8 @@ pub enum MinerError {
     /// Can't mine here (the sun or the gate).
     BadSite,
     CantAfford,
+    /// Not enough trained crew for this rig's class (the bigger tiers need crew).
+    NoCrew,
 }
 
 /// A player-founded **outpost** — a station planted at a body that develops through levels
@@ -1952,18 +2037,39 @@ impl Sim {
     /// It mines that body's raw into your warehouse each tick. Cheap; the first step.
     /// Restricted to the belts + the outer moons/rings (not the Earth/Mars AO).
     pub fn buy_miner(&mut self, body: usize) -> Result<(), MinerError> {
+        self.commission_miner(body, MinerClass::Prospector)
+    }
+
+    /// Commission a mining ship of `class` at `body` — the tiered version. The Prospector is
+    /// the cheap, crewless first step (so [`buy_miner`] stays byte-identical); the Harvester
+    /// and Refinery Barge are pricier, crew-heavy, higher-yield assets (a real expansion
+    /// gate). The hull is christened by deployment order (no RNG → economy untouched, §27).
+    pub fn commission_miner(&mut self, body: usize, class: MinerClass) -> Result<(), MinerError> {
         if self.miners.len() >= MAX_MINERS {
             return Err(MinerError::Full);
         }
         if !self.can_mine_body(body) {
             return Err(MinerError::BadSite);
         }
-        if self.corp.credits() < MINER_COST {
+        if self.corp.credits() < class.cost() {
             return Err(MinerError::CantAfford);
         }
-        self.corp.debit(MINER_COST);
+        if self.corp.trained_crew() < class.crew() {
+            return Err(MinerError::NoCrew);
+        }
+        self.corp.debit(class.cost());
+        if class.crew() > 0 {
+            self.corp.assign_crew(class.crew());
+        }
         let commodity = self.body_mineral(body);
-        self.miners.push(Miner { body, commodity });
+        let name = MINER_NAMES[self.miners.len() % MINER_NAMES.len()].to_string();
+        self.miners.push(Miner {
+            body,
+            commodity,
+            class,
+            name,
+            commissioned_tick: self.tick,
+        });
         self.complete_op();
         Ok(())
     }
@@ -2363,12 +2469,15 @@ impl Sim {
                 let has_ready_outpost = self
                     .outpost_at(m.body)
                     .is_some_and(|o| o.is_ready(self.tick));
+                // Yield scales with the rig's class (Prospector ×1 keeps the original rate);
+                // a co-located ready outpost still adds its hauling bonus on top.
+                let base = MINER_OUTPUT_PER_TICK * m.class.yield_mult();
                 let bonus = if has_ready_outpost {
-                    MINER_OUTPUT_PER_TICK * OUTPOST_MINER_BONUS_BP / 10_000
+                    base * OUTPOST_MINER_BONUS_BP / 10_000
                 } else {
                     0
                 };
-                (m.commodity, MINER_OUTPUT_PER_TICK + bonus)
+                (m.commodity, base + bonus)
             })
             .collect();
         for (c, qty) in deposits {
@@ -6826,6 +6935,71 @@ mod tests {
             sim.corp().cargo(mineral) >= before + 30 * MINER_OUTPUT_PER_TICK,
             "the miner stocked the warehouse with the body's mineral"
         );
+        // The base buy is a christened, Prospector-class rig (the dedicated-ship treatment).
+        assert_eq!(sim.miners()[0].class, MinerClass::Prospector);
+        assert!(!sim.miners()[0].name.is_empty(), "a miner is christened");
+    }
+
+    #[test]
+    fn miner_tiers_cost_more_and_crew_but_out_yield_the_prospector() {
+        // The dedicated-ship treatment: a Harvester is a pricier, crew-heavy, higher-yield
+        // asset than the base Prospector — every rig a costly asset that gates expansion.
+        let mut sim = Sim::new(0);
+        let belt = sim.markets()[0].body();
+        let mineral = sim.body_mineral(belt);
+        sim.corp_mut().credit(200_000);
+        // A Harvester needs crew the empty pool... actually a fresh corp has crew; drain it
+        // to prove the crew gate bites.
+        let crew0 = sim.corp().trained_crew();
+        assert!(
+            crew0 >= MinerClass::Harvester.crew(),
+            "starting pool covers a Harvester"
+        );
+        // Yield: run a Harvester for 30 ticks and compare to the Prospector base rate.
+        sim.commission_miner(belt, MinerClass::Harvester).unwrap();
+        assert_eq!(sim.miners()[0].class, MinerClass::Harvester);
+        assert!(
+            sim.corp().trained_crew() < crew0,
+            "a Harvester ties up crew (the §8c gate)"
+        );
+        let before = sim.corp().cargo(mineral);
+        for _ in 0..30 {
+            sim.step();
+        }
+        let harvested = sim.corp().cargo(mineral) - before;
+        assert!(
+            harvested >= 30 * MINER_OUTPUT_PER_TICK * MinerClass::Harvester.yield_mult(),
+            "a Harvester out-yields the Prospector ({harvested} units in 30 ticks)"
+        );
+        // The crew gate bites: spend the pool down so a Refinery Barge can't be crewed.
+        sim.corp_mut().credit(200_000);
+        let titan = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Titan")
+            .unwrap();
+        let leave = MinerClass::RefineryBarge.crew() - 1; // one short of what the Barge needs
+        let spend = sim.corp().trained_crew() - leave;
+        sim.corp_mut().assign_crew(spend);
+        assert!(matches!(
+            sim.commission_miner(titan, MinerClass::RefineryBarge),
+            Err(MinerError::NoCrew)
+        ));
+    }
+
+    #[test]
+    fn the_base_miner_buy_is_byte_identical_to_the_prospector_commission() {
+        // buy_miner must stay the exact old behaviour (the QA early-audit first move).
+        let mut a = Sim::new(4);
+        let mut b = Sim::new(4);
+        let belt = a.markets()[0].body();
+        a.buy_miner(belt).unwrap();
+        b.commission_miner(belt, MinerClass::Prospector).unwrap();
+        for _ in 0..50 {
+            a.step();
+            b.step();
+        }
+        assert_eq!(a.corp().credits(), b.corp().credits());
+        assert_eq!(a.miners(), b.miners());
     }
 
     #[test]

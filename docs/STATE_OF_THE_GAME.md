@@ -101,6 +101,22 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   station" model. Remaining: ship fuel/cargo per-hull, the home base as a station, freighters
   hauling from outpost stores.
 
+- [~] **Civilian ships as first-class assets *(active player direction — multi-PR epic)*** — make
+  civilians as rich as warships: tiered, named, costly hulls that gate expansion. **Done so far:**
+  - [x] **Miners as dedicated, tiered ships** — `MinerClass` (Prospector / Harvester / Refinery
+    Barge) scales yield ×1/×3/×6, cost (9k/30k/75k), and **crew** (0/10/24, the real gate); each rig
+    is **christened** (deterministic names, no RNG → economy byte-identical) and shown by name/class in
+    the OUTLINER, object panel, and ledger. `buy_miner` stays the byte-identical Prospector first move.
+  - [ ] **Haulers as tiered ships** — freighters from an `i64` count → individual named haulers
+    (Light/Heavy/Bulk) with tier-scaled cargo capacity (route throughput); the count-pool stays
+    byte-identical for the base tier.
+  - [ ] **Civilian self-defense fitting** — 1–2 PDC mounts on haulers + an OPA **torpedo-hauler**
+    variant (Ramshackle torpedoes only, OPA-standing-gated like the corvette).
+  - [ ] **Convoys** — group haulers + miners into named convoys; a miner paired with a hauler in its
+    convoy works more efficiently (the synergy).
+  - [ ] **Military escort** — warships protect a convoy; the raid/piracy systems resolve escorted vs.
+    unescorted convoys.
+
 ### P1 — The mid/late-game authored arc *(the headline forward direction)*
 The vision's whole middle and end. Design notes in `MID_LATE_GAME_STORY.md`; **subsumes the
 old "war as a state" and "narrative onboarding" items** (they're now this arc). Sequence:
