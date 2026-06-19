@@ -73,9 +73,11 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   the late campaign tiers so "The Gate" isn't framed as the destination.)*
 - [~] **Timed everything** — outpost founding/develop (~180d), shipyard founding/expand (~360/240d), and colony development (~180d) are now multi-day builds with visible countdowns + lagged benefit. Only ship commission is still instant.
   become multi-day builds with a visible countdown (no instant macro actions).
-- [ ] **UI toward the Stellaris-style mockup** — top-bar resource **rates** (+/tick), an
-  **OUTLINER** (sectors/fleets/civilians/shipyards), an **OVERVIEW** home view, a **NOTIFICATIONS**
-  panel, and the object panel's action icons.
+- [~] **UI toward the Stellaris-style mockup** — top-bar resource **rates** (+/tick) ✅ and an
+  **OUTLINER** ✅ (a draggable, collapsible top-left list grouping Fleet / Miners / Stations /
+  Colonies / Shipyard / Markets; each row click-to-jumps the camera + the relevant view, the
+  focused body highlighted; rebuilt only on a content-signature change). Remaining: an
+  **OVERVIEW** home view, a **NOTIFICATIONS** panel, and the object panel's action icons.
 
 - [~] **Per-asset inventory (#10, first slice)** — outposts now hold a **local store** of their
   mineral (not the global warehouse): a Mine fills it, **Storage** deepens the cap, a **Hangar**
