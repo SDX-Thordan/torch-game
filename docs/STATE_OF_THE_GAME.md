@@ -111,6 +111,10 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
 - [x] **Ledger view (EU4-style)** — a 6th nav view: a sortable, tabbed numeric overview of
   every asset class (Fleet / Miners / Outposts / Colonies / Markets) with click-to-sort column
   headers + an asset-summary line. Pure shell over existing bindings (byte-identical).
+- [x] **Gate-as-mystery re-aim (Expanse model)** — removed the always-visible RING-GATE progress
+  bar/% (the §0.1 "carrot from minute one"); the gate mystery now starts **hidden** (nobody knows
+  of the ring or the protomolecule) and lives in a new **Mysteries** ledger tab that escalates
+  N/7 as play turns up fragments. Sets up P1/M1 (the protomolecule thread as a 2nd mystery).
 - [x] **Object-contextual interaction model** — the tapped object is the centre: the right
   panel re-centres on it (identity + a detail block: mineral yield / miner status / contested
   **influence gauge** / colony dev) and the action stack shows only what it affords — **Send/

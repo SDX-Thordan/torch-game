@@ -100,7 +100,10 @@ impl Missions {
                     "Run operations until the Board promotes you to the next tier.",
                 ),
             ],
-            gate_revealed: 1,
+            // The Expanse model: at the start **nobody knows of the ring**. Nothing is
+            // revealed until the player's operations (climbing, salvage) turn up the first
+            // anomaly; the mystery then escalates beat by beat (§0.1, re-aimed).
+            gate_revealed: 0,
         }
     }
 
@@ -158,7 +161,7 @@ impl Missions {
         for (m, &d) in self.opening.iter_mut().zip(done) {
             m.done = d;
         }
-        self.gate_revealed = gate_revealed.clamp(1, GATE_LORE.len());
+        self.gate_revealed = gate_revealed.min(GATE_LORE.len());
     }
 
     /// The done-flags, for a save (§30).
@@ -204,9 +207,12 @@ mod tests {
     #[test]
     fn gate_lore_reveals_in_order_then_stops() {
         let mut m = Missions::new();
-        assert_eq!(m.gate_beats_revealed(), 1, "beat 0 shown from the start");
-        assert_eq!(m.latest_gate(), GATE_LORE[0]);
-        let mut count = 1;
+        assert_eq!(
+            m.gate_beats_revealed(),
+            0,
+            "nobody knows of the ring at the start"
+        );
+        let mut count = 0;
         while let Some(beat) = m.reveal_gate() {
             assert_eq!(beat, GATE_LORE[count]);
             count += 1;
