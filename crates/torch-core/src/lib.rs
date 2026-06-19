@@ -1264,7 +1264,13 @@ impl TorchSim {
     /// Tech `i`'s name (empty out of range).
     #[func]
     fn tech_name(&self, i: i64) -> GString {
-        match self.sim.progression().research.catalog().get(i.max(0) as usize) {
+        match self
+            .sim
+            .progression()
+            .research
+            .catalog()
+            .get(i.max(0) as usize)
+        {
             Some(t) => GString::from(t.name),
             None => GString::new(),
         }
@@ -1298,7 +1304,10 @@ impl TorchSim {
     /// Whether tech `i` is already researched.
     #[func]
     fn tech_unlocked(&self, i: i64) -> bool {
-        self.sim.progression().research.is_unlocked(i.max(0) as usize)
+        self.sim
+            .progression()
+            .research
+            .is_unlocked(i.max(0) as usize)
     }
 
     /// Whether tech `i` can be researched right now (prereq met + enough points).
@@ -1813,7 +1822,9 @@ impl TorchSim {
     #[func]
     fn develop_colony(&mut self, i: i64) -> GString {
         match self.sim.develop_colony(i.max(0) as usize) {
-            Ok(()) => GString::from("Colony development begun — ~180 days until the new level comes online."),
+            Ok(()) => GString::from(
+                "Colony development begun — ~180 days until the new level comes online.",
+            ),
             Err(_) => GString::new(),
         }
     }
@@ -1934,10 +1945,46 @@ impl TorchSim {
         self.sim.outpost_stored(body.max(0) as usize).1
     }
 
-    /// Population needed to promote an outpost to a colony (the gate threshold).
+    /// Population needed to promote the outpost at `body` to its **next** rank (the gate
+    /// threshold, which rises rung by rung).
     #[func]
-    fn outpost_promote_population(&self) -> i64 {
-        sim::world::PROMOTE_POP
+    fn outpost_promote_population(&self, body: i64) -> i64 {
+        match self.sim.outpost_at(body.max(0) as usize) {
+            Some(o) => sim::world::promote_pop_threshold(o.rank),
+            None => sim::world::promote_pop_threshold(0),
+        }
+    }
+
+    /// The next-rank name for the outpost at `body` ("Colony" / "Hub" / "Capital" / "—").
+    #[func]
+    fn outpost_next_rank_name(&self, body: i64) -> GString {
+        let next = self
+            .sim
+            .outpost_at(body.max(0) as usize)
+            .map(|o| o.rank + 1)
+            .unwrap_or(1);
+        GString::from(match next {
+            1 => "Colony",
+            2 => "Hub",
+            3 => "Capital",
+            _ => "—",
+        })
+    }
+
+    /// The name of the outpost-at-`body`'s current rank.
+    #[func]
+    fn outpost_rank_name(&self, body: i64) -> GString {
+        let r = self
+            .sim
+            .outpost_at(body.max(0) as usize)
+            .map(|o| o.rank)
+            .unwrap_or(0);
+        GString::from(match r {
+            1 => "Colony",
+            2 => "Hub",
+            3 => "Capital",
+            _ => "Outpost",
+        })
     }
 
     /// Whether the outpost at `body` can be promoted to a colony (maxed + all facilities).
@@ -1949,10 +1996,23 @@ impl TorchSim {
     /// Promote the fully-built outpost at `body` to a colony. Returns a feedback message.
     #[func]
     fn promote_outpost(&mut self, body: i64) -> GString {
-        match self.sim.promote_outpost(body.max(0) as usize) {
-            Ok(()) => GString::from(
-                "Promotion to colony begun — a ~1-year undertaking that triples its yield.",
+        let next = self
+            .sim
+            .outpost_at(body.max(0) as usize)
+            .map(|o| o.rank + 1)
+            .unwrap_or(1);
+        let (name, blurb) = match next {
+            2 => (
+                "Hub",
+                "doubling its yield again and seating a regional trade endpoint",
             ),
+            3 => ("Capital", "the seat of your power — twelve× the base yield"),
+            _ => ("Colony", "tripling its yield"),
+        };
+        match self.sim.promote_outpost(body.max(0) as usize) {
+            Ok(()) => GString::from(format!(
+                "Promotion to {name} begun — a multi-year undertaking, {blurb}."
+            )),
             Err(_) => GString::new(),
         }
     }
