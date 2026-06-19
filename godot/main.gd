@@ -55,8 +55,21 @@ const VIEW_TITLE := [
 const SCALE3D := 1.0 / 1_000_000.0
 const VIEW_LERP := 9.0   # orrery marker position smoothing rate (§28 interpolation)
 const CAM_DIR := Vector3(0.0, 1.15, 0.9)
-const ZOOM_MIN := 1.2
+const ZOOM_MIN := 0.05   # zoom right down onto a single body / its inner moons (§21)
 const ZOOM_MAX := 140.0
+# Orbit-line width: scale the torus tube with the camera distance (zoom) so an orbit ring
+# reads as a constant ~hairline at any zoom, instead of a fat band when you zoom in.
+const ORBIT_TUBE_K := 0.00060
+const ORBIT_TUBE_MIN := 0.00008
+const ORBIT_TUBE_MAX := 0.30
+# Level-of-detail by zoom (smaller zoom = closer): only reveal moon/station detail once
+# zoomed in past these thresholds, so the wide system view isn't a clutter of labels.
+const STATION_VIS_ZOOM := 5.0
+const MOON_VIS_ZOOM := 1.6
+# Labels render at a constant on-screen size (fixed_size) so they're always legible and
+# never balloon when you zoom in; this is the per-label scale.
+const LABEL_PIXEL := 0.00055
+const LABEL_PIXEL_SMALL := 0.00045
 const ROT_DRAG_SENS := 0.006                  # one-finger drag → yaw (rad per screen px)
 const ROT_STEP := 0.40                         # ↺/↻ button + Q/E key rotation step (rad)
 const PAN_SENS := 0.0016                        # mouse-drag pan (world units per screen px, ×zoom)
@@ -240,6 +253,13 @@ var _cam: Camera3D
 var _body_nodes: Array[Node3D] = []
 var _body_spin: Array[Node3D] = []          # the spinning surface mesh per body (or null)
 var _body_spin_rate: PackedFloat32Array = []  # axial-spin rate (rad/s) per body
+var _body_labels: Array[Label3D] = []        # the billboard name tag per body (for LOD)
+var _planet_orbit_rings: Array = []          # {tm:TorusMesh, r:float} — zoom-scaled tube
+var _moon_orbit_rings: Array = []            # {mi:MeshInstance3D, tm:TorusMesh, r:float}
+var _station_markers: Array[Node3D] = []     # colony/station glyphs (LOD-toggled)
+var _station_labels: Array[Label3D] = []     # colony/station name tags (LOD-toggled)
+var _gate_tm: TorusMesh                       # the gate ring mesh (zoom-scaled tube)
+var _gate_r := 40.0
 var _hauler_pool: Array[MeshInstance3D] = []
 var _faction_haul_mats: Array[StandardMaterial3D] = []   # per-faction hauler livery (§4)
 var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
@@ -380,11 +400,13 @@ func _build_world() -> void:
 			var gtag := Label3D.new()
 			gtag.text = "⟁ " + name
 			gtag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			gtag.fixed_size = true
 			gtag.modulate = Color(0.98, 0.86, 0.45)
-			gtag.pixel_size = 0.006
+			gtag.pixel_size = LABEL_PIXEL
 			gtag.position = Vector3(0.0, 0.7, 0.0)
 			ph.add_child(gtag)
 			_body_nodes.append(ph)
+			_body_labels.append(gtag)
 			_body_spin.append(null)
 			_body_spin_rate.append(0.0)
 			continue
@@ -400,24 +422,32 @@ func _build_world() -> void:
 			if parent == 0:
 				if not sim.body_is_far_side(b):
 					var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-					_orrery_root.add_child(_ring(r, Color(0.24, 0.33, 0.48)))
+					var pr := _ring(r, Color(0.24, 0.33, 0.48))
+					_orrery_root.add_child(pr)
+					_planet_orbit_rings.append({"tm": pr.mesh, "r": r})
 			else:
 				var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
 				# Moon orbit: a hair-thin, faintly glowing line around its planet.
 				var mrm := _emissive_mat(Color(0.3, 0.38, 0.5) * 2.0)
-				_body_nodes[parent].add_child(_ring_mat(mr, mrm, maxf(0.0022, mr * 0.006)))
+				var mring := _ring_mat(mr, mrm, maxf(0.0022, mr * 0.006))
+				_body_nodes[parent].add_child(mring)
+				_moon_orbit_rings.append({"mi": mring, "tm": mring.mesh, "r": mr})
 		var rad := _display_radius(name, kind)
 		var tag := Label3D.new()
 		tag.text = name
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		tag.fixed_size = true   # constant on-screen size — never balloons when zoomed in (i)
 		tag.modulate = Color(0.6, 0.7, 0.78) if (kind == 4 or kind == 7) else Color(0.72, 0.84, 0.95)
-		tag.pixel_size = 0.0024 if (kind == 4 or kind == 7) else 0.006
+		tag.pixel_size = LABEL_PIXEL_SMALL if (kind == 4 or kind == 7) else LABEL_PIXEL
 		tag.position = Vector3(0, rad + 0.05, 0)
 		container.add_child(tag)
+		_body_labels.append(tag)
 
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
 	_gate_mat.albedo_color = Color(0.95, 0.82, 0.4) * 1.6   # glow through bloom
 	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
+	_gate_tm = _gate_ring.mesh
+	_gate_r = gate_r
 	_orrery_root.add_child(_gate_ring)
 
 	for ci in sim.colony_count():
@@ -429,13 +459,16 @@ func _build_world() -> void:
 		var marker := _station_glyph(fcol)
 		marker.position = Vector3(crad + 0.03, 0.0, 0.0)
 		_body_nodes[cb].add_child(marker)
+		_station_markers.append(marker)
 		var clbl := Label3D.new()
 		clbl.text = sim.colony_name(ci)
 		clbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		clbl.fixed_size = true
 		clbl.modulate = fcol
-		clbl.pixel_size = 0.0026
+		clbl.pixel_size = LABEL_PIXEL_SMALL
 		clbl.position = Vector3(0.0, -crad - 0.06, 0.0)
 		_body_nodes[cb].add_child(clbl)
+		_station_labels.append(clbl)
 
 	for b in sim.body_count():
 		if sim.body_name(b) == "Saturn":
@@ -2636,6 +2669,36 @@ func _smooth_to(node: Node3D, target: Vector3, delta: float, fresh: bool) -> voi
 		node.look_at(node.position + d.normalized(), Vector3.UP)
 
 
+## Per-frame orrery level-of-detail + zoom-constant orbit-line width (a/c/i): keep every
+## orbit ring a hairline at any zoom, and reveal moon + station detail only once the player
+## has zoomed in past each tier — so the wide system view stays uncluttered.
+func _update_orrery_lod() -> void:
+	var tube := clampf(_zoom * ORBIT_TUBE_K, ORBIT_TUBE_MIN, ORBIT_TUBE_MAX)
+	for ring in _planet_orbit_rings:
+		var tm: TorusMesh = ring["tm"]
+		var r: float = ring["r"]
+		tm.inner_radius = maxf(0.001, r - tube)
+		tm.outer_radius = r + tube
+	var show_moons := _zoom < MOON_VIS_ZOOM
+	for ring in _moon_orbit_rings:
+		var mtm: TorusMesh = ring["tm"]
+		var mr: float = ring["r"]
+		var mt := minf(tube, mr * 0.4)
+		mtm.inner_radius = maxf(0.001, mr - mt)
+		mtm.outer_radius = mr + mt
+		(ring["mi"] as MeshInstance3D).visible = show_moons
+	if _gate_tm != null:
+		var gt := clampf(tube * 3.0, 0.04, 1.0)   # the gate stays a touch bolder — it's the beacon
+		_gate_tm.inner_radius = maxf(0.01, _gate_r - gt)
+		_gate_tm.outer_radius = _gate_r + gt
+	# Stations / colonies: glyph + tag only when zoomed in past the station tier.
+	var show_st := _zoom < STATION_VIS_ZOOM
+	for m in _station_markers:
+		m.visible = show_st
+	for l in _station_labels:
+		l.visible = show_st
+
+
 func _update_world(delta: float) -> void:
 	_update_camera()
 	var beyond: bool = sim.far_side_revealed()
@@ -2654,9 +2717,15 @@ func _update_world(delta: float) -> void:
 			# like §28 marker smoothing, so it turns even while the sim is paused.
 			if b < _body_spin.size() and _body_spin[b] != null and _body_spin_rate[b] != 0.0:
 				_body_spin[b].rotate_object_local(Vector3.UP, delta * _body_spin_rate[b])
-			# Reveal the far side only once the gate is transited (§17).
+			# Visibility: far-side bodies stay hidden until the gate is transited (§17), and
+			# moons drop out at wide zoom (LOD) so the system view isn't a clutter of specks.
+			var vis := true
 			if sim.body_is_far_side(b):
-				_body_nodes[b].visible = beyond
+				vis = beyond
+			if sim.body_kind(b) == 4 and _zoom >= MOON_VIS_ZOOM:
+				vis = false
+			node.visible = vis
+	_update_orrery_lod()
 	var n := sim.hauler_count()
 	while _hauler_pool.size() < n:
 		var mi := _hull_marker(_hauler_mat)
