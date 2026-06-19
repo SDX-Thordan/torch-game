@@ -3717,6 +3717,8 @@ func _refresh_build() -> void:
 		if tier <= 0:
 			var corv := "corvettes ✓" if sim.can_buy_corvettes() else "corvettes (need OPA standing)"
 			_yard_lbl.text = "None — Tycho sells civilians + %s.\nFound a yard (60,000 cr) to build warships." % corv
+		elif sim.shipyard_build_days() > 0:
+			_yard_lbl.text = "⚙ Tier %d under construction — %d days until it can lay down hulls." % [tier, sim.shipyard_build_days()]
 		else:
 			var ec := sim.expand_shipyard_cost()
 			var more := "  ·  expand → %s cr" % _commas(ec) if ec >= 0 else "  ·  max tier"

@@ -71,7 +71,7 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   bridgehead/defend verbs + the gate-endgame status line are gone from the shell (the sim code
   stays, dormant). The ring remains a slow-burn mystery in the Mysteries tab. *(Still to do: soften
   the late campaign tiers so "The Gate" isn't framed as the destination.)*
-- [ ] **Timed everything** — shipyard founding/expand, colony develop, ship build, trade legs all
+- [~] **Timed everything** — outpost founding/develop (✓) and shipyard founding/expand (✓, ~360/240 days) are now multi-day builds with visible countdowns; colony develop + ship commission still to time.
   become multi-day builds with a visible countdown (no instant macro actions).
 - [ ] **UI toward the Stellaris-style mockup** — top-bar resource **rates** (+/tick), an
   **OUTLINER** (sectors/fleets/civilians/shipyards), an **OVERVIEW** home view, a **NOTIFICATIONS**
