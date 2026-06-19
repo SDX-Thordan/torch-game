@@ -1957,6 +1957,13 @@ impl TorchSim {
         self.sim.can_commission(sim::ShipClass::Frigate)
     }
 
+    /// Whether warship hull `class` (0 Frigate … 3 Battleship) can be sourced right now —
+    /// for greying out unbuildable hulls + the COMMISSION button in the BUILD view.
+    #[func]
+    fn can_build_hull(&self, class: i64) -> bool {
+        self.sim.can_commission(warship_class(class))
+    }
+
     /// Found a shipyard at the home body (Ceres) — very expensive. Returns a message.
     #[func]
     fn found_shipyard_home(&mut self) -> GString {

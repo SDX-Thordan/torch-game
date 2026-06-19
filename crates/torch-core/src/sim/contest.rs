@@ -20,10 +20,11 @@ pub const CLAIM_THRESHOLD: i64 = 600;
 pub const COURT_GAIN: i64 = 90;
 /// Influence (the E4 statecraft resource) spent to court a contested colony once.
 pub const COURT_COST: i64 = 50;
-/// Ticks between ambient great-power contest flares (Earth ↔ Mars tug-of-war).
-pub const FLARE_INTERVAL: u64 = 90;
-/// How much each flare shifts influence between the two inners.
-pub const FLARE_SHIFT: i64 = 70;
+/// Ticks between ambient great-power contest flares (Earth ↔ Mars tug-of-war). Rare, so the
+/// feed isn't spammed — a flare is a notable beat, not constant chatter (events should be rare).
+pub const FLARE_INTERVAL: u64 = 560;
+/// How much each flare shifts influence between the two inners (bigger, since rarer).
+pub const FLARE_SHIFT: i64 = 140;
 
 /// One colony the powers fight over — the early-game political weather.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

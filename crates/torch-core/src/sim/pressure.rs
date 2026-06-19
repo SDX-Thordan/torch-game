@@ -23,11 +23,12 @@
 
 use super::event::Event;
 
-/// Base ticks between raid windows at [`Intensity::Normal`] (matches the legacy
-/// ambient-pirate cadence, so default play is unchanged).
-const BASE_RAID_PERIOD: u64 = 72;
+/// Base ticks between raid windows at [`Intensity::Normal`]. Tuned for a sim you can
+/// *let run and watch* — raids (and the dilemmas they raise) are an occasional event, not a
+/// constant interruption (player feedback: events should be rare).
+const BASE_RAID_PERIOD: u64 = 300;
 /// How far ahead an incoming raid is telegraphed (§13 forecasting).
-pub const FORECAST_LEAD: u64 = 18;
+pub const FORECAST_LEAD: u64 = 40;
 /// No raid lands within this many ticks of another flashpoint (the governor).
 const PACING_COOLDOWN: u64 = 24;
 /// Gauge ceiling and the per-tick ebb (biting-but-recoverable).

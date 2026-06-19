@@ -330,6 +330,18 @@ Status: [x] done, [~] in progress, [ ] todo.
   per-tab `columns()`/`rows()` (rows are `Array`s of mixed int/String cells), a type-aware
   comparator (numbers numerically, else lexically) feeding `rows.sort_custom`, rebuilt into a
   `GridContainer` each refresh with clickable header buttons — pure shell over existing bindings.
+- **3D picking under `content_scale_factor` needs NO conversion.** `_unhandled_input` event
+  positions **and** `Camera3D.unproject_position` are *both* in the viewport's canvas space (Godot
+  pre-transforms input by the stretch/screen transform), so picking compares them directly — an
+  earlier `event.position * content_scale_factor` mis-scaled **every** click (the bug behind
+  "clicking doesn't select"). **`push_input` is unreliable** for verifying this (it skips the
+  stretch transform); use the **viewport screen-transform** numbers + **`Input.parse_input_event`**
+  (which applies the transform) to confirm. Lesson: don't trust a push_input picking test.
+- **Event cadence is a watchability lever.** With "hard-pause on every dilemma," frequent ambient
+  events make the game unwatchable. The cadences (raid 72→**300**, wreck 96→**420**, war
+  130→**460**+, contest-flare 90→**560**) are tuned for a sim you *let run* — events are an
+  occasional beat, not constant chatter. A deliberate gameplay change → regenerate QA (act-now
+  29→4 over 4000t, no new concerns).
 - **Object-contextual model:** make the *tapped object the centre* — the right panel re-centres
   on `_focus_body` (identity + a detail block) and a single action stack shows **only the verbs
   that body affords**, classified in the refresh by cheap **body→index lookups** in GDScript

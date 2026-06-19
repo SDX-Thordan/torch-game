@@ -11,8 +11,8 @@ use super::rng::Pcg32;
 
 /// Keeps the field's RNG independent of the world economy's (§27).
 const SALT: u64 = 0x5A1_7A6E;
-/// Ticks between wreck sightings — discovery is occasional, not a faucet.
-const SPAWN_INTERVAL: u64 = 96;
+/// Ticks between wreck sightings — a rare discovery, not a faucet (events should be rare).
+const SPAWN_INTERVAL: u64 = 420;
 /// Most undiscovered wrecks adrift at once (a small menu, §19 hygiene).
 const MAX_WRECKS: usize = 3;
 /// Credit value band for a scrap haul.
