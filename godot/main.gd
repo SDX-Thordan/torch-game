@@ -3559,6 +3559,12 @@ func _refresh_object_panel() -> void:
 				else:
 					facs.append("[color=#7a8696]%s[/color]" % fk[1])
 			detail += "\nFacilities: %s" % "  ".join(facs)
+			# Per-asset inventory: the outpost's local store of the body's mineral (§10).
+			if sim.outpost_has_facility(fb, 0):
+				var stored: int = sim.outpost_stored(fb)
+				var scap: int = sim.outpost_store_cap(fb)
+				var ship := "[color=#78e68c]→ shipped to your warehouse[/color]" if sim.outpost_has_facility(fb, 2) else "[color=#e6a060]⚠ no Hangar — stuck on-site[/color]"
+				detail += "\nStored %s: [color=#cfd8e0]%s/%s[/color]  %s" % [String(sim.body_mineral_name(fb)), _commas(stored), _commas(scap), ship]
 			var pop: int = sim.outpost_population(fb)
 			var pop_need: int = sim.outpost_promote_population()
 			var has_ice: bool = sim.cargo(_idx_water) >= 1

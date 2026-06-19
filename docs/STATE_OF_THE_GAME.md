@@ -77,6 +77,12 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   **OUTLINER** (sectors/fleets/civilians/shipyards), an **OVERVIEW** home view, a **NOTIFICATIONS**
   panel, and the object panel's action icons.
 
+- [~] **Per-asset inventory (#10, first slice)** — outposts now hold a **local store** of their
+  mineral (not the global warehouse): a Mine fills it, **Storage** deepens the cap, a **Hangar**
+  ships it to your warehouse (without one the goods are stuck on-site). The "ore stored in a
+  station" model. Remaining: ship fuel/cargo per-hull, the home base as a station, freighters
+  hauling from outpost stores.
+
 ### P1 — The mid/late-game authored arc *(the headline forward direction)*
 The vision's whole middle and end. Design notes in `MID_LATE_GAME_STORY.md`; **subsumes the
 old "war as a state" and "narrative onboarding" items** (they're now this arc). Sequence:

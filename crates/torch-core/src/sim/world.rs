@@ -232,6 +232,11 @@ pub struct Outpost {
     /// you must attract and feed people before an outpost becomes a colony.
     #[serde(default)]
     pub population: i64,
+    /// **Local inventory** of the body's mineral (the per-asset stock, §10): Mine output
+    /// accumulates here (not the global warehouse), capped by the Storage facility; a Hangar
+    /// ships it out to your warehouse. Without a Hangar the goods pile up on-site, stuck.
+    #[serde(default)]
+    pub stored: i64,
 }
 
 /// Outpost facility bits.
@@ -409,6 +414,11 @@ const ICE_FEED_PER_TICK: i64 = 1; // Ice drawn from stores per operational outpo
 const POP_GROWTH: i64 = 1;
 const POP_DECAY: i64 = 1;
 pub const PROMOTE_POP: i64 = 700;
+/// Per-asset local storage (§10): a bare outpost holds little; a **Storage** facility deepens it
+/// (× level). A **Hangar** ships this many units per tick (× level) to your warehouse.
+const STORE_CAP_BASE: i64 = 100;
+const STORE_CAP_WITH_STORAGE: i64 = 1_500;
+const HANGAR_SHIP_PER_TICK: i64 = 4;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -1979,6 +1989,7 @@ impl Sim {
             facilities: 0,
             rank: RANK_OUTPOST,
             population: OUTPOST_POP_BASE,
+            stored: 0,
         });
         self.complete_op();
         Ok(())
@@ -1987,6 +1998,24 @@ impl Sim {
     /// Whether the outpost at `body` has facility `kind` (a `FAC_*` bit) built.
     pub fn outpost_has_facility(&self, body: usize, kind: u8) -> bool {
         self.outpost_at(body).is_some_and(|o| o.facilities & kind != 0)
+    }
+
+    /// The local-storage capacity of `o` — deepened by a Storage facility, scaled by level (§10).
+    fn outpost_store_cap(o: &Outpost) -> i64 {
+        let per = if o.facilities & FAC_STORAGE != 0 {
+            STORE_CAP_WITH_STORAGE
+        } else {
+            STORE_CAP_BASE
+        };
+        per * o.level
+    }
+
+    /// The outpost-at-`body`'s local stored stock + its cap (per-asset inventory readout).
+    pub fn outpost_stored(&self, body: usize) -> (i64, i64) {
+        match self.outpost_at(body) {
+            Some(o) => (o.stored, Self::outpost_store_cap(o)),
+            None => (0, 0),
+        }
     }
 
     /// **Build a facility** at the outpost on `body` (a `FAC_*` bit). The outpost must be
@@ -2120,16 +2149,31 @@ impl Sim {
             .map(|o| o.level * OUTPOST_TRIBUTE_PER_LEVEL * rank_mult(o))
             .sum();
         self.corp.credit(tribute);
-        // A Mine-equipped operational outpost extracts the body's raw each tick (× level) — the
-        // outpost now *produces goods*, not just credits. Without a Mine it produces nothing.
-        let mined: Vec<(usize, i64)> = self
-            .outposts
-            .iter()
-            .filter(|o| o.is_ready(tick) && o.facilities & FAC_MINE != 0)
-            .map(|o| (self.body_mineral(o.body), o.level * OUTPOST_MINE_OUTPUT * rank_mult(o)))
-            .collect();
-        for (commodity, qty) in mined {
-            self.corp.store(commodity, qty);
+        // Per-asset inventory (§10): a Mine-equipped operational outpost extracts the body's raw
+        // each tick into its **local store** (capped by its Storage facility) — not the global
+        // warehouse. A **Hangar** then ships the local stock out to your warehouse; without one
+        // the goods pile up on-site (you'll later send a freighter). Without a Mine: nothing.
+        let count = self.outposts.len();
+        for i in 0..count {
+            let o = &self.outposts[i];
+            if !o.is_ready(tick) {
+                continue;
+            }
+            let has_mine = o.facilities & FAC_MINE != 0;
+            let has_hangar = o.facilities & FAC_HANGAR != 0;
+            let cap = Self::outpost_store_cap(o);
+            let mult = rank_mult(o);
+            let level = o.level;
+            if has_mine {
+                let produced = level * OUTPOST_MINE_OUTPUT * mult;
+                self.outposts[i].stored = (self.outposts[i].stored + produced).min(cap);
+            }
+            if has_hangar && self.outposts[i].stored > 0 {
+                let shipped = (level * HANGAR_SHIP_PER_TICK).min(self.outposts[i].stored);
+                self.outposts[i].stored -= shipped;
+                let commodity = self.body_mineral(self.outposts[i].body);
+                self.corp.store(commodity, shipped);
+            }
         }
         // Population: each operational outpost draws settlers while you can **supply it with
         // Ice** from your stores (capped by its level); without Ice it stagnates. The supply
@@ -6360,20 +6404,37 @@ mod tests {
             before,
             "no Mine ⇒ no raw production"
         );
-        // Build a Mine (a ~120-day build); once it's up, the outpost extracts raw each tick.
+        assert_eq!(sim.outpost_stored(body).0, 0, "no Mine ⇒ empty local store");
+        // Build a Mine (a ~120-day build); once it's up, the outpost extracts raw into its
+        // LOCAL store each tick (not the warehouse — per-asset inventory, §10).
         assert!(!sim.outpost_has_facility(body, FAC_MINE));
         sim.build_facility(body, FAC_MINE).unwrap();
-        assert!(sim.outpost_has_facility(body, FAC_MINE)); // bit set, but still building
         while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
             sim.step();
         }
-        let with_mine = sim.corp().cargo(mineral);
+        let wh_before = sim.corp().cargo(mineral);
+        for _ in 0..10 {
+            sim.step();
+        }
+        assert!(sim.outpost_stored(body).0 > 0, "a Mine fills the local store");
+        assert_eq!(
+            sim.corp().cargo(mineral),
+            wh_before,
+            "no Hangar ⇒ the goods stay on-site, not in your warehouse"
+        );
+        // A Hangar ships the local stock out to your warehouse.
+        sim.corp_mut().credit(20_000);
+        sim.build_facility(body, FAC_HANGAR).unwrap();
+        while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+            sim.step();
+        }
+        let wh2 = sim.corp().cargo(mineral);
         for _ in 0..10 {
             sim.step();
         }
         assert!(
-            sim.corp().cargo(mineral) > with_mine,
-            "a Mine-equipped outpost produces raw goods"
+            sim.corp().cargo(mineral) > wh2,
+            "a Hangar ships local goods to your warehouse"
         );
     }
 

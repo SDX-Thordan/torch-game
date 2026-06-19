@@ -1922,6 +1922,18 @@ impl TorchSim {
             .unwrap_or(0)
     }
 
+    /// The outpost-at-`body`'s **local stored stock** (per-asset inventory, §10).
+    #[func]
+    fn outpost_stored(&self, body: i64) -> i64 {
+        self.sim.outpost_stored(body.max(0) as usize).0
+    }
+
+    /// The outpost-at-`body`'s local storage capacity (deepened by a Storage facility).
+    #[func]
+    fn outpost_store_cap(&self, body: i64) -> i64 {
+        self.sim.outpost_stored(body.max(0) as usize).1
+    }
+
     /// Population needed to promote an outpost to a colony (the gate threshold).
     #[func]
     fn outpost_promote_population(&self) -> i64 {
