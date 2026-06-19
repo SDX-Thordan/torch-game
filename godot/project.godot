@@ -14,11 +14,15 @@ config/icon="res://icon.svg"
 
 [display]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
+window/size/viewport_width=1600
+window/size/viewport_height=900
 ; Resizable so the desktop (PC mode) window can be sized/maximized; the HUD scales
 ; via the expand stretch below. Ignored on handhelds.
 window/size/resizable=true
+; Start maximized on desktop so the window fills its slot (a normal DE's screen, or a
+; tiling WM's column) instead of a small floating box. PC mode re-asserts this in code;
+; F11 toggles true fullscreen. (2 = Maximized; ignored on handhelds.)
+window/size/mode=2
 ; Landscape, auto-rotating between the two landscape directions (mobile, §17).
 ; (DisplayServer.SCREEN_SENSOR_LANDSCAPE = 4; the HUD is designed for 1280×720.)
 window/handheld/orientation=4
@@ -29,3 +33,8 @@ window/stretch/aspect="expand"
 
 renderer/rendering_method="mobile"
 textures/vram_compression/import_etc2_astc=true
+; Antialiasing so the thin orbit rings and body limbs don't read as stepped/jagged
+; lines. 4× MSAA smooths the 3D geometry edges; FXAA cleans up the shader aliasing on
+; the procedural surfaces. (The battle-diorama SubViewport opts out explicitly.)
+anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/screen_space_aa=1

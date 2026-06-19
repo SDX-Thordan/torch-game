@@ -95,6 +95,12 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   texture detail.
 
 ### P4 — UX / juice polish *(incremental)*
+- [x] **Desktop polish pass** — PC mode now opens **maximized** (project `window/size/mode=2`
+  + `Window.MODE_MAXIMIZED`) so it fills the screen / a tiling-WM column instead of a small
+  floating box, with **F11** toggling true fullscreen; PC HUD scale nudged 1.0→1.2 for table
+  legibility; **mouse-drag pans the map**, **Shift-drag rotates** (`_pan` ecliptic offset on the
+  camera focus); **MSAA 4× + FXAA** + denser orbit-torus segments kill the stepped orbit lines;
+  darker space sky with the nebulosity confined to the Milky-Way band (no free-floating blobs).
 - [x] **Mobile readability + map gestures** — HUD magnified for handhelds (window
   `content_scale_factor`), pinch-to-zoom fixed (the content host was eating map touches),
   and map **rotation** added (one-finger drag / two-finger twist / ↺↻ buttons / `,`·`.` keys).
