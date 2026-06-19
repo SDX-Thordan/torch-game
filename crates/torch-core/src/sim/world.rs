@@ -223,12 +223,21 @@ pub struct Outpost {
     /// the next rungs (warehouse depth / ship resupply). The progression toward a colony.
     #[serde(default)]
     pub facilities: u8,
+    /// Settlement rank along the progression: 0 outpost → 1 **colony** (→ later hub/capital). A
+    /// fully-built outpost (maxed + all facilities) can be promoted, multiplying its yield.
+    #[serde(default)]
+    pub rank: u8,
 }
 
 /// Outpost facility bits.
 pub const FAC_MINE: u8 = 1;
 pub const FAC_STORAGE: u8 = 2;
 pub const FAC_HANGAR: u8 = 4;
+/// All three facilities built — the gate to colony promotion.
+pub const FAC_ALL: u8 = FAC_MINE | FAC_STORAGE | FAC_HANGAR;
+/// Settlement ranks.
+pub const RANK_OUTPOST: u8 = 0;
+pub const RANK_COLONY: u8 = 1;
 
 impl Outpost {
     /// Whether the outpost's current construction has finished (it's operational).
@@ -381,6 +390,11 @@ const OUTPOST_FACILITY_COST: i64 = 12_000;
 const OUTPOST_FACILITY_TICKS: u64 = 720;
 /// Raw goods a Mine-equipped outpost produces per tick, per level (the body's mineral).
 const OUTPOST_MINE_OUTPUT: i64 = 2;
+/// Promoting a fully-built outpost to a **colony** — a major ~1-year undertaking that
+/// **triples** its yield (tribute + production). The headline progression step.
+const OUTPOST_PROMOTE_COST: i64 = 90_000;
+const OUTPOST_PROMOTE_TICKS: u64 = 2160;
+const COLONY_RANK_MULT: i64 = 3;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -1949,6 +1963,7 @@ impl Sim {
             level: 1,
             ready_tick: self.tick + OUTPOST_BUILD_TICKS,
             facilities: 0,
+            rank: RANK_OUTPOST,
         });
         self.complete_op();
         Ok(())
@@ -1975,6 +1990,36 @@ impl Sim {
         if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
             o.facilities |= kind;
             o.ready_tick = tick + OUTPOST_FACILITY_TICKS;
+        }
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Whether the outpost at `body` is ready to be **promoted to a colony**: operational, still
+    /// an outpost (not yet promoted), at max level, with all three facilities built.
+    pub fn can_promote_outpost(&self, body: usize) -> bool {
+        self.outpost_at(body).is_some_and(|o| {
+            o.is_ready(self.tick)
+                && o.rank == RANK_OUTPOST
+                && o.level >= MAX_OUTPOST_LEVEL
+                && o.facilities & FAC_ALL == FAC_ALL
+        })
+    }
+
+    /// **Promote** a fully-built outpost to a colony (the headline progression step) — a major
+    /// ~1-year build that triples its yield. Gated by [`can_promote_outpost`].
+    pub fn promote_outpost(&mut self, body: usize) -> Result<(), OutpostError> {
+        if !self.can_promote_outpost(body) {
+            return Err(OutpostError::BadSite);
+        }
+        if self.corp.credits() < OUTPOST_PROMOTE_COST {
+            return Err(OutpostError::CantAfford);
+        }
+        self.corp.debit(OUTPOST_PROMOTE_COST);
+        let tick = self.tick;
+        if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
+            o.rank = RANK_COLONY;
+            o.ready_tick = tick + OUTPOST_PROMOTE_TICKS;
         }
         self.complete_op();
         Ok(())
@@ -2050,11 +2095,13 @@ impl Sim {
                 tick,
             );
         }
+        // A promoted colony triples its yield (tribute + production) over a bare outpost.
+        let rank_mult = |o: &Outpost| if o.rank >= RANK_COLONY { COLONY_RANK_MULT } else { 1 };
         let tribute: i64 = self
             .outposts
             .iter()
             .filter(|o| o.is_ready(tick))
-            .map(|o| o.level * OUTPOST_TRIBUTE_PER_LEVEL)
+            .map(|o| o.level * OUTPOST_TRIBUTE_PER_LEVEL * rank_mult(o))
             .sum();
         self.corp.credit(tribute);
         // A Mine-equipped operational outpost extracts the body's raw each tick (× level) — the
@@ -2063,7 +2110,7 @@ impl Sim {
             .outposts
             .iter()
             .filter(|o| o.is_ready(tick) && o.facilities & FAC_MINE != 0)
-            .map(|o| (self.body_mineral(o.body), o.level * OUTPOST_MINE_OUTPUT))
+            .map(|o| (self.body_mineral(o.body), o.level * OUTPOST_MINE_OUTPUT * rank_mult(o)))
             .collect();
         for (commodity, qty) in mined {
             self.corp.store(commodity, qty);
@@ -6294,6 +6341,46 @@ mod tests {
             sim.corp().cargo(mineral) > with_mine,
             "a Mine-equipped outpost produces raw goods"
         );
+    }
+
+    #[test]
+    fn a_fully_built_outpost_can_be_promoted_to_a_colony() {
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(5_000_000);
+        let body = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Io")
+            .unwrap();
+        sim.found_outpost(body).unwrap();
+        let finish_build = |sim: &mut Sim| {
+            while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+                sim.step();
+            }
+        };
+        finish_build(&mut sim);
+        // Not promotable until maxed + all facilities.
+        assert!(!sim.can_promote_outpost(body));
+        while sim.outpost_at(body).unwrap().level < MAX_OUTPOST_LEVEL {
+            sim.corp_mut().credit(100_000);
+            sim.develop_outpost(body).unwrap();
+            finish_build(&mut sim);
+        }
+        for kind in [FAC_MINE, FAC_STORAGE, FAC_HANGAR] {
+            sim.build_facility(body, kind).unwrap();
+            finish_build(&mut sim);
+        }
+        assert!(sim.can_promote_outpost(body), "maxed + all facilities ⇒ promotable");
+        assert_eq!(sim.outpost_at(body).unwrap().rank, RANK_OUTPOST);
+        sim.corp_mut().credit(100_000);
+        sim.promote_outpost(body).unwrap();
+        assert_eq!(sim.outpost_at(body).unwrap().rank, RANK_COLONY);
+        finish_build(&mut sim);
+        // A colony out-yields the bare outpost it was (3× tribute) — credits climb faster.
+        let c0 = sim.corp().credits();
+        for _ in 0..30 {
+            sim.step();
+        }
+        assert!(sim.corp().credits() > c0, "a promoted colony pays a fat tribute");
     }
 
     #[test]
