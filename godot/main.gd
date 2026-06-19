@@ -158,11 +158,6 @@ var _sys_status: Label
 var _sys_resources: VBoxContainer
 var _sys_queues: VBoxContainer
 var _sys_now: Label
-var _sys_gate_lbl: Label
-var _transit_btn: Button
-var _bridge_found_btn: Button
-var _bridge_upgrade_btn: Button
-var _defend_btn: Button
 var _defend_holdings_btn: Button
 var _ctx_actions: VBoxContainer            # the contextual-action stack (no persistent buttons)
 var _mine_btn: Button
@@ -975,12 +970,6 @@ func _build_systems_view() -> void:
 	_sys_now.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_sys_now.custom_minimum_size = Vector2(338, 0)
 	gv.add_child(_sys_now)
-	# Endgame status only (far side / bridgehead / incursion); the gate-mystery progress
-	# now lives in the LEDGER's Mysteries tab, not an always-visible carrot (§0.1 re-aimed).
-	_sys_gate_lbl = UiKit.label("", 10, UiKit.GOLD)
-	_sys_gate_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_sys_gate_lbl.custom_minimum_size = Vector2(338, 0)
-	gv.add_child(_sys_gate_lbl)
 	_make_draggable(goal, gv)
 
 	# Alert feed panel, bottom-centre over the orrery.
@@ -1065,21 +1054,8 @@ func _build_systems_view() -> void:
 	_defend_holdings_btn = _make_op_button("⚔ Defend Holdings", _defend_holdings)
 	_defend_holdings_btn.visible = false
 	fo.add_child(_defend_holdings_btn)
-	# The climactic endgame verb (§0.1/§17) — only lit when standing at the open gate.
-	_transit_btn = _make_op_button("⟁ Transit Gate", _transit_gate)
-	_transit_btn.visible = false
-	fo.add_child(_transit_btn)
-	# Far-side endgame verbs (§17, G3) — only lit once through the ring.
-	_bridge_found_btn = _make_op_button("⛓ Found Bridgehead", _found_bridgehead)
-	_bridge_found_btn.visible = false
-	fo.add_child(_bridge_found_btn)
-	_bridge_upgrade_btn = _make_op_button("⛓ Reinforce", _upgrade_bridgehead)
-	_bridge_upgrade_btn.visible = false
-	fo.add_child(_bridge_upgrade_btn)
-	# The act-now far-side defense (§17, G4) — lit only while an incursion presses.
-	_defend_btn = _make_op_button("⚔ Defend Bridgehead", _defend_bridgehead)
-	_defend_btn.visible = false
-	fo.add_child(_defend_btn)
+	# (The gate-transit + far-side bridgehead/defend verbs were removed — no stake-less
+	#  "click to win" endgame; the early-game trade/management sim is the focus.)
 
 
 
@@ -3458,44 +3434,8 @@ func _refresh_systems() -> void:
 		_sys_mission.text = "Tutorial complete — the company is yours to run."
 	_sys_now.text = "NOW: %s (%d/%d)" % [
 		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
-	if sim.gate_transited():
-		var outcome: int = sim.endgame_outcome()
-		if outcome == 1:
-			_sys_gate_lbl.text = "★ THE FAR SIDE IS YOURS  ·  the journey is won"
-		elif outcome == 2:
-			_sys_gate_lbl.text = "✝ THE BRIDGEHEAD HAS FALLEN  ·  the far side is lost"
-		elif sim.bridgehead_founded():
-			var bl: int = sim.bridgehead_level()
-			var tl: int = sim.endgame_target_level()
-			var sv: int = sim.incursions_survived()
-			var ti: int = sim.endgame_target_incursions()
-			if sim.incursion_pending():
-				var bi: int = sim.bridgehead_integrity()
-				var bm: int = sim.bridgehead_max_integrity()
-				_sys_gate_lbl.text = "⚠ INCURSION  ·  bridgehead %d/%d  ·  DEFEND" % [bi, bm]
-			else:
-				# The final goal (§17, G5): grow to the target level and hold the line.
-				_sys_gate_lbl.text = "ENDGAME  ·  bridgehead Lv%d/%d  ·  held %d/%d" % [bl, tl, sv, ti]
-		else:
-			_sys_gate_lbl.text = "BEYOND THE GATE  ·  plant the bridgehead"
-	else:
-		# Pre-endgame: no always-on gate carrot — the mystery lives in the Mysteries ledger.
-		_sys_gate_lbl.text = ""
-	# The endgame transit verb lights up only at the open gate (§0.1/§17).
-	if _transit_btn:
-		_transit_btn.visible = sim.can_transit_gate()
-	# The far-side bridgehead verbs light up only past the ring (§17, G3): found it
-	# once, then reinforce it.
-	var beyond_now: bool = sim.gate_transited()
-	var has_bridge: bool = sim.bridgehead_founded()
-	var under_attack: bool = sim.incursion_pending()
-	if _bridge_found_btn:
-		_bridge_found_btn.visible = beyond_now and not has_bridge
-	if _bridge_upgrade_btn:
-		_bridge_upgrade_btn.visible = beyond_now and has_bridge and not under_attack
-	# The DEFEND verb (§17, G4) — only while an incursion is actually pressing.
-	if _defend_btn:
-		_defend_btn.visible = beyond_now and under_attack
+	# (The gate-transit endgame has been removed — the focus is the early-game trade/
+	#  management sim; the ring stays a slow-burn mystery in the LEDGER's Mysteries tab.)
 	# Feed.
 	var feed := ""
 	for a in mini(sim.alert_count(), 3):

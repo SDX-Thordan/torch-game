@@ -67,8 +67,10 @@ occasionally — not "clicky." Founding things **takes time** (an outpost ~180 d
 rare (~1 per 180 days, already tuned), and the stake-less gate-progression is being removed.
 - [x] **Timed outpost construction** — founding is a ~180-day build (developing ~120); the
   outpost is inert until it comes online, then announces itself. The "set it and wait" loop.
-- [ ] **Remove the gate progression** — rip out the click-to-transit endgame + the gate-as-goal
-  framing (it's stake-less); keep the campaign tiers only as internal content-scope, not "the point."
+- [x] **Removed the gate-transit endgame** — the stake-less "⟁ Transit Gate" verb + the far-side
+  bridgehead/defend verbs + the gate-endgame status line are gone from the shell (the sim code
+  stays, dormant). The ring remains a slow-burn mystery in the Mysteries tab. *(Still to do: soften
+  the late campaign tiers so "The Gate" isn't framed as the destination.)*
 - [ ] **Timed everything** — shipyard founding/expand, colony develop, ship build, trade legs all
   become multi-day builds with a visible countdown (no instant macro actions).
 - [ ] **UI toward the Stellaris-style mockup** — top-bar resource **rates** (+/tick), an
