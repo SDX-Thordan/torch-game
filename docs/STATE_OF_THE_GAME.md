@@ -140,7 +140,7 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   uninhabited body (Build Outpost), **develop** it through levels (each pays a per-level credit
   tribute), and a **co-located miner hauls to it for +50%** output. Wired to the object panel +
   contextual verbs. Player-only ⇒ byte-identical.
-- [~] **Outpost → colony progression** — outposts build Mine/Storage/Hangar facilities (~120d each; no Mine ⇒ no raw production), develop to max level, then **promote to a Colony** (~1-year build, triples yield). Next rungs: population/Ice gating, colony→hub→capital, Storage/Hangar effects.
+- [~] **Outpost → colony progression** — full chain: found outpost → develop (L1-5) → build Mine/Storage/Hangar → **grow population by supplying Ice** (the basic good; gates promotion) → promote to Colony (3× yield). Next rungs: colony→hub→capital, Storage/Hangar effects, per-asset inventory (#10).
   production, each a building with its own effect) instead of a flat level; an outpost
   **developing into a named colony** (joining the holdings/colony track); and true
   **miner→nearest-station routing** (today the boost is on-body co-location). Shell-ready.

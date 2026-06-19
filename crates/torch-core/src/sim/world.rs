@@ -227,6 +227,11 @@ pub struct Outpost {
     /// fully-built outpost (maxed + all facilities) can be promoted, multiplying its yield.
     #[serde(default)]
     pub rank: u8,
+    /// Settled population. Grows while the colony is **supplied with Ice** (the basic good) from
+    /// your stores; stalls/decays without it. A population threshold gates colony promotion —
+    /// you must attract and feed people before an outpost becomes a colony.
+    #[serde(default)]
+    pub population: i64,
 }
 
 /// Outpost facility bits.
@@ -395,6 +400,15 @@ const OUTPOST_MINE_OUTPUT: i64 = 2;
 const OUTPOST_PROMOTE_COST: i64 = 90_000;
 const OUTPOST_PROMOTE_TICKS: u64 = 2160;
 const COLONY_RANK_MULT: i64 = 3;
+/// Population: the basic good is **Ice** (commodity 0). A supplied outpost draws settlers; an
+/// unsupplied one stagnates. Promotion to a colony needs `PROMOTE_POP` people.
+const ICE_COMMODITY: usize = 0;
+const OUTPOST_POP_BASE: i64 = 50;
+const POP_CAP_PER_LEVEL: i64 = 200; // L5 ⇒ 1000 cap
+const ICE_FEED_PER_TICK: i64 = 1; // Ice drawn from stores per operational outpost when growing
+const POP_GROWTH: i64 = 1;
+const POP_DECAY: i64 = 1;
+pub const PROMOTE_POP: i64 = 700;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -1964,6 +1978,7 @@ impl Sim {
             ready_tick: self.tick + OUTPOST_BUILD_TICKS,
             facilities: 0,
             rank: RANK_OUTPOST,
+            population: OUTPOST_POP_BASE,
         });
         self.complete_op();
         Ok(())
@@ -2003,6 +2018,7 @@ impl Sim {
                 && o.rank == RANK_OUTPOST
                 && o.level >= MAX_OUTPOST_LEVEL
                 && o.facilities & FAC_ALL == FAC_ALL
+                && o.population >= PROMOTE_POP
         })
     }
 
@@ -2114,6 +2130,24 @@ impl Sim {
             .collect();
         for (commodity, qty) in mined {
             self.corp.store(commodity, qty);
+        }
+        // Population: each operational outpost draws settlers while you can **supply it with
+        // Ice** from your stores (capped by its level); without Ice it stagnates. The supply
+        // loop that gates promotion — you must feed people before an outpost becomes a colony.
+        let count = self.outposts.len();
+        for i in 0..count {
+            if !self.outposts[i].is_ready(tick) {
+                continue;
+            }
+            let cap = self.outposts[i].level * POP_CAP_PER_LEVEL;
+            let fed = self.corp.cargo(ICE_COMMODITY) >= ICE_FEED_PER_TICK;
+            let pop = self.outposts[i].population;
+            if fed && pop < cap {
+                self.corp.unstore(ICE_COMMODITY, ICE_FEED_PER_TICK);
+                self.outposts[i].population = (pop + POP_GROWTH).min(cap);
+            } else if !fed {
+                self.outposts[i].population = (pop - POP_DECAY).max(OUTPOST_POP_BASE);
+            }
         }
     }
 
@@ -6369,7 +6403,13 @@ mod tests {
             sim.build_facility(body, kind).unwrap();
             finish_build(&mut sim);
         }
-        assert!(sim.can_promote_outpost(body), "maxed + all facilities ⇒ promotable");
+        // Maxed + facilities, but population must first be grown by supplying Ice.
+        assert!(!sim.can_promote_outpost(body), "needs population too");
+        sim.corp_mut().store(ICE_COMMODITY, 5_000); // a stockpile of the basic good
+        while sim.outpost_at(body).unwrap().population < PROMOTE_POP {
+            sim.step();
+        }
+        assert!(sim.can_promote_outpost(body), "maxed + facilities + population ⇒ promotable");
         assert_eq!(sim.outpost_at(body).unwrap().rank, RANK_OUTPOST);
         sim.corp_mut().credit(100_000);
         sim.promote_outpost(body).unwrap();
