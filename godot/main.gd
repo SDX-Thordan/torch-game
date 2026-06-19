@@ -195,6 +195,15 @@ var _tg_research: CheckButton
 var _tg_pause: CheckButton
 var _feed: RichTextLabel
 
+# OUTLINER (mockup's right rail) — a grouped, click-to-jump list of every asset you own.
+# Rebuilt only when its signature changes (it's in the per-frame refresh path).
+var _outliner_panel: PanelContainer
+var _outliner_list: VBoxContainer
+var _outliner_scroll: ScrollContainer
+var _outliner_caret: Button
+var _outliner_sig := ""
+var _outliner_collapsed := false
+
 # Decision panel (Phase A): act-now dilemmas as a menu of trade-off options.
 var _dec_layer: CanvasLayer
 var _dec_title: Label
@@ -1012,6 +1021,8 @@ func _build_systems_view() -> void:
 	_sys_now.custom_minimum_size = Vector2(338, 0)
 	gv.add_child(_sys_now)
 	_make_draggable(goal, gv)
+
+	_build_outliner(root)
 
 	# Alert feed panel, bottom-centre over the orrery.
 	var feedp := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
@@ -3683,6 +3694,7 @@ func _refresh_systems() -> void:
 	# The panel re-centres on whatever you tapped — the object is the subject, not just the
 	# market. Identity + a contextual detail block (yield / miner / influence / development).
 	_refresh_object_panel()
+	_refresh_outliner()
 	# System census (mockup card): static body counts (cached) + your live holdings.
 	if _census_static == "":
 		var planets := 0
@@ -4107,15 +4119,150 @@ func _pick_body(pos: Vector2) -> void:
 			best = b
 	if best < 0:
 		return
-	_focus_body = best
-	_pan = Vector3.ZERO   # re-centre on the tapped body (clear any free-pan offset)
-	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(best) == 2 else _zoom
+	_focus_on_body(best)
+
+
+## Centre the camera + the object panel on body `b` (shared by map-tap picking and the
+## OUTLINER's click-to-jump). Clears any free-pan so the body re-centres.
+func _focus_on_body(b: int) -> void:
+	_focus_body = b
+	_pan = Vector3.ZERO
+	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(b) == 2 else _zoom
 	var note := ""
 	for m in _visible_market_count():
-		if sim.market_body(m) == best:
+		if sim.market_body(m) == b:
 			sel_market = m
 			note = " — trade cursor here"
-	status = "Focus: %s%s." % [sim.body_name(best), note]
+	status = "Focus: %s%s." % [sim.body_name(b), note]
+
+
+## ---- OUTLINER (mockup right rail): a grouped, click-to-jump list of your assets ----
+
+## Build the OUTLINER panel — a draggable, collapsible list docked top-left over the map.
+## Each row jumps the camera (and the relevant view) to that asset.
+func _build_outliner(root: Control) -> void:
+	var panel := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
+	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	panel.offset_left = 4
+	panel.offset_top = 4
+	root.add_child(panel)
+	_outliner_panel = panel
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	panel.add_child(v)
+	# Header: title + a collapse caret.
+	var head := HBoxContainer.new()
+	head.custom_minimum_size = Vector2(232, 0)
+	v.add_child(head)
+	head.add_child(UiKit.kicker("Outliner"))
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(sp)
+	_outliner_caret = _make_map_button("▾", _toggle_outliner)
+	_outliner_caret.custom_minimum_size = Vector2(28, 26)
+	head.add_child(_outliner_caret)
+	_outliner_scroll = ScrollContainer.new()
+	_outliner_scroll.custom_minimum_size = Vector2(232, 408)
+	_outliner_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(_outliner_scroll)
+	_outliner_list = VBoxContainer.new()
+	_outliner_list.add_theme_constant_override("separation", 1)
+	_outliner_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_outliner_scroll.add_child(_outliner_list)
+	_make_draggable(panel, v)
+
+
+func _toggle_outliner() -> void:
+	_outliner_collapsed = not _outliner_collapsed
+	_outliner_scroll.visible = not _outliner_collapsed
+	_outliner_caret.text = "▸" if _outliner_collapsed else "▾"
+	if not _outliner_collapsed:
+		_outliner_sig = ""   # force a rebuild on re-open
+
+
+## A group heading inside the outliner.
+func _outliner_group(title: String) -> void:
+	_outliner_list.add_child(UiKit.kicker(title))
+
+
+## One clickable asset row. `body` >= 0 re-centres the map on it; `jump_view` >= 0 also
+## switches the nav view (e.g. a ship row jumps to FLEET).
+func _outliner_row(glyph: String, txt: String, body: int, jump_view: int) -> void:
+	var btn := Button.new()
+	btn.text = "%s  %s" % [glyph, txt]
+	btn.custom_minimum_size = Vector2(220, 22)
+	btn.add_theme_font_size_override("font_size", 11)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.clip_text = true
+	var hl: bool = body >= 0 and body == _focus_body
+	btn.add_theme_stylebox_override("normal", UiKit.panel_box(UiKit.ACCENT_SOFT if hl else Color(0, 0, 0, 0), Color(0, 0, 0, 0), 4))
+	btn.add_theme_stylebox_override("hover", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.LINE, 4))
+	btn.add_theme_stylebox_override("pressed", UiKit.panel_box(UiKit.ACCENT_SOFT, UiKit.ACCENT, 4))
+	btn.add_theme_color_override("font_color", UiKit.TEXT_HI if hl else UiKit.TEXT)
+	btn.pressed.connect(func() -> void:
+		if body >= 0:
+			_focus_on_body(body)
+		if jump_view >= 0:
+			_select_view(jump_view)
+	)
+	_outliner_list.add_child(btn)
+
+
+## Rebuild the outliner rows — only when its content signature changes (it sits in the
+## per-frame refresh path, so we avoid re-creating buttons every tick).
+func _refresh_outliner() -> void:
+	if _outliner_collapsed:
+		return
+	var ncol := 0
+	for i in sim.colony_count():
+		if sim.colony_controlled(i):
+			ncol += 1
+	var sig := "%d|%d|%d|%d|%d|%d" % [sim.fleet_size(), sim.miner_count(),
+		sim.outpost_count(), ncol, sim.shipyard_tier(), _focus_body]
+	for i in sim.outpost_count():
+		sig += ".%d" % sim.outpost_rank(sim.outpost_body(i))
+	if sig == _outliner_sig:
+		return
+	_outliner_sig = sig
+	for c in _outliner_list.get_children():
+		c.queue_free()
+	var rank_glyphs: Array = ["⚑", "★", "✦", "♔"]
+	# Fleet (christened warships).
+	if sim.fleet_size() > 0:
+		_outliner_group("Fleet (%d)" % sim.fleet_size())
+		for i in mini(int(sim.fleet_size()), 16):
+			_outliner_row("⚔", String(sim.ship_name(i)), -1, V_FLEET)
+	# Deployed miners.
+	if sim.miner_count() > 0:
+		_outliner_group("Miners (%d)" % sim.miner_count())
+		for i in sim.miner_count():
+			var mb: int = sim.miner_body(i)
+			_outliner_row("⛏", String(sim.body_name(mb)), mb, V_SYSTEMS)
+	# Your built stations (outpost → colony → hub → capital).
+	if sim.outpost_count() > 0:
+		_outliner_group("Stations (%d)" % sim.outpost_count())
+		for i in sim.outpost_count():
+			var ob: int = sim.outpost_body(i)
+			var g: String = rank_glyphs[clampi(int(sim.outpost_rank(ob)), 0, 3)]
+			_outliner_row(g, "%s · %s" % [String(sim.outpost_rank_name(ob)), String(sim.body_name(ob))], ob, V_SYSTEMS)
+	# Annexed independent colonies (the empire layer).
+	if ncol > 0:
+		_outliner_group("Colonies (%d)" % ncol)
+		for i in sim.colony_count():
+			if sim.colony_controlled(i):
+				_outliner_row("◉", String(sim.colony_name(i)), int(sim.colony_body(i)), V_EMPIRE)
+	# Shipyard.
+	if sim.shipyard_tier() > 0:
+		_outliner_group("Shipyard")
+		var sb: int = sim.shipyard_body()
+		_outliner_row("⚒", "Shipyard · %s" % String(sim.body_name(sb)), sb, V_BUILD)
+	# Markets — your trade endpoints.
+	_outliner_group("Markets (%d)" % _visible_market_count())
+	for m in _visible_market_count():
+		var mb2: int = sim.market_body(m)
+		_outliner_row("⬢", String(sim.body_name(mb2)), mb2, V_SYSTEMS)
 
 
 func _unhandled_input(event: InputEvent) -> void:

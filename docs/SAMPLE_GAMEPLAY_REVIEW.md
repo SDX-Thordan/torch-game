@@ -321,7 +321,7 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 | bindings exposed | 317 |
 | wired by the shell | 262 (82%) |
 | keyboard bindings | 45 |
-| pointer/touch | 14 pointer hit(s), native touch: true |
+| pointer/touch | 15 pointer hit(s), native touch: true |
 | controls legend | true |
 
 **Findings:**
