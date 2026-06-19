@@ -67,6 +67,11 @@ occasionally — not "clicky." Founding things **takes time** (an outpost ~180 d
 rare (~1 per 180 days, already tuned), and the stake-less gate-progression is being removed.
 - [x] **Timed outpost construction** — founding is a ~180-day build (developing ~120); the
   outpost is inert until it comes online, then announces itself. The "set it and wait" loop.
+- [x] **Ambient system chatter (§19 texture)** — a new `sim::ambient` generator voices occasional
+  flavour beats (~1 per 30–45 days) from around Sol — the Belt wire, the inner powers, space weather,
+  the markets, dockside colour (24 grounded beats, no gate/protomolecule lore). Its own RNG keeps the
+  economy + QA byte-identical; surfaced as a dedicated low-key **"system wire" ticker** under the alert
+  feed so flavour shows even when urgent alerts crowd the feed. Makes a let-it-run world feel lived-in.
 - [x] **Removed the gate-transit endgame** — the stake-less "⟁ Transit Gate" verb + the far-side
   bridgehead/defend verbs + the gate-endgame status line are gone from the shell (the sim code
   stays, dormant).

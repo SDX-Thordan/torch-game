@@ -198,6 +198,7 @@ var _tg_patrol: CheckButton
 var _tg_research: CheckButton
 var _tg_pause: CheckButton
 var _feed: RichTextLabel
+var _chatter_lbl: Label                       # the ambient "system wire" ticker (§19 texture)
 
 # OUTLINER (mockup's right rail) — a grouped, click-to-jump list of every asset you own.
 # Rebuilt only when its signature changes (it's in the per-frame refresh path).
@@ -1029,7 +1030,7 @@ func _build_systems_view() -> void:
 	var feedp := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
 	feedp.set_anchors_preset(Control.PRESET_FULL_RECT)
 	feedp.anchor_top = 1
-	feedp.offset_top = -124
+	feedp.offset_top = -148
 	feedp.offset_left = 370
 	feedp.offset_right = -322
 	feedp.offset_bottom = 0
@@ -1045,6 +1046,13 @@ func _build_systems_view() -> void:
 	_feed.add_theme_font_size_override("bold_font_size", 12)
 	_feed.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fv.add_child(_feed)
+	# System wire — a low-key ticker of the latest ambient chatter (§19 texture), so flavour
+	# beats are always visible even when urgent alerts crowd the feed above.
+	_chatter_lbl = UiKit.label("", 11, UiKit.TEXT_DIM)
+	_chatter_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_chatter_lbl.custom_minimum_size = Vector2(560, 0)
+	_chatter_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fv.add_child(_chatter_lbl)
 	_make_draggable(feedp, fv)
 
 	# Contextual actions — no persistent button grid; only the verbs relevant to what you
@@ -3923,6 +3931,10 @@ func _refresh_systems() -> void:
 	if feed == "":
 		feed = "[color=#6f8a93]All quiet.[/color]"
 	_feed.text = feed
+	# System wire — the latest ambient chatter beat (always visible, low-key).
+	if _chatter_lbl:
+		var wire := String(sim.latest_chatter())
+		_chatter_lbl.text = ("⊹ %s" % wire) if wire != "" else ""
 
 
 func _queue_row(kind: String, desc: String) -> Control:
