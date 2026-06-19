@@ -218,7 +218,17 @@ pub struct Outpost {
     /// Tick the in-progress construction completes (0 = idle/ready).
     #[serde(default)]
     pub ready_tick: u64,
+    /// Built facilities, a bitmask of [`FAC_MINE`]/[`FAC_STORAGE`]/[`FAC_HANGAR`]. An outpost
+    /// **without a Mine produces no raw goods** (only its passive tribute); Storage/Hangar are
+    /// the next rungs (warehouse depth / ship resupply). The progression toward a colony.
+    #[serde(default)]
+    pub facilities: u8,
 }
+
+/// Outpost facility bits.
+pub const FAC_MINE: u8 = 1;
+pub const FAC_STORAGE: u8 = 2;
+pub const FAC_HANGAR: u8 = 4;
 
 impl Outpost {
     /// Whether the outpost's current construction has finished (it's operational).
@@ -366,6 +376,11 @@ const OUTPOST_MINER_BONUS_BP: i64 = 5_000;
 pub const OUTPOST_BUILD_TICKS: u64 = 1080;
 /// Developing a level is a shorter build (~120 days).
 pub const OUTPOST_DEVELOP_TICKS: u64 = 720;
+/// A facility (mine / storage / hangar) costs this and takes ~120 days to build.
+const OUTPOST_FACILITY_COST: i64 = 12_000;
+const OUTPOST_FACILITY_TICKS: u64 = 720;
+/// Raw goods a Mine-equipped outpost produces per tick, per level (the body's mineral).
+const OUTPOST_MINE_OUTPUT: i64 = 2;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -1933,7 +1948,34 @@ impl Sim {
             body,
             level: 1,
             ready_tick: self.tick + OUTPOST_BUILD_TICKS,
+            facilities: 0,
         });
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Whether the outpost at `body` has facility `kind` (a `FAC_*` bit) built.
+    pub fn outpost_has_facility(&self, body: usize, kind: u8) -> bool {
+        self.outpost_at(body).is_some_and(|o| o.facilities & kind != 0)
+    }
+
+    /// **Build a facility** at the outpost on `body` (a `FAC_*` bit). The outpost must be
+    /// operational (not mid-build) and not already have it; it's a ~120-day build, during which
+    /// the outpost is under construction again. Without a Mine an outpost produces no raw goods.
+    pub fn build_facility(&mut self, body: usize, kind: u8) -> Result<(), OutpostError> {
+        let o = self.outpost_at(body).ok_or(OutpostError::NoneThere)?;
+        if !o.is_ready(self.tick) || o.facilities & kind != 0 {
+            return Err(OutpostError::BadSite);
+        }
+        if self.corp.credits() < OUTPOST_FACILITY_COST {
+            return Err(OutpostError::CantAfford);
+        }
+        self.corp.debit(OUTPOST_FACILITY_COST);
+        let tick = self.tick;
+        if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
+            o.facilities |= kind;
+            o.ready_tick = tick + OUTPOST_FACILITY_TICKS;
+        }
         self.complete_op();
         Ok(())
     }
@@ -2015,6 +2057,17 @@ impl Sim {
             .map(|o| o.level * OUTPOST_TRIBUTE_PER_LEVEL)
             .sum();
         self.corp.credit(tribute);
+        // A Mine-equipped operational outpost extracts the body's raw each tick (× level) — the
+        // outpost now *produces goods*, not just credits. Without a Mine it produces nothing.
+        let mined: Vec<(usize, i64)> = self
+            .outposts
+            .iter()
+            .filter(|o| o.is_ready(tick) && o.facilities & FAC_MINE != 0)
+            .map(|o| (self.body_mineral(o.body), o.level * OUTPOST_MINE_OUTPUT))
+            .collect();
+        for (commodity, qty) in mined {
+            self.corp.store(commodity, qty);
+        }
     }
 
     // ---- the great-power war (Earth/Mars conflict that haunts the early game) ----
@@ -6201,6 +6254,46 @@ mod tests {
         // Developing re-arms the build timer (the new level isn't instant).
         sim.develop_outpost(body).unwrap();
         assert!(!sim.outpost_at(body).unwrap().is_ready(sim.tick()));
+    }
+
+    #[test]
+    fn an_outpost_needs_a_mine_to_produce_raw_goods() {
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(60_000);
+        let body = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Eros")
+            .unwrap();
+        sim.found_outpost(body).unwrap();
+        while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+            sim.step();
+        }
+        // Operational but Mine-less: produces no raw goods (only its credit tribute).
+        let mineral = sim.body_mineral(body);
+        let before = sim.corp().cargo(mineral);
+        for _ in 0..10 {
+            sim.step();
+        }
+        assert_eq!(
+            sim.corp().cargo(mineral),
+            before,
+            "no Mine ⇒ no raw production"
+        );
+        // Build a Mine (a ~120-day build); once it's up, the outpost extracts raw each tick.
+        assert!(!sim.outpost_has_facility(body, FAC_MINE));
+        sim.build_facility(body, FAC_MINE).unwrap();
+        assert!(sim.outpost_has_facility(body, FAC_MINE)); // bit set, but still building
+        while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+            sim.step();
+        }
+        let with_mine = sim.corp().cargo(mineral);
+        for _ in 0..10 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().cargo(mineral) > with_mine,
+            "a Mine-equipped outpost produces raw goods"
+        );
     }
 
     #[test]

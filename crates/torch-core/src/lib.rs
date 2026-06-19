@@ -1897,6 +1897,31 @@ impl TorchSim {
         }
     }
 
+    /// Whether the outpost at `body` has facility `kind` (0 Mine · 1 Storage · 2 Hangar) built.
+    #[func]
+    fn outpost_has_facility(&self, body: i64, kind: i64) -> bool {
+        self.sim
+            .outpost_has_facility(body.max(0) as usize, fac_bit(kind))
+    }
+
+    /// Build facility `kind` (0 Mine · 1 Storage · 2 Hangar) at the outpost on `body` — a
+    /// ~120-day build. Returns a feedback message (empty on failure).
+    #[func]
+    fn build_outpost_facility(&mut self, body: i64, kind: i64) -> GString {
+        let name = ["Mine", "Storage", "Hangar"][kind.clamp(0, 2) as usize];
+        match self.sim.build_facility(body.max(0) as usize, fac_bit(kind)) {
+            Ok(()) => GString::from(format!(
+                "{name} construction begun — ~120 days. {}",
+                if kind == 0 {
+                    "Then the outpost will extract raw goods."
+                } else {
+                    ""
+                }
+            )),
+            Err(_) => GString::new(),
+        }
+    }
+
     // ---- contested colonies: the powers fight over the major hubs (early game) ----
 
     /// How many major hubs are contested by the great powers.
@@ -2888,6 +2913,15 @@ impl TorchSim {
 
 /// Map a shell class index (0 Frigate, 1 Destroyer, 2 Cruiser, 3 Battleship) to a
 /// `ShipClass`, defaulting to Frigate (§8b).
+/// Map a UI facility index (0 Mine · 1 Storage · 2 Hangar) to its `FAC_*` bit.
+fn fac_bit(kind: i64) -> u8 {
+    match kind {
+        1 => sim::world::FAC_STORAGE,
+        2 => sim::world::FAC_HANGAR,
+        _ => sim::world::FAC_MINE,
+    }
+}
+
 fn warship_class(class: i64) -> sim::ShipClass {
     match class {
         1 => sim::ShipClass::Destroyer,
