@@ -174,6 +174,9 @@ var _mine_btn: Button
 var _withdraw_btn: Button
 var _outpost_btn: Button
 var _dev_outpost_btn: Button
+var _fac_mine_btn: Button
+var _fac_storage_btn: Button
+var _fac_hangar_btn: Button
 var _build_btn: Button
 var _expand_btn: Button
 var _court_btn: Button
@@ -1060,6 +1063,16 @@ func _build_systems_view() -> void:
 	_dev_outpost_btn = _make_op_button("⬆ Develop Outpost", _develop_outpost_here)
 	_dev_outpost_btn.visible = false
 	fo.add_child(_dev_outpost_btn)
+	# — Your operational outpost: build facilities (Mine to produce raw goods, then Storage/Hangar).
+	_fac_mine_btn = _make_op_button("⛏ Build Mine", func(): _build_facility(0))
+	_fac_mine_btn.visible = false
+	fo.add_child(_fac_mine_btn)
+	_fac_storage_btn = _make_op_button("▣ Build Storage", func(): _build_facility(1))
+	_fac_storage_btn.visible = false
+	fo.add_child(_fac_storage_btn)
+	_fac_hangar_btn = _make_op_button("⊓ Build Hangar", func(): _build_facility(2))
+	_fac_hangar_btn.visible = false
+	fo.add_child(_fac_hangar_btn)
 	# — An uninhabited body: plant your shipyard (the warship facility).
 	_build_btn = _make_op_button("⚓ Build Shipyard", _found_shipyard_here)
 	_build_btn.visible = false
@@ -1275,6 +1288,12 @@ func _found_outpost_here() -> void:
 func _develop_outpost_here() -> void:
 	var msg := String(sim.develop_outpost(_focus_body))
 	status = msg if msg != "" else "Can't develop this outpost — it's maxed, or you're short on credits."
+
+
+## Build a facility (0 Mine · 1 Storage · 2 Hangar) at the focused outpost.
+func _build_facility(kind: int) -> void:
+	var msg := String(sim.build_outpost_facility(_focus_body, kind))
+	status = msg if msg != "" else "Can't build that facility — need 12,000 cr, and the outpost must be operational."
 
 
 ## Buy out the independent colony on the focused body — a mid-game goal (much pricier than
@@ -3514,6 +3533,16 @@ func _refresh_object_panel() -> void:
 			detail = "[color=#78e68c]⚑ Outpost[/color] — level [color=#e6c860]L%d[/color]" % lvl
 			var ocost: int = sim.outpost_develop_cost(fb)
 			detail += "  [color=#7a8696](→L%d: %s cr, ~120 days)[/color]" % [lvl + 1, _commas(ocost)] if ocost >= 0 else "  [color=#7a8696](max)[/color]"
+			# Facilities — the progression rungs (Mine = produces raw goods).
+			var facs := PackedStringArray()
+			for fk in [[0, "Mine"], [1, "Storage"], [2, "Hangar"]]:
+				if sim.outpost_has_facility(fb, fk[0]):
+					facs.append("[color=#78e68c]✓ %s[/color]" % fk[1])
+				else:
+					facs.append("[color=#7a8696]%s[/color]" % fk[1])
+			detail += "\nFacilities: %s" % "  ".join(facs)
+			if not sim.outpost_has_facility(fb, 0):
+				detail += "\n[color=#e6a060]⚠ No Mine — produces no raw goods yet (only tribute).[/color]"
 			if sim.miner_at(fb):
 				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
@@ -3570,8 +3599,13 @@ func _refresh_systems() -> void:
 		_mine_btn.visible = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
 		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
 		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
+		var outpost_ready: bool = has_outpost and not outpost_building
 		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
 		_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
+		# Facilities — only on an operational outpost that lacks each (the progression rungs).
+		_fac_mine_btn.visible = outpost_ready and not sim.outpost_has_facility(fb, 0)
+		_fac_storage_btn.visible = outpost_ready and not sim.outpost_has_facility(fb, 1)
+		_fac_hangar_btn.visible = outpost_ready and not sim.outpost_has_facility(fb, 2)
 		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
 		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
 		_court_btn.visible = coni >= 0 and not owned
