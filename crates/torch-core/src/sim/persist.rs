@@ -129,6 +129,9 @@ pub struct SaveState {
     /// Deployed mining ships (early industry).
     #[serde(default)]
     pub miners: Vec<super::world::Miner>,
+    /// Player-founded outposts (the body-built station layer); empty for old saves.
+    #[serde(default)]
+    pub outposts: Vec<super::world::Outpost>,
     /// Tick the next Earth/Mars war flashpoint fires.
     #[serde(default)]
     pub next_war_flashpoint: u64,

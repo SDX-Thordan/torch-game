@@ -141,6 +141,8 @@ var _defend_holdings_btn: Button
 var _ctx_actions: VBoxContainer            # the contextual-action stack (no persistent buttons)
 var _mine_btn: Button
 var _withdraw_btn: Button
+var _outpost_btn: Button
+var _dev_outpost_btn: Button
 var _build_btn: Button
 var _expand_btn: Button
 var _court_btn: Button
@@ -951,7 +953,15 @@ func _build_systems_view() -> void:
 	_withdraw_btn = _make_op_button("⤴ Withdraw Miner", _withdraw_miner_here)
 	_withdraw_btn.visible = false
 	fo.add_child(_withdraw_btn)
-	# — An uninhabited body: plant your shipyard (your first body-built station).
+	# — An uninhabited body: plant an outpost (the station that develops into a base), or
+	#   develop the one you already have here.
+	_outpost_btn = _make_op_button("⚑ Build Outpost", _found_outpost_here)
+	_outpost_btn.visible = false
+	fo.add_child(_outpost_btn)
+	_dev_outpost_btn = _make_op_button("⬆ Develop Outpost", _develop_outpost_here)
+	_dev_outpost_btn.visible = false
+	fo.add_child(_dev_outpost_btn)
+	# — An uninhabited body: plant your shipyard (the warship facility).
 	_build_btn = _make_op_button("⚓ Build Shipyard", _found_shipyard_here)
 	_build_btn.visible = false
 	fo.add_child(_build_btn)
@@ -1162,6 +1172,18 @@ func _withdraw_miner_here() -> void:
 func _found_shipyard_here() -> void:
 	var msg := String(sim.found_shipyard_at(_focus_body))
 	status = msg if msg != "" else "Can't build here — need 60,000 cr (a shipyard's a major undertaking)."
+
+
+## Found an outpost on the tapped (uninhabited) body — the station that develops into a base.
+func _found_outpost_here() -> void:
+	var msg := String(sim.found_outpost(_focus_body))
+	status = msg if msg != "" else "Can't build an outpost here — need 18,000 cr (or it's an occupied/invalid site)."
+
+
+## Develop the outpost on the focused body a level (raises its tribute).
+func _develop_outpost_here() -> void:
+	var msg := String(sim.develop_outpost(_focus_body))
+	status = msg if msg != "" else "Can't develop this outpost — it's maxed, or you're short on credits."
 
 
 ## Develop the colony sitting on the focused body (the tall growth axis).
@@ -2996,6 +3018,15 @@ func _refresh_object_panel() -> void:
 	elif sim.shipyard_tier() > 0 and fb == sim.shipyard_body():
 		sub = "Your shipyard  ·  %s" % kind
 		detail = "[color=#9fd8ff]Shipyard[/color] — builds up to [color=#cfd8e0]%s[/color]" % String(sim.shipyard_max_hull())
+	elif sim.outpost_level_at(fb) > 0:
+		# Your outpost — the body-built station base.
+		sub = "Your outpost  ·  %s" % kind
+		var lvl: int = sim.outpost_level_at(fb)
+		detail = "[color=#78e68c]⚑ Outpost[/color] — level [color=#e6c860]L%d[/color]" % lvl
+		var ocost: int = sim.outpost_develop_cost(fb)
+		detail += "  [color=#7a8696](→L%d: %s cr)[/color]" % [lvl + 1, _commas(ocost)] if ocost >= 0 else "  [color=#7a8696](max)[/color]"
+		if sim.miner_at(fb):
+			detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
 		if sim.miner_at(fb):
 			detail = "[color=#f0a030]⛏ Miner working here[/color] — extracting [color=#cfd8e0]%s[/color]" % String(sim.body_mineral_name(fb))
@@ -3033,9 +3064,12 @@ func _refresh_systems() -> void:
 		var ci := _colony_index_for_body(fb)
 		var coni := _contested_index_for_body(fb)
 		var owned: bool = ci >= 0 and sim.colony_controlled(ci)
+		var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
 		_mine_btn.visible = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
 		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
-		_build_btn.visible = fb > 0 and ci < 0 and sim.can_found_shipyard_at(fb)
+		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
+		_dev_outpost_btn.visible = has_outpost
+		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
 		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
 		_court_btn.visible = coni >= 0 and not owned
 		_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)

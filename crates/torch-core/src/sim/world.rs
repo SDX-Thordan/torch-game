@@ -207,6 +207,28 @@ pub enum MinerError {
     CantAfford,
 }
 
+/// A player-founded **outpost** — a station planted at a body that develops through levels
+/// into an industrial base. Pays a per-level tribute and boosts a co-located miner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Outpost {
+    pub body: usize,
+    pub level: i64,
+}
+
+/// Why an outpost action failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutpostError {
+    /// You've founded the maximum number of outposts.
+    Full,
+    /// Not a valid uninhabited site (the sun/gate, or a body already taken).
+    BadSite,
+    /// No outpost there to develop.
+    NoneThere,
+    /// Already at the maximum development level.
+    Maxed,
+    CantAfford,
+}
+
 /// Why a shipyard action failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShipyardError {
@@ -313,6 +335,18 @@ const COLONY_OUTPUT_PER_TICK: i64 = 3;
 const MINER_COST: i64 = 9_000;
 const MINER_OUTPUT_PER_TICK: i64 = 2;
 const MAX_MINERS: usize = 12;
+/// **Outposts** — player-founded stations you plant at any uninhabited body and develop
+/// through levels into a real industrial base. Cheaper than a shipyard; a passive economic
+/// base (per-level tribute) and a **deposit point** that boosts a co-located miner (the
+/// "haul to the nearest station" benefit). Distinct from the single shipyard + the frontier
+/// colonies. Inert by default (no outposts ⇒ the §7c gate + QA stay byte-identical).
+const OUTPOST_FOUND_COST: i64 = 18_000;
+const OUTPOST_DEVELOP_BASE: i64 = 12_000;
+const MAX_OUTPOST_LEVEL: i64 = 5;
+const OUTPOST_TRIBUTE_PER_LEVEL: i64 = 30;
+const MAX_OUTPOSTS: usize = 16;
+/// A miner working an outpost's body extracts +50% (it hauls to the station on-site).
+const OUTPOST_MINER_BONUS_BP: i64 = 5_000;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -637,6 +671,8 @@ pub struct Sim {
     shipyard_body: usize,
     /// Deployed mining ships (early industry) — each extracts a body's raw per tick.
     miners: Vec<Miner>,
+    /// Player-founded outposts (the body-built station layer) — empty by default (inert).
+    outposts: Vec<Outpost>,
     /// Tick the next Earth/Mars war flashpoint fires (player collateral). Fires more in
     /// the early game and dwindles as you climb the tiers.
     next_war_flashpoint: u64,
@@ -752,6 +788,7 @@ impl Sim {
             shipyard_tier: 0,
             shipyard_body: 0,
             miners: Vec::new(),
+            outposts: Vec::new(),
             next_war_flashpoint: 100,
             contested: default_colonies()
                 .iter()
@@ -1767,6 +1804,110 @@ impl Sim {
         }
     }
 
+    // ---- outposts: the body-built station layer (found anywhere, develop into a base) ----
+
+    /// The player's founded outposts.
+    pub fn outposts(&self) -> &[Outpost] {
+        &self.outposts
+    }
+
+    /// The outpost at `body`, if any (object-contextual lookup).
+    pub fn outpost_at(&self, body: usize) -> Option<&Outpost> {
+        self.outposts.iter().find(|o| o.body == body)
+    }
+
+    /// Whether `body` is a valid, free site to found an outpost — a real world (not the
+    /// sun/gate/far-side) that you don't already hold (no outpost, shipyard, or colony there).
+    pub fn can_found_outpost(&self, body: usize) -> bool {
+        use super::orbit::BodyKind;
+        if self.outposts.len() >= MAX_OUTPOSTS || self.outpost_at(body).is_some() {
+            return false;
+        }
+        if self.shipyard_tier > 0 && self.shipyard_body == body {
+            return false;
+        }
+        // Not on a frontier colony body you control.
+        if self
+            .colonies
+            .iter()
+            .enumerate()
+            .any(|(i, c)| c.body == body && self.colony_controlled(i))
+        {
+            return false;
+        }
+        matches!(
+            super::orbit::default_system().get(body).map(|b| b.kind),
+            Some(
+                BodyKind::Planet
+                    | BodyKind::GasGiant
+                    | BodyKind::DwarfPlanet
+                    | BodyKind::Moon
+                    | BodyKind::Asteroid
+            )
+        )
+    }
+
+    /// **Found an outpost** at `body` (the body-built station the early-game empire grows on).
+    /// Cheaper than a shipyard; starts at level 1 and develops from there. A spine op (§0).
+    pub fn found_outpost(&mut self, body: usize) -> Result<(), OutpostError> {
+        if self.outposts.len() >= MAX_OUTPOSTS {
+            return Err(OutpostError::Full);
+        }
+        if !self.can_found_outpost(body) {
+            return Err(OutpostError::BadSite);
+        }
+        if self.corp.credits() < OUTPOST_FOUND_COST {
+            return Err(OutpostError::CantAfford);
+        }
+        self.corp.debit(OUTPOST_FOUND_COST);
+        self.outposts.push(Outpost { body, level: 1 });
+        self.complete_op();
+        Ok(())
+    }
+
+    /// The credit cost to develop the outpost at `body` one level (escalates with level), or
+    /// `None` if there's none there / it's maxed.
+    pub fn outpost_develop_cost(&self, body: usize) -> Option<i64> {
+        let o = self.outpost_at(body)?;
+        if o.level >= MAX_OUTPOST_LEVEL {
+            return None;
+        }
+        Some(OUTPOST_DEVELOP_BASE * o.level)
+    }
+
+    /// **Develop** the outpost at `body` a level — raising its tribute (and, like colonies,
+    /// drawing no coalition alarm: improving your own is the safe growth). A spine op (§0).
+    pub fn develop_outpost(&mut self, body: usize) -> Result<(), OutpostError> {
+        let cost = match self.outpost_develop_cost(body) {
+            Some(c) => c,
+            None if self.outpost_at(body).is_none() => return Err(OutpostError::NoneThere),
+            None => return Err(OutpostError::Maxed),
+        };
+        if self.corp.credits() < cost {
+            return Err(OutpostError::CantAfford);
+        }
+        self.corp.debit(cost);
+        if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
+            o.level += 1;
+        }
+        self.complete_op();
+        Ok(())
+    }
+
+    /// Each outpost pays a per-level tribute into the treasury. No-op without outposts
+    /// (byte-identical: the §7c gate + QA never see this unless the player builds one).
+    fn run_outposts(&mut self) {
+        if self.outposts.is_empty() {
+            return;
+        }
+        let tribute: i64 = self
+            .outposts
+            .iter()
+            .map(|o| o.level * OUTPOST_TRIBUTE_PER_LEVEL)
+            .sum();
+        self.corp.credit(tribute);
+    }
+
     // ---- the great-power war (Earth/Mars conflict that haunts the early game) ----
 
     /// Ticks between Earth/Mars war flashpoints — frequent early, dwindling as you climb
@@ -1847,14 +1988,27 @@ impl Sim {
         );
     }
 
-    /// Deposit each miner's haul into the warehouse. No-op without miners (byte-identical).
+    /// Deposit each miner's haul into the warehouse. A miner working an outpost's body hauls
+    /// to that on-site station for **+50%** output. No-op without miners (byte-identical: with
+    /// no outposts the bonus is 0, so output == the original `MINER_OUTPUT_PER_TICK`).
     fn run_miners(&mut self) {
         if self.miners.is_empty() {
             return;
         }
-        let deposits: Vec<usize> = self.miners.iter().map(|m| m.commodity).collect();
-        for c in deposits {
-            self.corp.store(c, MINER_OUTPUT_PER_TICK);
+        let deposits: Vec<(usize, i64)> = self
+            .miners
+            .iter()
+            .map(|m| {
+                let bonus = if self.outpost_at(m.body).is_some() {
+                    MINER_OUTPUT_PER_TICK * OUTPOST_MINER_BONUS_BP / 10_000
+                } else {
+                    0
+                };
+                (m.commodity, MINER_OUTPUT_PER_TICK + bonus)
+            })
+            .collect();
+        for (c, qty) in deposits {
+            self.corp.store(c, qty);
         }
     }
 
@@ -2583,6 +2737,7 @@ impl Sim {
             shipyard_tier: self.shipyard_tier,
             shipyard_body: self.shipyard_body,
             miners: self.miners.clone(),
+            outposts: self.outposts.clone(),
             next_war_flashpoint: self.next_war_flashpoint,
             contested_player_influence: self.contested.iter().map(|c| c.player_influence).collect(),
             faction_alarm: self.faction_alarm,
@@ -2718,6 +2873,7 @@ impl Sim {
         self.shipyard_tier = s.shipyard_tier;
         self.shipyard_body = s.shipyard_body;
         self.miners = s.miners.clone();
+        self.outposts = s.outposts.clone();
         if s.next_war_flashpoint > 0 {
             self.next_war_flashpoint = s.next_war_flashpoint;
         }
@@ -2782,6 +2938,7 @@ impl Sim {
         self.run_weapon_production();
         self.run_shipyard_upkeep();
         self.run_miners();
+        self.run_outposts();
         self.run_war();
         self.run_contest();
         self.run_holdings();
@@ -5831,6 +5988,53 @@ mod tests {
             sim.found_shipyard(home),
             Err(ShipyardError::AlreadyBuilt)
         ));
+    }
+
+    #[test]
+    fn an_outpost_pays_tribute_develops_and_boosts_a_co_located_miner() {
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(50_000); // below the 100k wealth-overhead sink, so tribute nets out
+                                       // Found an outpost at a mineable belt body (Vesta).
+        let body = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Vesta")
+            .unwrap();
+        assert!(sim.can_found_outpost(body));
+        sim.found_outpost(body).unwrap();
+        assert_eq!(sim.outposts().len(), 1);
+        assert!(sim.outpost_at(body).is_some());
+        // Can't found a second on the same body.
+        assert!(!sim.can_found_outpost(body));
+        // It pays a per-level tribute each tick.
+        let c0 = sim.corp().credits();
+        sim.step();
+        assert!(sim.corp().credits() > c0, "an outpost pays tribute");
+        // Develop raises its level (and tribute).
+        let lvl0 = sim.outpost_at(body).unwrap().level;
+        sim.develop_outpost(body).unwrap();
+        assert_eq!(sim.outpost_at(body).unwrap().level, lvl0 + 1);
+        // A miner on the outpost's body hauls to the on-site station: +50% output.
+        let mineral = sim.body_mineral(body);
+        sim.buy_miner(body).unwrap();
+        let before = sim.corp().cargo(mineral);
+        sim.step();
+        assert!(
+            sim.corp().cargo(mineral) > before + MINER_OUTPUT_PER_TICK,
+            "a co-located miner is boosted by the outpost"
+        );
+    }
+
+    #[test]
+    fn outposts_are_inert_by_default() {
+        // No outposts ⇒ the economy is byte-identical to a world that never had the layer.
+        let mut a = Sim::new(5);
+        let mut b = Sim::new(5);
+        for _ in 0..400 {
+            a.step();
+            let _ = b.outposts();
+            b.step();
+        }
+        assert_eq!(a.corp().credits(), b.corp().credits());
     }
 
     #[test]
