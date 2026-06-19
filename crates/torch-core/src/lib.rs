@@ -1906,6 +1906,46 @@ impl TorchSim {
         self.sim.convoys().len() as i64
     }
 
+    /// Warships escorting the convoy of the miner at `body` (Phase 5).
+    #[func]
+    fn convoy_escorts_at(&self, body: i64) -> i64 {
+        self.sim.convoy_escorts_at(body.max(0) as usize)
+    }
+
+    /// Whether a warship is free to escort the convoy at `body` (a convoy here + an unassigned
+    /// warship in the fleet).
+    #[func]
+    fn can_escort_convoy(&self, body: i64) -> bool {
+        let b = body.max(0) as usize;
+        self.sim.miner_convoy_at(b).is_some()
+            && self.sim.total_escorts_assigned() < self.sim.corp().fleet().len() as i64
+    }
+
+    /// Assign one warship to escort the convoy at `body`. Returns a feedback message (empty on
+    /// failure — no convoy here, or no free warship).
+    #[func]
+    fn escort_convoy_at(&mut self, body: i64) -> GString {
+        let b = body.max(0) as usize;
+        match self.sim.miner_convoy_at(b) {
+            Some(id) if self.sim.escort_convoy(id) => {
+                GString::from("Warship assigned — the convoy is now escorted (deters piracy).")
+            }
+            _ => GString::new(),
+        }
+    }
+
+    /// Recall one escort from the convoy at `body` back to home defense. Returns a message.
+    #[func]
+    fn recall_escort_at(&mut self, body: i64) -> GString {
+        let b = body.max(0) as usize;
+        match self.sim.miner_convoy_at(b) {
+            Some(id) if self.sim.recall_escort(id) => {
+                GString::from("Escort recalled to home defense.")
+            }
+            _ => GString::new(),
+        }
+    }
+
     /// Recall the miner working `body` (the "until withdrawn" half of the loop). Returns a
     /// feedback message (empty if there was none there).
     #[func]

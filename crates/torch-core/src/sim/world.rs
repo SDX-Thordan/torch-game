@@ -271,6 +271,10 @@ const MINER_NAMES: [&str; 12] = [
 pub struct Convoy {
     pub id: u32,
     pub name: String,
+    /// Warships assigned to escort this convoy (Phase 5) — an actively-screened convoy deters
+    /// piracy better. Drawn from the fleet; 0 for old saves / an unescorted convoy.
+    #[serde(default)]
+    pub escorts: u8,
 }
 
 /// A deployed **mining ship** (§3.1) — a dedicated, named, tiered hull stationed at a body,
@@ -2121,8 +2125,53 @@ impl Sim {
         } else {
             name
         };
-        self.convoys.push(Convoy { id, name });
+        self.convoys.push(Convoy {
+            id,
+            name,
+            escorts: 0,
+        });
         id
+    }
+
+    /// Total warships assigned as convoy escorts across all convoys (Phase 5).
+    pub fn total_escorts_assigned(&self) -> i64 {
+        self.convoys.iter().map(|c| c.escorts as i64).sum()
+    }
+
+    /// Assign one warship from the fleet to escort convoy `id` — an actively-screened convoy
+    /// deters piracy. Fails if the convoy is unknown or every warship is already on escort duty.
+    pub fn escort_convoy(&mut self, id: u32) -> bool {
+        if self.total_escorts_assigned() >= self.corp.fleet().len() as i64 {
+            return false; // no free warship to assign
+        }
+        if let Some(c) = self.convoys.iter_mut().find(|c| c.id == id) {
+            c.escorts = c.escorts.saturating_add(1);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Recall one escort from convoy `id` back to home defense. Returns whether one was freed.
+    pub fn recall_escort(&mut self, id: u32) -> bool {
+        if let Some(c) = self
+            .convoys
+            .iter_mut()
+            .find(|c| c.id == id && c.escorts > 0)
+        {
+            c.escorts -= 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Escorts on the convoy of the miner at `body` (for the shell readout).
+    pub fn convoy_escorts_at(&self, body: usize) -> i64 {
+        self.miner_convoy_at(body)
+            .and_then(|id| self.convoys.iter().find(|c| c.id == id))
+            .map(|c| c.escorts as i64)
+            .unwrap_or(0)
     }
 
     /// Assign the miner working `body` to convoy `id` (or `None` to detach). Returns success.
@@ -4827,6 +4876,7 @@ impl Sim {
         self.warships_on_station()
             + self.diplomacy.ally_count()
             + (self.corp.hauler_defense() / HAULER_DEFENSE_PER_ESCORT) as usize
+            + self.total_escorts_assigned() as usize
     }
 
     /// Whether the empire's shipping is adequately escorted (EP3/E8) — your navy plus
@@ -7269,6 +7319,40 @@ mod tests {
             convoyed > lone,
             "a convoyed miner ({convoyed}) out-yields a lone one ({lone})"
         );
+    }
+
+    #[test]
+    fn a_warship_can_escort_a_convoy_and_tighten_the_screen() {
+        use crate::sim::corp::HaulerClass;
+        use crate::sim::ships::ShipClass;
+        let mut sim = Sim::new(1);
+        sim.dev_grant_shipyard();
+        sim.corp_mut().credit(2_000_000);
+        let belt = sim.markets()[0].body();
+        sim.buy_miner(belt).unwrap();
+        sim.commission_hauler(HaulerClass::Light).unwrap();
+        let id = sim.form_mining_convoy(belt).expect("a convoy forms");
+        // No warship yet ⇒ can't escort.
+        assert!(!sim.escort_convoy(id), "no free warship to assign");
+        // Stand up a frigate (instant, via the test drain) and assign it as an escort.
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
+        let screen0 = sim.effective_escorts();
+        assert!(sim.escort_convoy(id), "a warship escorts the convoy");
+        assert_eq!(sim.convoy_escorts_at(belt), 1);
+        assert_eq!(
+            sim.effective_escorts(),
+            screen0 + 1,
+            "the escort tightens the screen"
+        );
+        // Can't assign more escorts than warships.
+        assert!(
+            !sim.escort_convoy(id),
+            "only one warship, already escorting"
+        );
+        // Recall frees it.
+        assert!(sim.recall_escort(id));
+        assert_eq!(sim.convoy_escorts_at(belt), 0);
     }
 
     #[test]

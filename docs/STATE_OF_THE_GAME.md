@@ -101,8 +101,8 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   station" model. Remaining: ship fuel/cargo per-hull, the home base as a station, freighters
   hauling from outpost stores.
 
-- [~] **Civilian ships as first-class assets *(active player direction — multi-PR epic)*** — make
-  civilians as rich as warships: tiered, named, costly hulls that gate expansion. **Done so far:**
+- [x] **Civilian ships as first-class assets *(active player direction — multi-PR epic, complete)*** —
+  civilians are now as rich as warships: tiered, named, costly hulls that gate expansion.
   - [x] **Miners as dedicated, tiered ships** — `MinerClass` (Prospector / Harvester / Refinery
     Barge) scales yield ×1/×3/×6, cost (9k/30k/75k), and **crew** (0/10/24, the real gate); each rig
     is **christened** (deterministic names, no RNG → economy byte-identical) and shown by name/class in
@@ -123,8 +123,11 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
     ferries its ore so the rig never stops). One-press **⛟ Form Convoy** contextual verb at a mining
     body (pairs the rig with a free hauler); the synergy shows in the object panel. Inert until formed
     → byte-identical. (The convoy structure is the anchor the military-escort phase plugs into.)
-  - [ ] **Military escort** — warships protect a convoy; the raid/piracy systems resolve escorted vs.
-    unescorted convoys.
+  - [x] **Military escort** — a warship can be assigned to **escort a convoy** (`Convoy.escorts`,
+    drawn from the fleet, capped at the fleet size); an escorted convoy tightens the empire's
+    `effective_escorts` screen, so the EP3 piracy bites less. Contextual **⚔ Escort Convoy** verb at a
+    convoyed mining body + a panel readout (`⚔ Escorted by N`). Inert until assigned → byte-identical.
+    This ties the convoy layer into the existing raid/piracy combat systems — the epic's final rung.
 
 ### P1 — The mid/late-game authored arc *(the headline forward direction)*
 The vision's whole middle and end. Design notes in `MID_LATE_GAME_STORY.md`; **subsumes the

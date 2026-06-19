@@ -180,6 +180,7 @@ var _mine_btn: Button
 var _miner_tier_btn: Button                   # cycles the miner class to deploy (0/1/2)
 var miner_tier := 0                            # 0 Prospector · 1 Harvester · 2 Refinery Barge
 var _convoy_btn: Button                        # form a miner+hauler convoy at the focused body
+var _escort_btn: Button                        # assign a warship to escort the focused convoy
 var _hauler_tier_btn: Button                   # cycles the hauler class to buy (0/1/2)
 var hauler_tier := 0                           # 0 Light · 1 Heavy · 2 Bulk
 var _withdraw_btn: Button
@@ -1092,6 +1093,10 @@ func _build_systems_view() -> void:
 	_convoy_btn = _make_op_button("⛟ Form Convoy", _form_convoy_here)
 	_convoy_btn.visible = false
 	fo.add_child(_convoy_btn)
+	# — Assign a warship to escort this convoy (Phase 5: protect it from piracy).
+	_escort_btn = _make_op_button("⚔ Escort Convoy", _escort_convoy_here)
+	_escort_btn.visible = false
+	fo.add_child(_escort_btn)
 	# — An uninhabited body: plant an outpost (the station that develops into a base), or
 	#   develop the one you already have here.
 	_outpost_btn = _make_op_button("⚑ Build Outpost", _found_outpost_here)
@@ -1332,6 +1337,17 @@ func _form_convoy_here() -> void:
 		status = "Buy a hauler first — a convoy pairs a miner with a hauler to ferry its ore."
 	else:
 		status = "No free hauler to convoy here (all are assigned elsewhere)."
+
+
+## Assign a warship to escort the focused body's convoy (Phase 5 — protect it from piracy).
+func _escort_convoy_here() -> void:
+	var msg := String(sim.escort_convoy_at(_focus_body))
+	if msg != "":
+		status = msg
+	elif sim.fleet_size() == 0:
+		status = "No warship to escort with — commission one in the SHIPYARD first."
+	else:
+		status = "Every warship is already on escort duty."
 
 
 ## Found the player's shipyard on the tapped (uninhabited) body — your first body-built station.
@@ -3889,6 +3905,9 @@ func _refresh_object_panel() -> void:
 				detail += "\n[color=#78e68c]⛟ Convoyed with a hauler — +50% (the hauler ferries its ore).[/color]"
 			elif sim.can_form_convoy(fb):
 				detail += "\n[color=#7a8696]⛟ Form a convoy with a hauler for +50% (verb below).[/color]"
+			var esc: int = sim.convoy_escorts_at(fb)
+			if esc > 0:
+				detail += "\n[color=#9fd8ff]⚔ Escorted by %d warship(s) — screened against piracy.[/color]" % esc
 		else:
 			detail = "Mineable %s — yields [color=#cfd8e0]%s[/color]\n[color=#7a8696]Deploy a mining rig: Prospector / Harvester / Refinery Barge (cycle the class below).[/color]" % [kind.to_lower(), String(sim.body_mineral_name(fb))]
 	_sys_sub.text = sub
@@ -3947,6 +3966,7 @@ func _refresh_systems() -> void:
 				String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
 		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
 		_convoy_btn.visible = fb > 0 and sim.can_form_convoy(fb)
+		_escort_btn.visible = fb > 0 and sim.can_escort_convoy(fb)
 		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
 		var outpost_ready: bool = has_outpost and not outpost_building
 		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
