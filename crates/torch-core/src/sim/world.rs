@@ -544,10 +544,20 @@ const SPAWN_INTERVAL: u64 = 24;
 const MAX_HAULERS: usize = 16;
 /// Minimum price spread that makes a route worth flying.
 const MIN_SPREAD: i64 = 5;
-/// Hauler cruise speed in distance units per tick.
-const CRUISE_SPEED: i64 = 60_000;
+/// Constant-thrust acceleration for civilian haulers/freighters, in distance-units per
+/// tick² — the flip-and-burn "G". Ships accelerate to the midpoint, flip, and brake to the
+/// destination (a brachistochrone), so transit time scales with √distance and with 1/√accel
+/// (the real Expanse-style burn, not a flat cruise). Calibrated for playable inner-system
+/// transit; civilian ≈ low-G, the player's warships burn harder (see `movement::plan`).
+const ACCEL_CIV: i64 = 6_000;
 /// Floor on travel time so close markets still take real time (§21).
 const MIN_TRAVEL: u64 = 24;
+
+/// Flip-and-burn (brachistochrone) travel time: `t = 2·√(distance / accel)`. A higher
+/// `accel` (higher-G drive) is faster; quadrupling the distance only doubles the time.
+pub fn brachistochrone_ticks(dist: i64, accel: i64) -> u64 {
+    (2 * (dist.max(0) / accel.max(1)).isqrt()) as u64
+}
 /// A standing-route freighter burns Remass scaled by trip length (§6 delta-v as
 /// operating cost): `remass_units = travel_ticks / this`, floored at 1. Tuned so
 /// short inner hauls cost modest fuel and long outer hauls cost a lot — and so
@@ -2245,10 +2255,18 @@ impl Sim {
         }
         let to = orbit::position_of(&self.bodies, s.nav.dest, self.tick);
         let span = (s.nav.arrival_tick - s.nav.depart_tick).max(1) as i64;
-        let t = (self.tick - s.nav.depart_tick) as i64;
+        let t = (self.tick - s.nav.depart_tick).min(span as u64) as i64;
+        // Flip-and-burn distance fraction (accelerate to mid-flight, brake to the dock),
+        // matching the NPC hauler profile in `traffic::Hauler::position`.
+        let den = span * span;
+        let num = if 2 * t <= span {
+            2 * t * t
+        } else {
+            den - 2 * (span - t) * (span - t)
+        };
         (
-            from.0 + (to.0 - from.0) * t / span,
-            from.1 + (to.1 - from.1) * t / span,
+            from.0 + (to.0 - from.0) * num / den,
+            from.1 + (to.1 - from.1) * num / den,
         )
     }
 
@@ -2369,7 +2387,7 @@ impl Sim {
         let d = orbit::position_of(&self.bodies, self.markets[dest].body(), self.tick);
         let (dx, dy) = (d.0 - o.0, d.1 - o.1);
         let dist = (dx * dx + dy * dy).isqrt();
-        ((dist / CRUISE_SPEED) as u64).max(MIN_TRAVEL)
+        brachistochrone_ticks(dist, ACCEL_CIV).max(MIN_TRAVEL)
     }
 
     /// Run the whole route table this tick (§4): land every arriving trip, then
@@ -4558,7 +4576,7 @@ impl Sim {
         let dest_pos = orbit::position_of(&self.bodies, self.markets[dest].body(), self.tick);
         let (dx, dy) = (dest_pos.0 - origin_pos.0, dest_pos.1 - origin_pos.1);
         let dist = (dx * dx + dy * dy).isqrt();
-        let travel = ((dist / CRUISE_SPEED) as u64).max(MIN_TRAVEL);
+        let travel = brachistochrone_ticks(dist, ACCEL_CIV).max(MIN_TRAVEL);
         let id = self.next_hauler_id;
         self.next_hauler_id += 1;
         self.events.push(Event::HaulerDeparted {
