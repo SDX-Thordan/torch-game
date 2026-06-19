@@ -145,8 +145,16 @@ var _emp_meters: Label
 var _emp_table: RichTextLabel
 var _res_credits: Label
 var _res_ore: Label
-var _res_fuel: ProgressBar
+var _res_fuel: Label
 var _res_crew: Label
+var _res_influence: Label
+var _rate_credits: Label
+var _rate_ore: Label
+var _rate_fuel: Label
+var _rate_influence: Label
+# Per-day resource rates (sampled from a daily snapshot — the management-sim readout).
+var _rate_day := -1
+var _rate_snap := {}
 var _alert_ticker: Label
 var _flash_rect: ColorRect
 var _ascend_rect: ColorRect
@@ -823,19 +831,16 @@ func _build_chrome() -> void:
 	bar.add_child(res)
 	_date = UiKit.label("", 13, UiKit.TEXT_DIM)
 	res.add_child(_make_res_cell("DATE", _date))
-	_res_credits = UiKit.label("", 14, UiKit.GOLD)
-	res.add_child(_make_res_cell("CREDITS", _res_credits))
-	_res_ore = UiKit.label("", 14, UiKit.TEXT)
-	res.add_child(_make_res_cell("ORE", _res_ore))
-	# Fuel as a gauge cell.
-	var fuel_cell := VBoxContainer.new()
-	fuel_cell.add_theme_constant_override("separation", 2)
-	fuel_cell.add_child(UiKit.kicker("FUEL"))
-	_res_fuel = UiKit.gauge(0.5, UiKit.ACCENT, 70, 9)
-	fuel_cell.add_child(_res_fuel)
-	res.add_child(fuel_cell)
-	_res_crew = UiKit.label("", 14, UiKit.TEXT)
-	res.add_child(_make_res_cell("CREW", _res_crew))
+	var cc := _make_rated_cell("CREDITS", UiKit.GOLD)
+	res.add_child(cc[0]); _res_credits = cc[1]; _rate_credits = cc[2]
+	var co := _make_rated_cell("ORE", UiKit.TEXT)
+	res.add_child(co[0]); _res_ore = co[1]; _rate_ore = co[2]
+	var cf := _make_rated_cell("FUEL", UiKit.TEXT)
+	res.add_child(cf[0]); _res_fuel = cf[1]; _rate_fuel = cf[2]
+	var ce := _make_rated_cell("CREW", UiKit.TEXT)
+	res.add_child(ce[0]); _res_crew = ce[1]
+	var ci := _make_rated_cell("INFLUENCE", Color(0.85, 0.72, 0.4))
+	res.add_child(ci[0]); _res_influence = ci[1]; _rate_influence = ci[2]
 
 	# Content host (between the rail and the screen edge, below the bar). IGNORE so that
 	# taps/drags/pinches over the *map* (the 3D orrery behind it) reach `_unhandled_input`;
@@ -857,6 +862,20 @@ func _build_chrome() -> void:
 	_help.offset_left = 92
 	_help.offset_bottom = -2
 	_layer.add_child(_help)
+
+
+## A resource cell with a caption, a big value, and a small per-day rate sublabel
+## (Stellaris-style). Returns [cell, value_label, rate_label].
+func _make_rated_cell(caption: String, vcolor: Color) -> Array:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(UiKit.kicker(caption))
+	var val := UiKit.label("", 14, vcolor)
+	v.add_child(val)
+	var rate := UiKit.label("", 9, UiKit.TEXT_DIM)
+	v.add_child(rate)
+	return [v, val, rate]
 
 
 func _make_res_cell(caption: String, value: Label) -> VBoxContainer:
@@ -3318,6 +3337,27 @@ func _refresh() -> void:
 		_help.text = "Touch ·  [Space/1/2/3] time   pinch: zoom · drag/twist: rotate · tap: focus   [B]uy [S]ell   [I]nterdict [E]xploit   [F8] PC mode"
 
 
+## Per-day resource rates for the top bar — sampled once per in-game day (6 ticks) as the
+## delta from the previous day's snapshot, so you can see your economy's pulse at a glance.
+func _update_resource_rates() -> void:
+	var day: int = int(sim.tick()) / 6
+	var cur := {"credits": sim.credits(), "ore": sim.cargo(_idx_ore),
+		"fuel": sim.cargo(_idx_fuel), "influence": sim.influence()}
+	if _rate_snap.is_empty():
+		_rate_snap = cur
+		_rate_day = day
+	elif day != _rate_day:
+		var days: int = maxi(1, day - _rate_day)   # at fast-forward many days pass per frame
+		for key in cur:
+			var d: int = (int(cur[key]) - int(_rate_snap[key])) / days
+			var lbl: Label = {"credits": _rate_credits, "ore": _rate_ore,
+				"fuel": _rate_fuel, "influence": _rate_influence}[key]
+			lbl.text = ("+%s/d" % _commas(d)) if d >= 0 else ("%s/d" % _commas(d))
+			lbl.add_theme_color_override("font_color", UiKit.GOOD if d > 0 else (UiKit.BAD if d < 0 else UiKit.TEXT_DIM))
+		_rate_snap = cur
+		_rate_day = day
+
+
 func _refresh_chrome() -> void:
 	var sp := "‖ PAUSED" if speed_idx == 0 else "▶ %d×" % int(SPEEDS[speed_idx])
 	_title.text = "%s      %s" % [VIEW_TITLE[view], sp]
@@ -3325,9 +3365,10 @@ func _refresh_chrome() -> void:
 	_date.text = _date_string()
 	_res_credits.text = _commas(sim.credits())
 	_res_ore.text = _commas(sim.cargo(_idx_ore))
-	var fuel := sim.cargo(_idx_fuel)
-	_res_fuel.value = clampf(float(fuel) / 400.0, 0.05, 1.0)
+	_res_fuel.text = _commas(sim.cargo(_idx_fuel))
 	_res_crew.text = str(sim.trained_crew())
+	_res_influence.text = str(sim.influence())
+	_update_resource_rates()
 	# Alert ticker: the most recent act-now shortage, if any.
 	var ticker := ""
 	for a in sim.alert_count():
