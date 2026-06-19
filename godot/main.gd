@@ -519,7 +519,9 @@ func _build_asteroid_belt() -> void:
 const _RADII := {
 	"Sol": 0.26,
 	"Mercury": 0.026, "Venus": 0.048, "Earth": 0.05, "Mars": 0.034,
-	"Jupiter": 0.17, "Saturn": 0.145, "Uranus": 0.10, "Neptune": 0.095,
+	# Gas giants scaled down so their innermost moons clear the body instead of clipping
+	# inside it (Jupiter's Metis orbits at 0.150, Saturn's Pan at 0.110 world units, etc.).
+	"Jupiter": 0.125, "Saturn": 0.09, "Uranus": 0.082, "Neptune": 0.08,
 	"Ceres": 0.02, "Pluto": 0.02,
 	"Ganymede": 0.026, "Titan": 0.026, "Callisto": 0.024, "Io": 0.02, "Europa": 0.018,
 	"Luna": 0.022, "Triton": 0.02, "Titania": 0.016, "Oberon": 0.015,
