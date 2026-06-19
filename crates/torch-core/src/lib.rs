@@ -1246,6 +1246,64 @@ impl TorchSim {
         self.sim.progression().research.drive_bonus()
     }
 
+    // ---- research tree (the RESEARCH view) ----
+
+    /// Number of techs in the tree.
+    #[func]
+    fn tech_count(&self) -> i64 {
+        self.sim.progression().research.catalog().len() as i64
+    }
+
+    /// Tech `i`'s name (empty out of range).
+    #[func]
+    fn tech_name(&self, i: i64) -> GString {
+        match self.sim.progression().research.catalog().get(i.max(0) as usize) {
+            Some(t) => GString::from(t.name),
+            None => GString::new(),
+        }
+    }
+
+    /// Tech `i`'s point cost (0 out of range).
+    #[func]
+    fn tech_cost(&self, i: i64) -> i64 {
+        self.sim
+            .progression()
+            .research
+            .catalog()
+            .get(i.max(0) as usize)
+            .map(|t| t.cost)
+            .unwrap_or(0)
+    }
+
+    /// Tech `i`'s prerequisite tech index, or −1 if it has none.
+    #[func]
+    fn tech_prereq(&self, i: i64) -> i64 {
+        self.sim
+            .progression()
+            .research
+            .catalog()
+            .get(i.max(0) as usize)
+            .and_then(|t| t.prereq)
+            .map(|p| p as i64)
+            .unwrap_or(-1)
+    }
+
+    /// Whether tech `i` is already researched.
+    #[func]
+    fn tech_unlocked(&self, i: i64) -> bool {
+        self.sim.progression().research.is_unlocked(i.max(0) as usize)
+    }
+
+    /// Whether tech `i` can be researched right now (prereq met + enough points).
+    #[func]
+    fn tech_can_research(&self, i: i64) -> bool {
+        self.sim
+            .progression()
+            .research
+            .can_research(i.max(0) as usize)
+            .is_ok()
+    }
+
     /// Discover blueprint `i` (honors its reputation gate); returns success.
     #[func]
     fn blueprint_discover(&mut self, i: i64) -> bool {

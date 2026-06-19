@@ -39,15 +39,17 @@ const V_FLEET := 1
 const V_BUILD := 2
 const V_MARKET := 3
 const V_EMPIRE := 4
-const V_LEDGER := 5
-const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪", "▤"]
-const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE", "LEDGER"]
+const V_RESEARCH := 5
+const V_LEDGER := 6
+const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪", "⚛", "▤"]
+const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE", "RESEARCH", "LEDGER"]
 const VIEW_TITLE := [
 	"Orrery — Sol System",
 	"Fleet Management",
 	"Orbital Shipyard",
 	"Market & Logistics",
 	"Empire — Holdings & Expansion",
+	"Research — Tech Tree",
 	"Ledger — Assets",
 ]
 
@@ -286,6 +288,7 @@ func _ready() -> void:
 	_build_build_view()
 	_build_market_view()
 	_build_empire_view()
+	_build_research_view()
 	_build_ledger_view()
 	_build_diorama()
 	_build_decision_panel()
@@ -3021,6 +3024,78 @@ var _led_tab_row: HBoxContainer
 var _led_summary: Label
 
 
+# ============================================================================
+# RESEARCH VIEW — the tech tree + your accumulated points + spend them (V_RESEARCH).
+# ============================================================================
+
+var _res_points_lbl: Label
+var _res_tree: VBoxContainer
+
+
+func _build_research_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	v.add_child(UiKit.kicker("Research — spend points earned through operations"))
+	_res_points_lbl = UiKit.label("", 16, UiKit.ACCENT)
+	v.add_child(_res_points_lbl)
+	v.add_child(UiKit.rule())
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	_res_tree = VBoxContainer.new()
+	_res_tree.add_theme_constant_override("separation", 6)
+	_res_tree.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_res_tree)
+
+
+func _do_research(i: int) -> void:
+	if sim.research_tech(i):
+		status = "Researched %s." % String(sim.tech_name(i))
+	else:
+		status = "Can't research %s yet — need points or its prerequisite." % String(sim.tech_name(i))
+
+
+func _refresh_research() -> void:
+	_res_points_lbl.text = "⚛ %d research points  ·  %d/%d techs unlocked" % [
+		sim.research_points(), sim.research_unlocked_count(), sim.tech_count()]
+	for c in _res_tree.get_children():
+		c.queue_free()
+	for i in sim.tech_count():
+		var row := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 6)
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 10)
+		row.add_child(hb)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(info)
+		var unlocked: bool = sim.tech_unlocked(i)
+		var avail: bool = sim.tech_can_research(i)
+		var name_col := UiKit.GOOD if unlocked else (UiKit.TEXT_HI if avail else UiKit.TEXT_DIM)
+		var title := UiKit.label("%s%s" % ["✓ " if unlocked else "", String(sim.tech_name(i))], 14, name_col)
+		info.add_child(title)
+		var pr: int = sim.tech_prereq(i)
+		var sub := "Cost %d pts" % sim.tech_cost(i)
+		if pr >= 0:
+			sub += "   ·   needs %s" % String(sim.tech_name(pr))
+		info.add_child(UiKit.label(sub, 11, UiKit.TEXT_DIM))
+		# Action: a Research button when available; status text otherwise.
+		if unlocked:
+			hb.add_child(UiKit.label("Researched", 12, UiKit.GOOD))
+		elif avail:
+			var b := _make_op_button("Research", _do_research.bind(i))
+			hb.add_child(b)
+		else:
+			hb.add_child(UiKit.label("Locked", 12, UiKit.TEXT_DIM))
+		_res_tree.add_child(row)
+
+
 func _build_ledger_view() -> void:
 	var panel := UiKit.make_panel()
 	panel.visible = false
@@ -3231,6 +3306,8 @@ func _refresh() -> void:
 			_refresh_market()
 		V_EMPIRE:
 			_refresh_empire()
+		V_RESEARCH:
+			_refresh_research()
 		V_LEDGER:
 			_refresh_ledger()
 	_flash_rect.color.a = flash * 0.5
