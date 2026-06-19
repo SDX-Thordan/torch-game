@@ -118,8 +118,11 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
     **2 Ramshackle torpedoes**. Arm via a fleet-wide **⛨ Arm Haulers** verb (charged per added mount);
     armed haulers add a **self-defense screen** to `effective_escorts` (every 4 PDC-equiv = 1 escort,
     a torpedo = 2), so a trade fleet can defend its own convoys against piracy. Unarmed = byte-identical.
-  - [ ] **Convoys** — group haulers + miners into named convoys; a miner paired with a hauler in its
-    convoy works more efficiently (the synergy).
+  - [x] **Convoys + the miner+hauler synergy** — a `Convoy` layer (stable ids on the miners/haulers
+    themselves) groups civilian ships; a miner convoyed with a hauler mines **+50%** (the hauler
+    ferries its ore so the rig never stops). One-press **⛟ Form Convoy** contextual verb at a mining
+    body (pairs the rig with a free hauler); the synergy shows in the object panel. Inert until formed
+    → byte-identical. (The convoy structure is the anchor the military-escort phase plugs into.)
   - [ ] **Military escort** — warships protect a convoy; the raid/piracy systems resolve escorted vs.
     unescorted convoys.
 
