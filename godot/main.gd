@@ -4047,7 +4047,6 @@ func _refresh_fleet() -> void:
 		var bands := ["close", "medium", "long"]
 		var tgt := "wounded" if sim.combat_target() == 1 else "biggest"
 		var rt := sim.combat_retreat()
-		var on_station: int = sim.warships_on_station()
 		var fire := "hot" if sim.combat_aggressive() else "disciplined"
 		_combat_lbl.text = "range %s · target %s · retreat %s · fire %s · %d on station" % [
 			bands[combat_band], tgt, ("never" if rt == 0 else "%d%%" % rt), fire, on_station]
