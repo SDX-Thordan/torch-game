@@ -34,14 +34,16 @@ const V_FLEET := 1
 const V_BUILD := 2
 const V_MARKET := 3
 const V_EMPIRE := 4
-const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪"]
-const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE"]
+const V_LEDGER := 5
+const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪", "▤"]
+const VIEW_CAP := ["SYSTEMS", "FLEET", "BUILD", "MARKET", "EMPIRE", "LEDGER"]
 const VIEW_TITLE := [
 	"Orrery — Sol System",
 	"Fleet Management",
 	"Orbital Shipyard",
 	"Market & Logistics",
 	"Empire — Holdings & Expansion",
+	"Ledger — Assets",
 ]
 
 # 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit.
@@ -257,6 +259,7 @@ func _ready() -> void:
 	_build_build_view()
 	_build_market_view()
 	_build_empire_view()
+	_build_ledger_view()
 	_build_diorama()
 	_build_decision_panel()
 	_select_view(V_SYSTEMS)
@@ -2881,6 +2884,156 @@ func _faction_name(f: int) -> String:
 		_: return "Independent"
 
 
+# ============================================================================
+# LEDGER VIEW — the EU4-style sortable overview of every asset, where it is, and
+# what it's doing. "I like numbers": click a column header to sort, tap a tab to
+# switch asset class. (V_LEDGER)
+# ============================================================================
+
+const _LED_TABS := ["Fleet", "Miners", "Outposts", "Colonies", "Markets"]
+var _led_tab := 0
+var _led_sort := 0
+var _led_asc := true
+var _led_grid: GridContainer
+var _led_tab_row: HBoxContainer
+var _led_summary: Label
+
+
+func _build_ledger_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+
+	v.add_child(UiKit.kicker("Ledger — your assets at a glance"))
+	_led_summary = UiKit.label("", 13, UiKit.TEXT_HI)
+	v.add_child(_led_summary)
+	# Asset-class tabs.
+	_led_tab_row = HBoxContainer.new()
+	_led_tab_row.add_theme_constant_override("separation", 6)
+	v.add_child(_led_tab_row)
+	for t in _LED_TABS.size():
+		_led_tab_row.add_child(UiKit.tab_button(_LED_TABS[t], t == _led_tab))
+	for t in _led_tab_row.get_child_count():
+		var b: Button = _led_tab_row.get_child(t)
+		b.pressed.connect(_ledger_set_tab.bind(t))
+	v.add_child(UiKit.rule())
+	# The sortable table (header buttons + cells), rebuilt each refresh.
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	_led_grid = GridContainer.new()
+	_led_grid.add_theme_constant_override("h_separation", 18)
+	_led_grid.add_theme_constant_override("v_separation", 5)
+	_led_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_led_grid)
+
+
+func _ledger_set_tab(t: int) -> void:
+	_led_tab = t
+	_led_sort = 0
+	_led_asc = true
+	for i in _led_tab_row.get_child_count():
+		(_led_tab_row.get_child(i) as Button).set_pressed_no_signal(i == t)
+
+
+func _ledger_sort_by(col: int) -> void:
+	if col == _led_sort:
+		_led_asc = not _led_asc
+	else:
+		_led_sort = col
+		_led_asc = true
+
+
+## Column titles for ledger tab `t`.
+func _ledger_columns(t: int) -> Array:
+	match t:
+		0: return ["Ship", "Location", "Status", "Battles", "Won", "Age (d)"]
+		1: return ["Body", "Mineral", "Output/t", "On outpost"]
+		2: return ["Body", "Level", "Tribute/t", "Next cost"]
+		3: return ["Colony", "Faction", "Control", "Dev", "Supplies"]
+		_: return ["Market", "Body", "Yours"]
+
+
+## The rows (each an Array of cells; ints sort numerically, strings lexically) for tab `t`.
+func _ledger_rows(t: int) -> Array:
+	var rows: Array = []
+	match t:
+		0:
+			for i in sim.fleet_size():
+				rows.append([String(sim.ship_name(i)), String(sim.ship_location(i)),
+					("In transit" if sim.ship_in_transit(i) else "Docked"),
+					sim.ship_battles(i), sim.ship_battles_won(i), sim.ship_age(i)])
+		1:
+			for i in sim.miner_count():
+				var mb := sim.miner_body(i)
+				var boosted: bool = sim.outpost_level_at(mb) > 0
+				rows.append([String(sim.body_name(mb)), String(sim.body_mineral_name(mb)),
+					(3 if boosted else 2), ("✦ +50%" if boosted else "—")])
+		2:
+			for i in sim.outpost_count():
+				var ob := sim.outpost_body(i)
+				var lvl: int = sim.outpost_level(i)
+				var nc: int = sim.outpost_develop_cost(ob)
+				rows.append([String(sim.body_name(ob)), lvl, lvl * 30, (nc if nc >= 0 else 0)])
+		3:
+			for i in sim.colony_count():
+				var ctl := "Owned" if sim.colony_controlled(i) else _faction_name(sim.colony_faction(i))
+				rows.append([String(sim.colony_name(i)), _faction_name(sim.colony_faction(i)),
+					ctl, sim.colony_dev(i), String(sim.commodity_name(sim.colony_specialty(i)))])
+		_:
+			for i in _visible_market_count():
+				rows.append([String(sim.market_name(i)), String(sim.body_name(sim.market_body(i))),
+					("Yours" if sim.market_is_owned(i) else "—")])
+	return rows
+
+
+## Type-aware less-than for sorting a ledger column (numbers numerically, else lexically).
+func _ledger_less(a: Variant, b: Variant, asc: bool) -> bool:
+	var r := 0
+	if (a is int or a is float) and (b is int or b is float):
+		r = -1 if a < b else (1 if a > b else 0)
+	else:
+		var sa := str(a)
+		var sb := str(b)
+		r = -1 if sa < sb else (1 if sa > sb else 0)
+	return r < 0 if asc else r > 0
+
+
+func _refresh_ledger() -> void:
+	_led_summary.text = "💰 %s cr   ·   ◈ %d ships   ·   ⛏ %d miners   ·   ⚑ %d outposts   ·   ✦ %d holdings" % [
+		_commas(sim.credits()), sim.fleet_size(), sim.miner_count(), sim.outpost_count(), sim.holding_count()]
+	var cols := _ledger_columns(_led_tab)
+	var rows := _ledger_rows(_led_tab)
+	var sortc := clampi(_led_sort, 0, cols.size() - 1)
+	rows.sort_custom(func(x, y): return _ledger_less(x[sortc], y[sortc], _led_asc))
+	for c in _led_grid.get_children():
+		c.queue_free()
+	_led_grid.columns = cols.size()
+	# Header row — clickable sort buttons.
+	for i in cols.size():
+		var arrow := ""
+		if i == sortc:
+			arrow = "  ▲" if _led_asc else "  ▼"
+		var hb := UiKit.tab_button(cols[i] + arrow, i == sortc)
+		hb.pressed.connect(_ledger_sort_by.bind(i))
+		_led_grid.add_child(hb)
+	# Data rows.
+	for row in rows:
+		for ci in row.size():
+			var cell: Variant = row[ci]
+			var txt := _commas(int(cell)) if (cell is int and absi(int(cell)) >= 1000) else str(cell)
+			var lbl := UiKit.label(txt, 12, UiKit.TEXT if ci == 0 else UiKit.TEXT_DIM)
+			_led_grid.add_child(lbl)
+	if rows.is_empty():
+		_led_grid.add_child(UiKit.label("(none yet)", 12, UiKit.TEXT_DIM))
+
+
 # Per-faction bbcode colours (Earth blue · Mars red · Belt ochre · Independent grey).
 const _FAC_COL := ["#5b8fd6", "#d6604f", "#d6a24f", "#9fb0c0"]
 
@@ -2924,6 +3077,8 @@ func _refresh() -> void:
 			_refresh_market()
 		V_EMPIRE:
 			_refresh_empire()
+		V_LEDGER:
+			_refresh_ledger()
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
 	if pc_mode:

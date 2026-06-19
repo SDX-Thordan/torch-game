@@ -318,6 +318,12 @@ Status: [x] done, [~] in progress, [ ] todo.
   not a corner toast. Pause/play live in the top bar (the handheld's spacebar). Open the camera
   **centred + zoomed on the home station** (focus `market_body(0)`, a tight zoom) — at the
   orrery scale (`1 AU = 1` world unit) a "zoomed-in" zoom is ~2.2, not 4.
+- **Adding a 6th nav view** means extending **every** `view`-indexed const in lockstep —
+  `V_*`, `VIEW_GLYPH`, `VIEW_CAP`, **and `VIEW_TITLE`** (the easy one to miss → an out-of-bounds
+  in `_refresh_chrome`). A generic **sortable ledger** = a tab index + `_led_sort`/`_led_asc`, a
+  per-tab `columns()`/`rows()` (rows are `Array`s of mixed int/String cells), a type-aware
+  comparator (numbers numerically, else lexically) feeding `rows.sort_custom`, rebuilt into a
+  `GridContainer` each refresh with clickable header buttons — pure shell over existing bindings.
 - **Object-contextual model:** make the *tapped object the centre* — the right panel re-centres
   on `_focus_body` (identity + a detail block) and a single action stack shows **only the verbs
   that body affords**, classified in the refresh by cheap **body→index lookups** in GDScript
