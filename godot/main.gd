@@ -3481,9 +3481,13 @@ func _refresh_object_panel() -> void:
 		# Your colony — development state.
 		sub = "Your colony  ·  %s" % kind
 		var dev: int = sim.colony_dev(ci)
+		var cbdays: int = sim.colony_build_days(ci)
 		detail = "[color=#78e68c]✦ Owned colony[/color] — development [color=#e6c860]L%d[/color]" % dev
-		var dcost: int = sim.develop_cost(ci)
-		detail += "  [color=#7a8696](→L%d: %s cr)[/color]" % [dev + 1, _commas(dcost)] if dcost >= 0 else "  [color=#7a8696](max)[/color]"
+		if cbdays > 0:
+			detail += "  [color=#e6c860](⚙ developing → L%d: %d days)[/color]" % [dev, cbdays]
+		else:
+			var dcost: int = sim.develop_cost(ci)
+			detail += "  [color=#7a8696](→L%d: %s cr, ~180 days)[/color]" % [dev + 1, _commas(dcost)] if dcost >= 0 else "  [color=#7a8696](max)[/color]"
 	elif ci >= 0:
 		sub = "%s colony  ·  %s" % [_faction_name(sim.colony_faction(ci)), kind]
 		if sim.colony_acquirable(ci):
@@ -3554,7 +3558,7 @@ func _refresh_systems() -> void:
 		_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
 		# Buy out an independent colony by clicking it (not a contested hub — those use Claim).
 		_acquire_ctx_btn.visible = ci >= 0 and coni < 0 and sim.colony_acquirable(ci)
-		_develop_btn.visible = owned
+		_develop_btn.visible = owned and sim.colony_build_days(ci) == 0  # not mid-development
 		_send_btn.visible = fb > 0 and sim.fleet_size() > 0
 	var mtxt := ""
 	if sim.miner_count() > 0:

@@ -374,6 +374,8 @@ pub const OUTPOST_DEVELOP_TICKS: u64 = 720;
 const DEV_BASE: i64 = 1;
 const MAX_DEV: i64 = 5;
 const DEV_COST_BASE: i64 = 8_000;
+/// Developing a colony a level is a ~180-day build (the new capacity comes online when done).
+pub const COLONY_DEVELOP_TICKS: u64 = 1080;
 /// Your own **shipyard** — the only place to build warships beyond corvettes. Founding
 /// is very expensive and each tier dearer; upkeep scales with tier. Tier gates the
 /// largest hull it can lay down: 1 → Destroyer, 2 → Cruiser, 3 → Battleship. Frigates
@@ -696,6 +698,9 @@ pub struct Sim {
     /// scales a controlled colony's tribute + specialty output. Inert until you control
     /// + invest. Indexed like `colonies`; starts at `DEV_BASE`.
     colony_dev: Vec<i64>,
+    /// Per-colony tick a development build completes (0 = idle); the new level's benefit only
+    /// applies once it's built (~180 days) — developing is a paced investment, not instant.
+    colony_dev_ready: Vec<u64>,
     /// Empire-wide development doctrine (Phase C) — tilts holding yield. Balanced default.
     dev_doctrine: DevDoctrine,
     /// The player's shipyard: tier (0 = none) + the body it orbits. Warships need it
@@ -820,6 +825,7 @@ impl Sim {
             colonies: default_colonies(),
             controlled: vec![false; default_colonies().len()],
             colony_dev: vec![DEV_BASE; default_colonies().len()],
+            colony_dev_ready: vec![0; default_colonies().len()],
             dev_doctrine: DevDoctrine::default(),
             shipyard_tier: 0,
             shipyard_body: 0,
@@ -2847,6 +2853,7 @@ impl Sim {
             endgame_outcome: self.endgame_outcome,
             controlled_colonies: self.controlled.clone(),
             colony_dev: self.colony_dev.clone(),
+            colony_dev_ready: self.colony_dev_ready.clone(),
             dev_doctrine: self.dev_doctrine,
             shipyard_tier: self.shipyard_tier,
             shipyard_ready_tick: self.shipyard_ready_tick,
@@ -2983,6 +2990,9 @@ impl Sim {
         }
         if s.colony_dev.len() == self.colony_dev.len() {
             self.colony_dev = s.colony_dev.clone();
+        }
+        if s.colony_dev_ready.len() == self.colony_dev_ready.len() {
+            self.colony_dev_ready = s.colony_dev_ready.clone();
         }
         self.dev_doctrine = s.dev_doctrine;
         self.shipyard_tier = s.shipyard_tier;
@@ -3651,7 +3661,7 @@ impl Sim {
                     false => COLONY_TRIBUTE_OUTPOST,
                 };
                 // Phase C: tribute scales with development, tilted by the doctrine.
-                base * self.colony_dev(i) * trib_bp / 10_000
+                base * self.effective_colony_dev(i) * trib_bp / 10_000
             })
             .sum();
         if gross == 0 {
@@ -3673,7 +3683,7 @@ impl Sim {
         // a fresh sim (which controls nothing) stays byte-identical and §7c holds.
         let outputs: Vec<(usize, i64)> = (0..self.controlled.len())
             .filter(|&i| self.controlled[i])
-            .map(|i| (self.colony_specialty(i), self.colony_dev(i)))
+            .map(|i| (self.colony_specialty(i), self.effective_colony_dev(i)))
             .collect();
         for (c, dev) in outputs {
             // Phase C: output scales with dev, tilted by the doctrine.
@@ -3697,10 +3707,30 @@ impl Sim {
         self.colony_dev.get(i).copied().unwrap_or(DEV_BASE)
     }
 
+    /// The **operational** development level of colony `i` — the most-recent level whose build
+    /// has finished (one level lower while a development build is still in progress).
+    fn effective_colony_dev(&self, i: usize) -> i64 {
+        let lvl = self.colony_dev(i);
+        if self.colony_dev_ready.get(i).is_some_and(|&t| self.tick < t) {
+            (lvl - 1).max(DEV_BASE)
+        } else {
+            lvl
+        }
+    }
+
+    /// Days left on colony `i`'s development build (0 if none / done).
+    pub fn colony_build_days(&self, i: usize) -> u64 {
+        match self.colony_dev_ready.get(i) {
+            Some(&t) if self.tick < t => (t - self.tick).div_ceil(6),
+            _ => 0,
+        }
+    }
+
     /// The credit cost to raise colony `i` one development level (escalates with level).
-    /// Returns `None` if it can't be developed (not controlled, or already at `MAX_DEV`).
+    /// `None` if it can't be developed (not controlled, maxed, or a build is in progress).
     pub fn develop_cost(&self, i: usize) -> Option<i64> {
-        if !self.colony_controlled(i) || self.colony_dev(i) >= MAX_DEV {
+        if !self.colony_controlled(i) || self.colony_dev(i) >= MAX_DEV || self.colony_build_days(i) > 0
+        {
             return None;
         }
         let (_, _, cost_bp) = self.dev_doctrine.weights();
@@ -3721,7 +3751,10 @@ impl Sim {
             return Err(DevelopError::CantAfford);
         }
         self.corp.debit(cost);
+        // Raise the level now but arm the build timer — the new capacity (tribute + output)
+        // only comes online when construction finishes (~180 days), via effective_colony_dev.
         self.colony_dev[i] += 1;
+        self.colony_dev_ready[i] = self.tick + COLONY_DEVELOP_TICKS;
         self.complete_op();
         Ok(())
     }
@@ -6019,7 +6052,12 @@ mod tests {
             sim.coalition_alarm() <= alarm_before,
             "developing your own colony draws no coalition alarm"
         );
-        // Output now scales with the higher development.
+        // Developing is a ~180-day build: the new level's benefit only lands once it's built.
+        assert!(sim.colony_build_days(i) > 0);
+        while sim.colony_build_days(i) > 0 {
+            sim.step();
+        }
+        // Output now scales with the higher (now operational) development.
         let c1 = sim.corp().cargo(specialty);
         for _ in 0..20 {
             sim.step();
