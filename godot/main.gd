@@ -78,7 +78,7 @@ const PAN_SENS := 0.0016                        # mouse-drag pan (world units pe
 # dense tables stay legible when the window is maximized/fullscreen. Applied via the
 # window's content scale (canvas_items stretch).
 const UI_SCALE_TOUCH := 1.35
-const UI_SCALE_PC := 1.2
+const UI_SCALE_PC := 1.4
 const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
@@ -102,7 +102,7 @@ var _zoom := 10.0
 var _focus_body := 0
 var _yaw := 0.0                              # camera orbit angle (rad) — rotate the map
 var _pan := Vector3.ZERO                      # ecliptic-plane pan offset from the focus (mouse-drag)
-var _fullscreen := false                     # F11 toggles true fullscreen over maximized
+var _fullscreen := true                      # PC starts in true fullscreen (tiling WMs honour it, unlike "maximized"); F11 toggles to a maximized window
 var _touches := {}
 var _pinch_prev := 0.0
 var _pinch_ang_prev := 0.0                   # two-finger twist angle (rad) for rotation
@@ -315,17 +315,19 @@ func _set_pc_mode(on: bool) -> void:
 	# Magnify the whole HUD for legibility — bigger on a handheld than a desktop monitor (§33).
 	get_window().content_scale_factor = UI_SCALE_PC if on else UI_SCALE_TOUCH
 	if on:
-		# A desktop window: maximized so it fills the screen (or the tiling-WM column)
-		# rather than a small floating box; F11 toggles true fullscreen. Mouse cursor shown.
+		# Desktop: open in TRUE fullscreen by default. A tiling WM (niri/sway) ignores an
+		# xdg "maximize" request and leaves the window at its small requested size — which
+		# also shrinks the canvas_items stretch below 1.0, making every font tiny. Real
+		# fullscreen is honoured everywhere. F11 drops to a maximized window. Cursor shown.
 		var win := get_window()
 		win.mode = Window.MODE_FULLSCREEN if _fullscreen else Window.MODE_MAXIMIZED
 		win.title = "TORCH"
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	status = "PC mode — wheel zooms · drag to pan · Shift-drag to rotate · F11 fullscreen." if on \
+	status = "PC mode — wheel zooms · drag to pan · Shift-drag to rotate · F11 window/fullscreen." if on \
 		else "Touch mode — pinch to zoom, tap a world to focus."
 
 
-## Toggle true (borderless) fullscreen against the default maximized window (PC only).
+## Toggle between true (borderless) fullscreen — the PC default — and a maximized window.
 func _toggle_fullscreen() -> void:
 	_fullscreen = not _fullscreen
 	var win := get_window()
