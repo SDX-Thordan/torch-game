@@ -19,10 +19,11 @@ window/size/viewport_height=900
 ; Resizable so the desktop (PC mode) window can be sized/maximized; the HUD scales
 ; via the expand stretch below. Ignored on handhelds.
 window/size/resizable=true
-; Start maximized on desktop so the window fills its slot (a normal DE's screen, or a
-; tiling WM's column) instead of a small floating box. PC mode re-asserts this in code;
-; F11 toggles true fullscreen. (2 = Maximized; ignored on handhelds.)
-window/size/mode=2
+; Start in true fullscreen on desktop so it fills the screen even under a tiling WM
+; (niri/sway ignore "maximize" and would leave a small window → a shrunk, tiny-font HUD).
+; PC mode re-asserts this in code; F11 drops to a maximized window. (3 = Fullscreen;
+; ignored on handhelds, which use the orientation/stretch settings below.)
+window/size/mode=3
 ; Landscape, auto-rotating between the two landscape directions (mobile, §17).
 ; (DisplayServer.SCREEN_SENSOR_LANDSCAPE = 4; the HUD is designed for 1280×720.)
 window/handheld/orientation=4
