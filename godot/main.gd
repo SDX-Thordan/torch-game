@@ -189,6 +189,7 @@ var _dev_outpost_btn: Button
 var _fac_mine_btn: Button
 var _fac_storage_btn: Button
 var _fac_hangar_btn: Button
+var _collect_btn: Button                       # assign/recall a collector hauler at an outpost
 var _promote_btn: Button
 var _build_btn: Button
 var _expand_btn: Button
@@ -1115,6 +1116,10 @@ func _build_systems_view() -> void:
 	_fac_hangar_btn = _make_op_button("⊓ Build Hangar", func(): _build_facility(2))
 	_fac_hangar_btn.visible = false
 	fo.add_child(_fac_hangar_btn)
+	# — Dedicate / recall a collector hauler to ferry an outpost's store to your warehouse (§10).
+	_collect_btn = _make_op_button("⛟ Assign Collector", _toggle_collector_here)
+	_collect_btn.visible = false
+	fo.add_child(_collect_btn)
 	# — A fully-built outpost: promote it to a colony (triples its yield).
 	_promote_btn = _make_op_button("★ Promote to Colony", _promote_outpost_here)
 	_promote_btn.visible = false
@@ -1372,6 +1377,22 @@ func _develop_outpost_here() -> void:
 func _build_facility(kind: int) -> void:
 	var msg := String(sim.build_outpost_facility(_focus_body, kind))
 	status = msg if msg != "" else "Can't build that facility — need 12,000 cr, and the outpost must be operational."
+
+
+## Assign or recall a collector hauler at the focused outpost (§10 — drains its store to the
+## warehouse, the freighter alternative to a Hangar).
+func _toggle_collector_here() -> void:
+	if sim.outpost_has_collector(_focus_body):
+		var rmsg := String(sim.recall_collector(_focus_body))
+		status = rmsg if rmsg != "" else "No collector here to recall."
+	else:
+		var msg := String(sim.assign_collector(_focus_body))
+		if msg != "":
+			status = msg
+		elif sim.freighters() == 0:
+			status = "Buy a hauler first — a collector ferries the outpost's ore to your warehouse."
+		else:
+			status = "No free hauler to collect here (all are running routes or collecting)."
 
 
 ## Promote the focused (fully-built) outpost to a colony.
@@ -3878,7 +3899,15 @@ func _refresh_object_panel() -> void:
 			if sim.outpost_has_facility(fb, 0):
 				var stored: int = sim.outpost_stored(fb)
 				var scap: int = sim.outpost_store_cap(fb)
-				var ship := "[color=#78e68c]→ shipped to your warehouse[/color]" if sim.outpost_has_facility(fb, 2) else "[color=#e6a060]⚠ no Hangar — stuck on-site[/color]"
+				var ship := ""
+				if sim.outpost_has_collector(fb) and sim.outpost_has_facility(fb, 2):
+					ship = "[color=#78e68c]→ Hangar + collector ship it out[/color]"
+				elif sim.outpost_has_facility(fb, 2):
+					ship = "[color=#78e68c]→ Hangar ships it to your warehouse[/color]"
+				elif sim.outpost_has_collector(fb):
+					ship = "[color=#9fd8ff]⛟ collector hauler ferries it to your warehouse[/color]"
+				else:
+					ship = "[color=#e6a060]⚠ no Hangar/collector — stuck on-site[/color]"
 				detail += "\nStored %s: [color=#cfd8e0]%s/%s[/color]  %s" % [String(sim.body_mineral_name(fb)), _commas(stored), _commas(scap), ship]
 			var pop: int = sim.outpost_population(fb)
 			var pop_need: int = sim.outpost_promote_population(fb)
@@ -3976,6 +4005,12 @@ func _refresh_systems() -> void:
 		_fac_mine_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 0)
 		_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
 		_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
+		# Collector hauler: offer it on any operational outpost with a Mine (drains the store);
+		# show Recall when one's assigned, Assign when a free hauler exists.
+		var has_collector: bool = outpost_ready and sim.outpost_has_collector(fb)
+		_collect_btn.visible = outpost_ready and sim.outpost_has_facility(fb, 0) and (has_collector or sim.can_assign_collector(fb))
+		if _collect_btn.visible:
+			_collect_btn.text = "⤴ Recall Collector" if has_collector else "⛟ Assign Collector"
 		_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
 		if _promote_btn.visible:
 			_promote_btn.text = "★ Promote to %s" % String(sim.outpost_next_rank_name(fb))

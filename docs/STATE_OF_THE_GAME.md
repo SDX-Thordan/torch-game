@@ -95,11 +95,15 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   focused body highlighted; rebuilt only on a content-signature change). Remaining: an
   **OVERVIEW** home view, a **NOTIFICATIONS** panel, and the object panel's action icons.
 
-- [~] **Per-asset inventory (#10, first slice)** — outposts now hold a **local store** of their
-  mineral (not the global warehouse): a Mine fills it, **Storage** deepens the cap, a **Hangar**
-  ships it to your warehouse (without one the goods are stuck on-site). The "ore stored in a
-  station" model. Remaining: ship fuel/cargo per-hull, the home base as a station, freighters
-  hauling from outpost stores.
+- [~] **Per-asset inventory (#10)** — outposts hold a **local store** of their mineral (not the
+  global warehouse): a Mine fills it, **Storage** deepens the cap, and it ships out via a **Hangar**
+  (built infrastructure) **or a dedicated collector hauler** ✅ — a freighter drawn from your pool
+  that ferries the store to the warehouse (the §10 "freighters hauling from outpost stores"), at the
+  opportunity cost of a trade-route slot. Without either, goods stay stuck on-site. **Ship fuel is
+  already per-hull** (`nav.remass`, burned on burns, refuelled at docks). *Remaining (deferred, lower
+  value):* the home base modelled as a station with its own bounded inventory (today the warehouse is
+  the global home store); per-hull **cargo holds** on warships (haulers already carry tier-capped
+  cargo per trip).
 
 - [x] **Civilian ships as first-class assets *(active player direction — multi-PR epic, complete)*** —
   civilians are now as rich as warships: tiered, named, costly hulls that gate expansion.

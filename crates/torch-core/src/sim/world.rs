@@ -367,6 +367,11 @@ pub struct Outpost {
     /// ships it out to your warehouse. Without a Hangar the goods pile up on-site, stuck.
     #[serde(default)]
     pub stored: i64,
+    /// A **collector hauler** is dedicated to this outpost (§10) — a freighter drawn from your
+    /// pool that ferries the local store to the warehouse (the alternative to building a Hangar;
+    /// a collecting hauler can't also run a trade route). `false` for old saves / no collector.
+    #[serde(default)]
+    pub collector: bool,
 }
 
 /// Outpost facility bits.
@@ -570,6 +575,9 @@ pub const PROMOTE_POP: i64 = 700;
 const STORE_CAP_BASE: i64 = 100;
 const STORE_CAP_WITH_STORAGE: i64 = 1_500;
 const HANGAR_SHIP_PER_TICK: i64 = 4;
+/// A dedicated **collector hauler** ferries this many units/tick from an outpost store to the
+/// warehouse (§10) — the freighter alternative to a Hangar, at the cost of a route-pool slot.
+const COLLECTOR_SHIP_PER_TICK: i64 = 6;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -2320,6 +2328,7 @@ impl Sim {
             rank: RANK_OUTPOST,
             population: OUTPOST_POP_BASE,
             stored: 0,
+            collector: false,
         });
         self.complete_op();
         Ok(())
@@ -2346,6 +2355,54 @@ impl Sim {
         match self.outpost_at(body) {
             Some(o) => (o.stored, Self::outpost_store_cap(o)),
             None => (0, 0),
+        }
+    }
+
+    // ---- collector haulers (§10): freighters draining outpost stores -----------------
+
+    /// How many haulers are tied up collecting from outpost stores (off the trade-route pool).
+    pub fn collectors_assigned(&self) -> i64 {
+        self.outposts.iter().filter(|o| o.collector).count() as i64
+    }
+
+    /// Whether the outpost at `body` has a collector hauler assigned.
+    pub fn outpost_has_collector(&self, body: usize) -> bool {
+        self.outpost_at(body).is_some_and(|o| o.collector)
+    }
+
+    /// Whether a hauler is free to collect from the outpost at `body` (an operational outpost
+    /// here, not already collecting, + an unassigned hauler in the pool).
+    pub fn can_assign_collector(&self, body: usize) -> bool {
+        self.outpost_at(body)
+            .is_some_and(|o| o.is_ready(self.tick) && !o.collector)
+            && self.collectors_assigned() < self.corp.freighters()
+    }
+
+    /// Dedicate a hauler from the pool to ferry the outpost-at-`body`'s store to the warehouse
+    /// (§10) — the freighter alternative to a Hangar. Returns whether one was assigned.
+    pub fn assign_collector(&mut self, body: usize) -> bool {
+        if !self.can_assign_collector(body) {
+            return false;
+        }
+        if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
+            o.collector = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Recall the collector hauler from the outpost at `body` back to the trade pool.
+    pub fn recall_collector(&mut self, body: usize) -> bool {
+        if let Some(o) = self
+            .outposts
+            .iter_mut()
+            .find(|o| o.body == body && o.collector)
+        {
+            o.collector = false;
+            true
+        } else {
+            false
         }
     }
 
@@ -2509,8 +2566,18 @@ impl Sim {
                 let produced = level * OUTPOST_MINE_OUTPUT * mult;
                 self.outposts[i].stored = (self.outposts[i].stored + produced).min(cap);
             }
-            if has_hangar && self.outposts[i].stored > 0 {
-                let shipped = (level * HANGAR_SHIP_PER_TICK).min(self.outposts[i].stored);
+            // The store ships out to the warehouse via a built **Hangar** (level-scaled) and/or a
+            // dedicated **collector hauler** (§10) — the freighter alternative to a Hangar.
+            let has_collector = self.outposts[i].collector;
+            if (has_hangar || has_collector) && self.outposts[i].stored > 0 {
+                let mut rate = 0;
+                if has_hangar {
+                    rate += level * HANGAR_SHIP_PER_TICK;
+                }
+                if has_collector {
+                    rate += COLLECTOR_SHIP_PER_TICK;
+                }
+                let shipped = rate.min(self.outposts[i].stored);
                 self.outposts[i].stored -= shipped;
                 let commodity = self.body_mineral(self.outposts[i].body);
                 self.corp.store(commodity, shipped);
@@ -3175,7 +3242,9 @@ impl Sim {
         if self.routes.is_empty() {
             return;
         }
-        let freighters = self.corp.freighters();
+        // Haulers dedicated to outpost collection (§10) aren't available for trade routes — the
+        // opportunity cost. No collectors ⇒ the full pool, so the base economy is byte-identical.
+        let freighters = self.corp.freighters() - self.collectors_assigned();
         // Move the table out so the per-route mutations don't fight the
         // `markets`/`corp` borrows (same pattern as the single-route version).
         let mut routes = std::mem::take(&mut self.routes);
@@ -7020,6 +7089,50 @@ mod tests {
             sim.corp().cargo(mineral) > wh2,
             "a Hangar ships local goods to your warehouse"
         );
+    }
+
+    #[test]
+    fn a_collector_hauler_drains_a_hangarless_outpost_at_a_route_slot_cost() {
+        use crate::sim::corp::HaulerClass;
+        // §10: a hauler dedicated to collection ferries a Mine-only (no-Hangar) outpost's local
+        // store to the warehouse — the freighter alternative to a Hangar — and is then off the
+        // trade-route pool.
+        let mut sim = Sim::new(0);
+        sim.corp_mut().credit(200_000);
+        let body = super::orbit::default_system()
+            .iter()
+            .position(|b| b.name == "Eros")
+            .unwrap();
+        sim.found_outpost(body).unwrap();
+        while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+            sim.step();
+        }
+        sim.build_facility(body, FAC_MINE).unwrap();
+        while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+            sim.step();
+        }
+        // Buy a hauler, then dedicate it to collecting this outpost.
+        sim.commission_hauler(HaulerClass::Light).unwrap();
+        assert!(sim.can_assign_collector(body));
+        assert!(sim.assign_collector(body));
+        assert_eq!(sim.collectors_assigned(), 1);
+        // Can't dedicate more collectors than haulers.
+        assert!(
+            !sim.can_assign_collector(body),
+            "already collecting / no free hauler"
+        );
+        let mineral = sim.body_mineral(body);
+        let wh_before = sim.corp().cargo(mineral);
+        for _ in 0..20 {
+            sim.step();
+        }
+        assert!(
+            sim.corp().cargo(mineral) > wh_before,
+            "the collector hauler drains the store to the warehouse (no Hangar needed)"
+        );
+        // Recalling frees the hauler back to the route pool.
+        assert!(sim.recall_collector(body));
+        assert_eq!(sim.collectors_assigned(), 0);
     }
 
     #[test]
