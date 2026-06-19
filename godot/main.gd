@@ -41,8 +41,9 @@ const V_MARKET := 3
 const V_EMPIRE := 4
 const V_RESEARCH := 5
 const V_LEDGER := 6
-const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪", "⚛", "▤"]
-const VIEW_CAP := ["SYSTEMS", "FLEETS", "SHIPYARD", "MARKET", "EMPIRE", "RESEARCH", "LEDGER"]
+const V_DIPLOMACY := 7
+const VIEW_GLYPH := ["◎", "◈", "⛭", "⇄", "✪", "⚛", "▤", "⚑"]
+const VIEW_CAP := ["SYSTEMS", "FLEETS", "SHIPYARD", "MARKET", "EMPIRE", "RESEARCH", "LEDGER", "DIPLOMACY"]
 const VIEW_TITLE := [
 	"Orrery — Sol System",
 	"Fleet Management",
@@ -51,6 +52,7 @@ const VIEW_TITLE := [
 	"Empire — Holdings & Expansion",
 	"Research — Tech Tree",
 	"Ledger — Assets",
+	"Diplomacy — Powers & Companies",
 ]
 
 # 3D orrery framing (§17/§21). Clean mapping: 1 AU = 1 world unit.
@@ -309,6 +311,7 @@ func _ready() -> void:
 	_build_empire_view()
 	_build_research_view()
 	_build_ledger_view()
+	_build_diplomacy_view()
 	_build_diorama()
 	_build_decision_panel()
 	_select_view(V_SYSTEMS)
@@ -3136,6 +3139,86 @@ var _res_points_lbl: Label
 var _res_tree: VBoxContainer
 
 
+# ============================================================================
+# DIPLOMACY VIEW — the great powers' standings + the independent companies you can
+# court (V_DIPLOMACY). Surfaces the existing faction/company diplomacy as its own view.
+# ============================================================================
+
+var _dip_powers: VBoxContainer
+var _dip_companies: VBoxContainer
+
+
+func _build_diplomacy_view() -> void:
+	var panel := UiKit.make_panel()
+	panel.visible = false
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_content.add_child(panel)
+	_views.append(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	v.add_child(UiKit.kicker("The Great Powers — your standing"))
+	_dip_powers = VBoxContainer.new()
+	_dip_powers.add_theme_constant_override("separation", 4)
+	v.add_child(_dip_powers)
+	v.add_child(UiKit.rule())
+	v.add_child(UiKit.kicker("Independent Companies — court them with Influence"))
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	_dip_companies = VBoxContainer.new()
+	_dip_companies.add_theme_constant_override("separation", 6)
+	_dip_companies.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_dip_companies)
+
+
+func _refresh_diplomacy() -> void:
+	for c in _dip_powers.get_children():
+		c.queue_free()
+	for f in 4:
+		var st: int = sim.faction_standing(f)
+		var col := UiKit.GOOD if st > 50 else (UiKit.BAD if st < -50 else UiKit.TEXT)
+		_dip_powers.add_child(UiKit.label("[%s] %s — standing %d (%s)" % [
+			_FAC_COL_NAME(f), String(sim.faction_name(f)), st, String(sim.faction_tier(f))], 13, col))
+	for c in _dip_companies.get_children():
+		c.queue_free()
+	if sim.company_count() == 0:
+		_dip_companies.add_child(UiKit.label("(no independent companies in range)", 12, UiKit.TEXT_DIM))
+	var stance_names := ["Rival", "Cold", "Neutral", "Partner", "Ally"]
+	var stance_cols := [UiKit.BAD, UiKit.TEXT_DIM, UiKit.TEXT, Color(0.62, 0.85, 1.0), UiKit.GOOD]
+	for i in sim.company_count():
+		var row := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 6)
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 10)
+		row.add_child(hb)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(info)
+		var s: int = sim.company_stance(i)
+		info.add_child(UiKit.label("🤝 %s" % String(sim.company_name(i)), 14, UiKit.TEXT_HI))
+		info.add_child(UiKit.label("%s  ·  relation %d" % [stance_names[s], sim.company_relation(i)], 11, stance_cols[s]))
+		if s < 4:
+			hb.add_child(_make_op_button("Court", _court_company_idx.bind(i)))
+		else:
+			hb.add_child(UiKit.label("Allied ✓", 12, UiKit.GOOD))
+		_dip_companies.add_child(row)
+
+
+func _FAC_COL_NAME(f: int) -> String:
+	return ["Earth", "Mars", "Belt", "Indep"][clampi(f, 0, 3)]
+
+
+func _court_company_idx(i: int) -> void:
+	var code: int = sim.court_company(i)
+	if code == 0:
+		status = "🤝 Courted %s." % String(sim.company_name(i))
+	elif code == 2:
+		status = "Not enough Influence to court %s." % String(sim.company_name(i))
+	else:
+		status = "Can't court %s." % String(sim.company_name(i))
+
+
 func _build_research_view() -> void:
 	var panel := UiKit.make_panel()
 	panel.visible = false
@@ -3414,6 +3497,8 @@ func _refresh() -> void:
 			_refresh_research()
 		V_LEDGER:
 			_refresh_ledger()
+		V_DIPLOMACY:
+			_refresh_diplomacy()
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
 	if pc_mode:
