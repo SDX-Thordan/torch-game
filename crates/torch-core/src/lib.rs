@@ -1698,6 +1698,61 @@ impl TorchSim {
         }
     }
 
+    /// Whether the player already has a miner working `body` (drives the contextual verb).
+    #[func]
+    fn miner_at(&self, body: i64) -> bool {
+        self.sim.miner_at(body.max(0) as usize)
+    }
+
+    /// Recall the miner working `body` (the "until withdrawn" half of the loop). Returns a
+    /// feedback message (empty if there was none there).
+    #[func]
+    fn withdraw_miner(&mut self, body: i64) -> GString {
+        if self.sim.withdraw_miner(body.max(0) as usize) {
+            GString::from("Miner recalled — the hull is retired.")
+        } else {
+            GString::new()
+        }
+    }
+
+    // ---- object-contextual building: found / develop on the tapped body ----
+
+    /// Whether founding the player's shipyard at `body` is possible right now — a valid
+    /// site (not the sun/gate) and no shipyard built yet. Drives the contextual BUILD verb.
+    #[func]
+    fn can_found_shipyard_at(&self, body: i64) -> bool {
+        use sim::BodyKind::*;
+        if self.sim.shipyard_tier() > 0 {
+            return false;
+        }
+        matches!(
+            self.sim.bodies().get(body.max(0) as usize).map(|b| b.kind),
+            Some(Planet | GasGiant | DwarfPlanet | Moon | Asteroid)
+        )
+    }
+
+    /// Found the player's shipyard at the tapped `body` (very expensive). Returns a
+    /// feedback message (empty on failure — already built / bad site / can't afford).
+    #[func]
+    fn found_shipyard_at(&mut self, body: i64) -> GString {
+        match self.sim.found_shipyard(body.max(0) as usize) {
+            Ok(()) => GString::from(
+                "Shipyard founded here — it can lay down Destroyers (expand for bigger).",
+            ),
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Develop controlled colony `i` one level (the tall growth axis). Returns a feedback
+    /// message (empty on failure — not yours / maxed / can't afford).
+    #[func]
+    fn develop_colony(&mut self, i: i64) -> GString {
+        match self.sim.develop_colony(i.max(0) as usize) {
+            Ok(()) => GString::from("Colony developed — its tribute and output grow."),
+            Err(_) => GString::new(),
+        }
+    }
+
     // ---- contested colonies: the powers fight over the major hubs (early game) ----
 
     /// How many major hubs are contested by the great powers.
@@ -1796,6 +1851,16 @@ impl TorchSim {
     #[func]
     fn shipyard_tier(&self) -> i64 {
         self.sim.shipyard_tier()
+    }
+
+    /// The body the player's shipyard orbits (−1 if none) — for the contextual EXPAND verb.
+    #[func]
+    fn shipyard_body(&self) -> i64 {
+        if self.sim.shipyard_tier() > 0 {
+            self.sim.shipyard_body() as i64
+        } else {
+            -1
+        }
     }
 
     /// Sandbox/test affordance: stand up a free max-tier shipyard so a fresh sim can

@@ -1716,8 +1716,9 @@ impl Sim {
             return false;
         };
         match b.kind {
-            // The belts: Ceres (main belt) and Pluto (Kuiper) are workable dwarf bodies.
-            BodyKind::DwarfPlanet => true,
+            // The belts: Ceres/Pluto (dwarf bodies) and the named belt asteroids
+            // (Eros/Pallas/Vesta/Tycho) are all workable mining ground.
+            BodyKind::DwarfPlanet | BodyKind::Asteroid => true,
             // Moons/rings — but only of the *outer* systems. A moon of a Planet
             // (Earth/Mars) is inner-system AO; a moon of a GasGiant/DwarfPlanet is fair.
             BodyKind::Moon => matches!(
@@ -1747,6 +1748,23 @@ impl Sim {
         self.miners.push(Miner { body, commodity });
         self.complete_op();
         Ok(())
+    }
+
+    /// Whether the player has a miner deployed at `body`.
+    pub fn miner_at(&self, body: usize) -> bool {
+        self.miners.iter().any(|m| m.body == body)
+    }
+
+    /// Recall one miner from `body` (the "until withdrawn" half of the loop). The hull is
+    /// retired — no refund — so redeploying is a deliberate decision. Returns whether a
+    /// miner was there to withdraw.
+    pub fn withdraw_miner(&mut self, body: usize) -> bool {
+        if let Some(i) = self.miners.iter().position(|m| m.body == body) {
+            self.miners.remove(i);
+            true
+        } else {
+            false
+        }
     }
 
     // ---- the great-power war (Earth/Mars conflict that haunts the early game) ----

@@ -102,6 +102,16 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   actions** (only the verbs the tapped body affords) + finger map control; **pause/play**
   buttons in the top bar; dilemma popups are now a **large centred modal that hard-pauses
   for every popup**; HUD panels are **drag-to-move**; opens centred/zoomed on the home station.
+- [x] **Object-contextual interaction model** — the tapped object is the centre: the right
+  panel re-centres on it (identity + a detail block: mineral yield / miner status / contested
+  **influence gauge** / colony dev) and the action stack shows only what it affords — **Send/
+  Withdraw Miner** on a belt/moon site, **Build Shipyard** on an uninhabited body, **Court/
+  Claim** on a contested hub, **Develop** on a colony you own, **Expand** on your shipyard.
+- [ ] **Deeper object-interaction sim** (the rest of the vision) — **multiple body-built
+  outposts/stations** (today only the single shipyard), **station facilities** (storage/docks/
+  production) developing an outpost **into a colony**, and **miners hauling to the nearest
+  station** (today they deposit straight to the warehouse). The shell model above is ready to
+  surface these the moment the sim verbs exist.
 - [ ] **Save UX on mobile** — manual save/load buttons were removed in the touch pass;
   persistence is the *Ironman autosave* toggle. Reinstate a save entry (e.g. a pause-menu
   item or an always-on periodic autosave decoupled from Ironman's no-reload rule).
