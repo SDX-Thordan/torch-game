@@ -20,6 +20,11 @@ const FlowGraphS := preload("res://ui/flow_graph.gd")
 
 const TICKS_PER_SECOND := 6.0           # sim ticks per real second at 1× (§28)
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]   # pause / 1× / 6× / 24× (§6)
+# Opening calm (§0.3): don't surface act-now dilemmas in the first stretch — let the
+# player settle in before the world starts hard-pausing them. The sim still runs and
+# queues decisions (they may simply time out unshown); this only delays the modal/lock,
+# so it's byte-identical to the core. ~10s of real time at 1×.
+const EARLY_GRACE_TICKS := 60
 const THRESHOLD_NAMES := ["info", "notice", "warning", "critical"]
 const BRANCH_NAMES := ["Industrialist", "Trader", "Warlord", "Diplomat"]
 const INTENSITY_NAMES := ["Calm", "Normal", "Harsh"]   # §13 pressure difficulty
@@ -1138,7 +1143,8 @@ func _build_decision_panel() -> void:
 
 ## Show/populate the dilemma panel for the top pending decision (rebuilt on change).
 func _refresh_decisions() -> void:
-	if sim.decision_count() <= 0:
+	# Hold the modal during the opening grace window (§0.3) — see EARLY_GRACE_TICKS.
+	if sim.decision_count() <= 0 or sim.tick() < EARLY_GRACE_TICKS:
 		_dec_layer.visible = false
 		_dec_shown = ""
 		return
@@ -2547,7 +2553,7 @@ func _reset_view() -> void:
 func _process(delta: float) -> void:
 	# Hard-pause on *every* act-now dilemma (§0.4): time can't resume until the popup is
 	# answered. Each decision is a deliberate stop — the player resolves it, then plays on.
-	if sim.decision_count() >= 1:
+	if sim.decision_count() >= 1 and sim.tick() >= EARLY_GRACE_TICKS:
 		if not _dilemma_lock:
 			status = "A decision needs you — answer the popup to resume."
 		_dilemma_lock = true
