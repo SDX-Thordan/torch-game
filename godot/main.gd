@@ -133,7 +133,6 @@ var _sys_status: Label
 var _sys_resources: VBoxContainer
 var _sys_queues: VBoxContainer
 var _sys_now: Label
-var _sys_gate: ProgressBar
 var _sys_gate_lbl: Label
 var _transit_btn: Button
 var _bridge_found_btn: Button
@@ -152,7 +151,6 @@ var _claim_btn: Button
 var _develop_btn: Button
 var _send_btn: Button
 var _sys_mission: Label
-var _sys_lore: Label
 var _tg_patrol: CheckButton
 var _tg_research: CheckButton
 var _tg_pause: CheckButton
@@ -899,15 +897,12 @@ func _build_systems_view() -> void:
 	_sys_now.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_sys_now.custom_minimum_size = Vector2(338, 0)
 	gv.add_child(_sys_now)
-	# The gate mystery — the one authored thread (§0.1).
-	_sys_lore = UiKit.label("", 10, UiKit.GOLD)
-	_sys_lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_sys_lore.custom_minimum_size = Vector2(338, 0)
-	gv.add_child(_sys_lore)
+	# Endgame status only (far side / bridgehead / incursion); the gate-mystery progress
+	# now lives in the LEDGER's Mysteries tab, not an always-visible carrot (§0.1 re-aimed).
 	_sys_gate_lbl = UiKit.label("", 10, UiKit.GOLD)
+	_sys_gate_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sys_gate_lbl.custom_minimum_size = Vector2(338, 0)
 	gv.add_child(_sys_gate_lbl)
-	_sys_gate = UiKit.gauge(0.0, UiKit.GOLD, 338, 8)
-	gv.add_child(_sys_gate)
 	_make_draggable(goal, gv)
 
 	# Alert feed panel, bottom-centre over the orrery.
@@ -2890,7 +2885,8 @@ func _faction_name(f: int) -> String:
 # switch asset class. (V_LEDGER)
 # ============================================================================
 
-const _LED_TABS := ["Fleet", "Miners", "Outposts", "Colonies", "Markets"]
+const _LED_TABS := ["Fleet", "Miners", "Outposts", "Colonies", "Markets", "Mysteries"]
+const _LED_MYSTERIES := 5
 var _led_tab := 0
 var _led_sort := 0
 var _led_asc := true
@@ -3005,9 +3001,39 @@ func _ledger_less(a: Variant, b: Variant, asc: bool) -> bool:
 	return r < 0 if asc else r > 0
 
 
+## The Mysteries tab — the slow-burn authored threads, *discovered through play* (the Expanse
+## model: at the start nobody knows of the ring or the protomolecule). Stated as N/7, escalating.
+func _refresh_mysteries() -> void:
+	for c in _led_grid.get_children():
+		c.queue_free()
+	_led_grid.columns = 1
+	var beats: int = sim.gate_beats()
+	if beats <= 0:
+		var none := UiKit.label("The system holds its secrets.\n\nYour operations have turned up nothing yet beyond the ordinary trade of Sol — no one speaks of a ring beyond Pluto, and no one has ever heard the word \"protomolecule.\"\n\nKeep working the system. What's out there does not stay hidden forever.", 14, UiKit.TEXT_DIM)
+		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		none.custom_minimum_size = Vector2(720, 0)
+		_led_grid.add_child(none)
+		return
+	var head := UiKit.label("🜲  The Ring-Gate  —  %d / 7 fragments uncovered" % beats, 17, UiKit.GOLD)
+	_led_grid.add_child(head)
+	_led_grid.add_child(UiKit.gauge(float(beats) / 7.0, UiKit.GOLD, 360, 9))
+	var beat := UiKit.label("✦ %s" % String(sim.gate_lore()), 14, UiKit.TEXT)
+	beat.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	beat.custom_minimum_size = Vector2(720, 0)
+	_led_grid.add_child(beat)
+	var foot_text := "The picture is whole. Whatever waits beyond the ring, you know now that it is there — and that it is waking." if beats >= 7 else "Each operation, each salvaged wreck, each rung you climb turns up another fragment. The mystery deepens the higher you reach."
+	var foot := UiKit.label(foot_text, 12, UiKit.ACCENT if beats >= 7 else UiKit.TEXT_DIM)
+	foot.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	foot.custom_minimum_size = Vector2(720, 0)
+	_led_grid.add_child(foot)
+
+
 func _refresh_ledger() -> void:
 	_led_summary.text = "💰 %s cr   ·   ◈ %d ships   ·   ⛏ %d miners   ·   ⚑ %d outposts   ·   ✦ %d holdings" % [
 		_commas(sim.credits()), sim.fleet_size(), sim.miner_count(), sim.outpost_count(), sim.holding_count()]
+	if _led_tab == _LED_MYSTERIES:
+		_refresh_mysteries()
+		return
 	var cols := _ledger_columns(_led_tab)
 	var rows := _ledger_rows(_led_tab)
 	var sortc := clampi(_led_sort, 0, cols.size() - 1)
@@ -3238,7 +3264,7 @@ func _refresh_systems() -> void:
 			mtxt += "   ·   mine %s here yields %s" % [String(sim.body_name(_focus_body)), String(sim.body_mineral_name(_focus_body))]
 		else:
 			mtxt += "   ·   %s: off-limits to miners (Earth/Mars AO)" % String(sim.body_name(_focus_body))
-	_sys_status.text = "Status: Online   ·   %s   ·   %s   ·   Gate %d%%%s" % [sim.tier_name(), hold_txt, sim.gate_progress_pct(), mtxt]
+	_sys_status.text = "Status: Online   ·   %s   ·   %s%s" % [sim.tier_name(), hold_txt, mtxt]
 	# Resources — the station's on-hand stock (what this node holds to trade).
 	for c in _sys_resources.get_children():
 		c.queue_free()
@@ -3274,7 +3300,6 @@ func _refresh_systems() -> void:
 		_sys_mission.text = "Tutorial complete — the company is yours to run."
 	_sys_now.text = "NOW: %s (%d/%d)" % [
 		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
-	_sys_lore.text = "✦ %s" % String(sim.gate_lore())
 	if sim.gate_transited():
 		var outcome: int = sim.endgame_outcome()
 		if outcome == 1:
@@ -3296,8 +3321,8 @@ func _refresh_systems() -> void:
 		else:
 			_sys_gate_lbl.text = "BEYOND THE GATE  ·  plant the bridgehead"
 	else:
-		_sys_gate_lbl.text = "RING-GATE  %d%%   ·   mystery %d/7" % [sim.gate_progress_pct(), sim.gate_beats()]
-	_sys_gate.value = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
+		# Pre-endgame: no always-on gate carrot — the mystery lives in the Mysteries ledger.
+		_sys_gate_lbl.text = ""
 	# The endgame transit verb lights up only at the open gate (§0.1/§17).
 	if _transit_btn:
 		_transit_btn.visible = sim.can_transit_gate()
