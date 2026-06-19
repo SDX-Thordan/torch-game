@@ -1924,9 +1924,9 @@ impl Sim {
     /// the tiers (the inners' grip on Sol wanes once you're a power, §0).
     fn war_flashpoint_interval(&self) -> u64 {
         match self.campaign.tier() {
-            Tier::Station | Tier::Region => 130,
-            Tier::Sol => 240,
-            _ => 460, // Gate/Beyond — Earth & Mars influence dwindles
+            Tier::Station | Tier::Region => 460,
+            Tier::Sol => 680,
+            _ => 1000, // Gate/Beyond — Earth & Mars influence dwindles
         }
     }
 

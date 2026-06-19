@@ -216,6 +216,7 @@ var _fleet_tabs: Array[Button] = []
 
 # Build view.
 var _build_list: VBoxContainer
+var _commission_btn: Button                   # greyed when the selected hull can't be sourced
 var _build_caption: Label
 var _build_stats: Label
 var _build_cost: Label
@@ -2150,12 +2151,17 @@ func _build_build_view() -> void:
 	centre.add_child(_build_cost)
 	_bom_lbl = UiKit.label("", 11, UiKit.TEXT_DIM)
 	centre.add_child(_bom_lbl)
-	var commission := UiKit.action_button("◆  COMMISSION HULL")
-	commission.pressed.connect(_commission_selected)
-	centre.add_child(commission)
+	_commission_btn = UiKit.action_button("◆  COMMISSION HULL")
+	_commission_btn.pressed.connect(_commission_selected)
+	centre.add_child(_commission_btn)
 	var assemble := UiKit.action_button("⚙  ASSEMBLE FROM PARTS")
 	assemble.pressed.connect(_assemble_selected)
 	centre.add_child(assemble)
+	# Civilian trader (freighter) — buildable from the start (no shipyard needed); the
+	# logistics hull you assign to trade routes. The early-game money-maker.
+	var freighter := UiKit.action_button("⛟  BUY TRADER (FREIGHTER)")
+	freighter.pressed.connect(_buy_freighter)
+	centre.add_child(freighter)
 
 	# Right: construction queue.
 	var right := VBoxContainer.new()
@@ -2398,6 +2404,11 @@ func _commission_selected() -> void:
 		_: status = "That design won't fit the hull."
 
 
+## Buy a civilian trader (freighter) — no shipyard needed; the hull you put on trade routes.
+func _buy_freighter() -> void:
+	status = "Trader commissioned — assign it a route in MARKET." if sim.commission_freighter() else "Can't build a trader — short on credits or crew."
+
+
 ## Assemble the selected hull from the player's own component stock (§7d payoff).
 func _assemble_selected() -> void:
 	var cls := String(shipyard.class_name(build_pick))
@@ -2530,11 +2541,13 @@ func _screen(p: Vector3) -> Vector2:
 	return _cam.unproject_position(p)
 
 
-## Convert an input event position (delivered in the content-scaled canvas space) into the
-## viewport/render pixel space that `Camera3D.unproject_position` uses, so map picking lines
-## up when the HUD is magnified (content_scale_factor ≠ 1, e.g. touch mode). No-op at 1.0.
+## Input-event positions in `_unhandled_input` and `Camera3D.unproject_position` are **both**
+## in the viewport's canvas space (Godot pre-transforms input by the stretch/screen transform),
+## so map picking needs **no** content-scale conversion — even when the HUD is magnified
+## (`content_scale_factor` ≠ 1). (An earlier ×factor here mis-scaled every click; verified via
+## the viewport screen-transform + `Input.parse_input_event` that identity is correct.)
 func _to_view(pos: Vector2) -> Vector2:
-	return pos * get_window().content_scale_factor
+	return pos
 
 
 func _zoom_by(factor: float) -> void:
@@ -3617,6 +3630,16 @@ func _refresh_build() -> void:
 			int(fit.get("alpha", 0)), int(fit.get("delta_v", 0)), int(fit.get("mobility", 0)),
 			int(fit.get("power_used", 0)), int(fit.get("power_cap", 0))]
 		_design_lbl.add_theme_color_override("font_color", UiKit.TEXT if ok else UiKit.BAD)
+	# Grey out hulls you can't source yet (no shipyard / OPA standing), and the COMMISSION
+	# button for the selected one — civilians (the trader) are always buildable below.
+	if _build_list:
+		for i in _build_list.get_child_count():
+			var hb2: Button = _build_list.get_child(i)
+			var buildable: bool = sim.can_build_hull(i)
+			hb2.disabled = not buildable
+			hb2.add_theme_color_override("font_color", UiKit.TEXT if buildable else UiKit.TEXT_DIM)
+	if _commission_btn:
+		_commission_btn.disabled = not sim.can_build_hull(build_pick)
 	var nm := String(shipyard.class_name(build_pick))
 	_build_caption.text = nm
 	_build_stats.text = "railguns %d   ·   alpha %d   ·   Δv %d   ·   mobility %d" % [
