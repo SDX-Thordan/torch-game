@@ -343,19 +343,20 @@ vec3 star_layer(vec3 dir, float scale, float thresh, float size) {
 }
 void sky() {
 	vec3 dir = normalize(EYEDIR);
-	vec3 col = vec3(0.012, 0.016, 0.03);   // deep space, faintly blue
-	// Milky Way: a tilted band with cloudy structure and dark dust lanes.
+	vec3 col = vec3(0.004, 0.006, 0.012);   // deep, dark space
+	// Milky Way: a tilted band with faint cloudy structure and dark dust lanes — kept
+	// subtle and tight so it reads as a soft glow behind the stars, not a bright blob.
 	vec3 bn = normalize(vec3(0.34, 0.86, 0.38));
 	float band = 1.0 - abs(dot(dir, bn));
-	float bandmask = pow(smoothstep(0.4, 1.0, band), 1.5);
+	float bandmask = pow(smoothstep(0.55, 1.0, band), 2.2);
 	float clouds = fbm(dir * 4.5 + vec3(3.0));
 	float dust = fbm(dir * 11.0 + vec3(20.0));
-	vec3 mwcol = mix(vec3(0.05, 0.06, 0.11), vec3(0.26, 0.24, 0.32), clouds);
-	mwcol *= (0.3 + 0.9 * dust);
-	col += mwcol * bandmask * 1.3;
-	// Faint coloured nebulae.
-	col += vec3(0.12, 0.04, 0.16) * smoothstep(0.55, 0.95, fbm(dir * 2.2 + vec3(9.0)));
-	col += vec3(0.02, 0.08, 0.11) * smoothstep(0.58, 0.95, fbm(dir * 3.0 - vec3(30.0))) * 0.7;
+	vec3 mwcol = mix(vec3(0.03, 0.035, 0.06), vec3(0.14, 0.13, 0.18), clouds);
+	mwcol *= (0.35 + 0.8 * dust);
+	col += mwcol * bandmask * 0.6;
+	// A whisper of coloured nebulosity, confined to the band so it reads as galactic dust
+	// rather than the free-floating "blurry balls" of an untethered nebula.
+	col += vec3(0.05, 0.02, 0.07) * smoothstep(0.7, 0.97, fbm(dir * 2.6 + vec3(9.0))) * bandmask;
 	// Stars at several scales (coarse = big bright, fine = faint dust); the band is richer.
 	float boost = 1.0 + bandmask * 2.5;
 	col += star_layer(dir, 38.0, 0.86, 0.16) * 1.5;

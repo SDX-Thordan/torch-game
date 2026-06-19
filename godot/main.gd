@@ -54,10 +54,13 @@ const ZOOM_MIN := 1.2
 const ZOOM_MAX := 140.0
 const ROT_DRAG_SENS := 0.006                  # one-finger drag → yaw (rad per screen px)
 const ROT_STEP := 0.40                         # ↺/↻ button + Q/E key rotation step (rad)
+const PAN_SENS := 0.0016                        # mouse-drag pan (world units per screen px, ×zoom)
 # UI magnification (§33 readability) — the whole HUD scales by this; touch needs it bigger
-# than a desktop monitor. Applied via the window's content scale (canvas_items stretch).
+# than a desktop monitor, and a desktop monitor wants it a touch bigger than 1:1 so the
+# dense tables stay legible when the window is maximized/fullscreen. Applied via the
+# window's content scale (canvas_items stretch).
 const UI_SCALE_TOUCH := 1.35
-const UI_SCALE_PC := 1.0
+const UI_SCALE_PC := 1.2
 const FACTION_COL := [
 	Color(0.4, 0.6, 1.0), Color(0.95, 0.45, 0.4),
 	Color(0.95, 0.75, 0.35), Color(0.55, 0.85, 0.6),
@@ -80,6 +83,8 @@ var _last_endgame := 0                       # 0 undecided · 1 won · 2 lost (�
 var _zoom := 10.0
 var _focus_body := 0
 var _yaw := 0.0                              # camera orbit angle (rad) — rotate the map
+var _pan := Vector3.ZERO                      # ecliptic-plane pan offset from the focus (mouse-drag)
+var _fullscreen := false                     # F11 toggles true fullscreen over maximized
 var _touches := {}
 var _pinch_prev := 0.0
 var _pinch_ang_prev := 0.0                   # two-finger twist angle (rad) for rotation
@@ -282,13 +287,21 @@ func _set_pc_mode(on: bool) -> void:
 	# Magnify the whole HUD for legibility — bigger on a handheld than a desktop monitor (§33).
 	get_window().content_scale_factor = UI_SCALE_PC if on else UI_SCALE_TOUCH
 	if on:
-		# A desktop window: resizable, a sensible default, mouse cursor shown.
+		# A desktop window: maximized so it fills the screen (or the tiling-WM column)
+		# rather than a small floating box; F11 toggles true fullscreen. Mouse cursor shown.
 		var win := get_window()
-		win.mode = Window.MODE_WINDOWED
+		win.mode = Window.MODE_FULLSCREEN if _fullscreen else Window.MODE_MAXIMIZED
 		win.title = "TORCH"
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	status = "PC mode — mouse wheel zooms, F1–F4 switch views, click to focus." if on \
+	status = "PC mode — wheel zooms · drag to pan · Shift-drag to rotate · F11 fullscreen." if on \
 		else "Touch mode — pinch to zoom, tap a world to focus."
+
+
+## Toggle true (borderless) fullscreen against the default maximized window (PC only).
+func _toggle_fullscreen() -> void:
+	_fullscreen = not _fullscreen
+	var win := get_window()
+	win.mode = Window.MODE_FULLSCREEN if _fullscreen else Window.MODE_MAXIMIZED
 
 
 func _resolve_commodity_indices() -> void:
@@ -2441,9 +2454,12 @@ func _update_camera() -> void:
 
 
 func _focus_pos() -> Vector3:
+	# The focused body (or Sol at the origin) plus any free-pan offset the player has
+	# dragged the map by. Panning is on the ecliptic plane so the orrery stays flat.
+	var base := Vector3.ZERO
 	if _focus_body > 0 and _focus_body < sim.body_count():
-		return _world3d(sim.body_x(_focus_body), sim.body_y(_focus_body))
-	return Vector3.ZERO
+		base = _world3d(sim.body_x(_focus_body), sim.body_y(_focus_body))
+	return base + _pan
 
 
 func _world3d(wx: float, wy: float) -> Vector3:
@@ -2469,6 +2485,17 @@ func _zoom_by(factor: float) -> void:
 ## and the finger gestures (one-finger drag, two-finger twist).
 func _rotate_by(d: float) -> void:
 	_yaw = wrapf(_yaw + d, -PI, PI)
+
+
+## Pan the map by a screen-space drag delta (PC mouse-drag). Convert the screen delta
+## into a move on the ecliptic plane along the camera's flattened right/forward axes, so
+## dragging feels like grabbing the map; scaled by zoom so it tracks the cursor at any scale.
+func _pan_by(screen_delta: Vector2) -> void:
+	var basis := _cam.global_transform.basis
+	var right := Vector3(basis.x.x, 0.0, basis.x.z).normalized()
+	var fwd := Vector3(-basis.z.x, 0.0, -basis.z.z).normalized()
+	var k := _zoom * PAN_SENS
+	_pan += right * (-screen_delta.x * k) + fwd * (screen_delta.y * k)
 
 
 ## The ▶ button: resume from pause to 1×, then step the time-compression up (1→2→3).
@@ -2497,7 +2524,8 @@ func _reset_view() -> void:
 	_focus_body = 0
 	_zoom = 10.0
 	_yaw = 0.0
-	status = "View: inner system (pinch to zoom · drag/twist to rotate · tap a world)."
+	_pan = Vector3.ZERO
+	status = "View: inner system (drag to pan · Shift-drag / twist to rotate · wheel/pinch to zoom)."
 
 
 # ============================================================================
@@ -3082,7 +3110,7 @@ func _refresh() -> void:
 	_flash_rect.color.a = flash * 0.5
 	_ascend_rect.color.a = ascend_flash * 0.5
 	if pc_mode:
-		_help.text = "PC ·  [Space/1/2/3] time   [F1–F4/F6] views   wheel: zoom · [,/.] rotate · click: focus   [↑↓] commodity [←→] market   [B]uy [S]ell   [Tab] target [I]nterdict [E]xploit   [N]ew ship   [F5]/[F9] save·load   [F8] touch mode"
+		_help.text = "PC ·  [Space/1/2/3] time   [F1–F4/F6] views   wheel: zoom · drag: pan · Shift-drag/[,.]: rotate · click: focus   [↑↓] commodity [←→] market   [B]uy [S]ell   [Tab] target [I]nterdict [E]xploit   [N]ew ship   [F5]/[F9] save·load   [F11] fullscreen   [F8] touch mode"
 	else:
 		_help.text = "Touch ·  [Space/1/2/3] time   pinch: zoom · drag/twist: rotate · tap: focus   [B]uy [S]ell   [I]nterdict [E]xploit   [F8] PC mode"
 
@@ -3582,6 +3610,7 @@ func _pick_body(pos: Vector2) -> void:
 	if best < 0:
 		return
 	_focus_body = best
+	_pan = Vector3.ZERO   # re-centre on the tapped body (clear any free-pan offset)
 	_zoom = clampf(_zoom, ZOOM_MIN, 8.0) if sim.body_kind(best) == 2 else _zoom
 	var note := ""
 	for m in _visible_market_count():
@@ -3627,6 +3656,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMagnifyGesture:
 		_zoom = clampf(_zoom / event.factor, ZOOM_MIN, ZOOM_MAX)
 		return
+	if event is InputEventMouseMotion and pc_mode and view == V_SYSTEMS:
+		if (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			# Left-drag pans the map; Shift-left-drag rotates it (yaw). Past a small
+			# threshold, mark _was_drag so the release isn't read as a click-to-focus.
+			if event.shift_pressed:
+				_rotate_by(-event.relative.x * ROT_DRAG_SENS)
+			else:
+				_pan_by(event.relative)
+			if absf(event.relative.x) + absf(event.relative.y) > 1.0:
+				_was_drag = true
+			return
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
@@ -3638,8 +3678,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					_zoom_by(1.18)
 				return
 			MOUSE_BUTTON_LEFT:
-				if not event.pressed and view == V_SYSTEMS:
-					if _was_multitouch or _was_drag:
+				if view == V_SYSTEMS:
+					if event.pressed:
+						_was_drag = false   # arm: a click that doesn't drag will focus
+					elif _was_multitouch or _was_drag:
 						_was_multitouch = false
 						_was_drag = false
 					else:
@@ -3678,6 +3720,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_select_view(V_EMPIRE)
 		KEY_F8:
 			_set_pc_mode(not pc_mode)
+		KEY_F11:
+			_toggle_fullscreen()
 		KEY_UP:
 			sel_comm = (sel_comm - 1 + sim.commodity_count()) % sim.commodity_count()
 		KEY_DOWN:
@@ -3877,6 +3921,11 @@ func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInsta
 	var tm := TorusMesh.new()
 	tm.inner_radius = maxf(0.01, radius - tube)
 	tm.outer_radius = radius + tube
+	# Plenty of segments around the ring so a large orbit reads as a smooth circle, not a
+	# stepped polygon; the tube itself needs only a few sides (it's a hairline). Scaled with
+	# radius and capped so the inner moons stay cheap and the wide planet orbits stay round.
+	tm.rings = clampi(int(radius * 48.0), 96, 384)
+	tm.ring_segments = 6
 	mi.mesh = tm
 	mi.material_override = mat
 	return mi

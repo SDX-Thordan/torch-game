@@ -331,6 +331,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   accessors) plus `can_mine_body` / `miner_at` / `can_found_shipyard_at` / `shipyard_body`. New
   verbs slot in by adding a hidden button + one visibility line — no new panels. Belt **Asteroid**
   bodies must be in `can_mine_body` (they're the literal "asteroid-belt sections" to mine).
+- **Desktop / PC mode window:** a plain `Window.MODE_WINDOWED` opens a small floating box that a
+  tiling WM (niri) won't fill — open **`MODE_MAXIMIZED`** instead (back it with project
+  `display/window/size/mode=2` so frame 0 is already maximized), and offer **F11** for true
+  `MODE_FULLSCREEN`. Bump `UI_SCALE_PC` a little above 1.0 (1.2) for table legibility on a big
+  monitor — the `_to_view` content-scale conversion already makes picking factor-agnostic.
+- **PC map controls:** mouse-drag should **pan**, Shift-drag should **rotate** (the touch build
+  only had drag=rotate). Pan is a free **`_pan` ecliptic-plane offset** added to the camera focus
+  in `_focus_pos()` (cleared on `_pick_body`/`_reset_view` so a click re-centres); convert the
+  screen delta along the camera's *flattened* right/forward axes, scaled by `_zoom`, so it tracks
+  the cursor at any scale. Mark `_was_drag` past a ~1px threshold so the button-release isn't read
+  as a click-to-focus, and reset it on the left-button **press**.
+- **Stepped orbit lines / jaggies:** the orrery viewport defaults to **no AA** → enable
+  `anti_aliasing/quality/msaa_3d` (4×) + `screen_space_aa` (FXAA) in `project.godot` (the battle
+  diorama SubViewport opts out on its own, so it's unaffected). A large `TorusMesh` orbit ring also
+  reads as a polygon at the default 64 `rings` — scale `tm.rings` with radius (`clampi(r*48,96,384)`)
+  and drop `ring_segments` to ~6 (the tube is a hairline) for a smooth circle that stays cheap.
+- **Space-sky tuning:** untethered nebula `fbm` blobs read as ugly "blurry balls" — confine the
+  coloured nebulosity to the **Milky-Way `bandmask`** (so it's galactic dust, not floating balls),
+  darken the base (`~0.005`), and tighten the band (`smoothstep(0.55,1.0,…)^2.2`, intensity ~0.6).
+  Let the multi-scale star layers carry the look.
 
 ### 7.5 Render-verify workflow
 
