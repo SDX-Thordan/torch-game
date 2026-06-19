@@ -89,6 +89,8 @@ var _touches := {}
 var _pinch_prev := 0.0
 var _pinch_ang_prev := 0.0                   # two-finger twist angle (rad) for rotation
 var _was_drag := false                       # a one-finger drag rotated — suppress the tap-focus
+var _drag_px := 0.0                           # cumulative drag distance this gesture (click vs drag)
+const DRAG_SLOP := 6.0                        # px a press may wander before it counts as a drag, not a click
 # PC mode (desktop): mouse-wheel zoom + keyboard, no touch-zoom buttons. Auto-detected
 # on desktop, manually toggleable (F8) so it can be forced on either platform.
 var pc_mode := false
@@ -3664,7 +3666,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_rotate_by(-event.relative.x * ROT_DRAG_SENS)
 			else:
 				_pan_by(event.relative)
-			if absf(event.relative.x) + absf(event.relative.y) > 1.0:
+			# Only count it as a drag (suppressing click-to-focus) once the pointer has
+			# travelled past the slop — a normal click jitters a pixel or two and must still focus.
+			_drag_px += absf(event.relative.x) + absf(event.relative.y)
+			if _drag_px > DRAG_SLOP:
 				_was_drag = true
 			return
 	if event is InputEventMouseButton:
@@ -3681,6 +3686,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				if view == V_SYSTEMS:
 					if event.pressed:
 						_was_drag = false   # arm: a click that doesn't drag will focus
+						_drag_px = 0.0
 					elif _was_multitouch or _was_drag:
 						_was_multitouch = false
 						_was_drag = false
