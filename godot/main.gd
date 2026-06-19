@@ -429,22 +429,16 @@ func _build_world() -> void:
 	for b in sim.body_count():
 		var kind := sim.body_kind(b)
 		var name := String(sim.body_name(b))
-		if kind == 5:   # the ring-gate is drawn as a glowing torus, not a sphere
+		if kind == 5:   # the ring-gate: its sim body stays (load-bearing for determinism),
+			# but the placeholder gate *story* is removed — no label, no golden ring shown to
+			# the player — until the proper mid/late-game arc lands. Keep an invisible
+			# placeholder node so the body→node indices stay aligned.
 			gate_r = _world3d(sim.body_x(b), sim.body_y(b)).length()
 			var ph := Node3D.new()
+			ph.visible = false
 			_orrery_root.add_child(ph)
-			# Label the always-visible ring-gate (§0 destination) so the golden ring out
-			# past the Kuiper edge reads as *the gate*, not a mystery orbit. The placeholder
-			# node tracks the gate's world position each frame, so the tag rides with it.
 			var gtag := Label3D.new()
-			gtag.text = "⟁ " + name
-			gtag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			gtag.fixed_size = true
-			if _map_font != null:
-				gtag.font = _map_font
-			gtag.modulate = Color(0.98, 0.86, 0.45)
-			gtag.pixel_size = LABEL_PIXEL
-			gtag.position = Vector3(0.0, 0.7, 0.0)
+			gtag.visible = false
 			ph.add_child(gtag)
 			_body_nodes.append(ph)
 			_body_labels.append(gtag)
@@ -486,9 +480,11 @@ func _build_world() -> void:
 		container.add_child(tag)
 		_body_labels.append(tag)
 
+	# The golden ring-gate visual is removed with the gate story (kept hidden, not drawn).
+	# The node stays so the per-frame zoom-scaler + glow refs don't dangle.
 	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
-	_gate_mat.albedo_color = Color(0.95, 0.82, 0.4) * 1.6   # glow through bloom
 	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
+	_gate_ring.visible = false
 	_gate_tm = _gate_ring.mesh
 	_gate_r = gate_r
 	_orrery_root.add_child(_gate_ring)
@@ -2943,8 +2939,6 @@ func _update_world(delta: float) -> void:
 			mnode.position = _world3d(sim.body_x(mb), sim.body_y(mb)) + Vector3(-0.12 - 0.07 * mi, 0.12, 0.05)
 		else:
 			mnode.visible = false
-	var g: float = clampf(float(sim.gate_progress_pct()) / 100.0, 0.0, 1.0)
-	_gate_mat.emission_energy_multiplier = 0.2 + 1.6 * g
 
 
 # ============================================================================
@@ -3228,8 +3222,7 @@ func _faction_name(f: int) -> String:
 # switch asset class. (V_LEDGER)
 # ============================================================================
 
-const _LED_TABS := ["Fleet", "Miners", "Outposts", "Colonies", "Markets", "Mysteries"]
-const _LED_MYSTERIES := 5
+const _LED_TABS := ["Fleet", "Miners", "Outposts", "Colonies", "Markets"]
 var _led_tab := 0
 var _led_sort := 0
 var _led_asc := true
@@ -3551,39 +3544,9 @@ func _ledger_less(a: Variant, b: Variant, asc: bool) -> bool:
 	return r < 0 if asc else r > 0
 
 
-## The Mysteries tab — the slow-burn authored threads, *discovered through play* (the Expanse
-## model: at the start nobody knows of the ring or the protomolecule). Stated as N/7, escalating.
-func _refresh_mysteries() -> void:
-	for c in _led_grid.get_children():
-		c.queue_free()
-	_led_grid.columns = 1
-	var beats: int = sim.gate_beats()
-	if beats <= 0:
-		var none := UiKit.label("The system holds its secrets.\n\nYour operations have turned up nothing yet beyond the ordinary trade of Sol — no one speaks of a ring beyond Pluto, and no one has ever heard the word \"protomolecule.\"\n\nKeep working the system. What's out there does not stay hidden forever.", 14, UiKit.TEXT_DIM)
-		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		none.custom_minimum_size = Vector2(720, 0)
-		_led_grid.add_child(none)
-		return
-	var head := UiKit.label("🜲  The Ring-Gate  —  %d / 7 fragments uncovered" % beats, 17, UiKit.GOLD)
-	_led_grid.add_child(head)
-	_led_grid.add_child(UiKit.gauge(float(beats) / 7.0, UiKit.GOLD, 360, 9))
-	var beat := UiKit.label("✦ %s" % String(sim.gate_lore()), 14, UiKit.TEXT)
-	beat.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	beat.custom_minimum_size = Vector2(720, 0)
-	_led_grid.add_child(beat)
-	var foot_text := "The picture is whole. Whatever waits beyond the ring, you know now that it is there — and that it is waking." if beats >= 7 else "Each operation, each salvaged wreck, each rung you climb turns up another fragment. The mystery deepens the higher you reach."
-	var foot := UiKit.label(foot_text, 12, UiKit.ACCENT if beats >= 7 else UiKit.TEXT_DIM)
-	foot.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	foot.custom_minimum_size = Vector2(720, 0)
-	_led_grid.add_child(foot)
-
-
 func _refresh_ledger() -> void:
 	_led_summary.text = "💰 %s cr   ·   ◈ %d ships   ·   ⛏ %d miners   ·   ⚑ %d outposts   ·   ✦ %d holdings" % [
 		_commas(sim.credits()), sim.fleet_size(), sim.miner_count(), sim.outpost_count(), sim.holding_count()]
-	if _led_tab == _LED_MYSTERIES:
-		_refresh_mysteries()
-		return
 	var cols := _ledger_columns(_led_tab)
 	var rows := _ledger_rows(_led_tab)
 	var sortc := clampi(_led_sort, 0, cols.size() - 1)
@@ -3946,8 +3909,9 @@ func _refresh_systems() -> void:
 		_sys_mission.text = "Tutorial complete — the company is yours to run."
 	_sys_now.text = "NOW: %s (%d/%d)" % [
 		sim.now_goal(), sim.now_goal_progress(), sim.now_goal_target()]
-	# (The gate-transit endgame has been removed — the focus is the early-game trade/
-	#  management sim; the ring stays a slow-burn mystery in the LEDGER's Mysteries tab.)
+	# (The gate story — transit endgame, the ring visual, and the Mysteries lore tab — has
+	#  been removed until the proper mid/late-game arc lands; the focus is the early-game
+	#  trade/management sim. The dormant endgame sim stays in the core for that arc.)
 	# Feed.
 	var feed := ""
 	for a in mini(sim.alert_count(), 3):

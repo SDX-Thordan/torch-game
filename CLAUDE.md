@@ -318,12 +318,15 @@ Status: [x] done, [~] in progress, [ ] todo.
   not a corner toast. Pause/play live in the top bar (the handheld's spacebar). Open the camera
   **centred + zoomed on the home station** (focus `market_body(0)`, a tight zoom) — at the
   orrery scale (`1 AU = 1` world unit) a "zoomed-in" zoom is ~2.2, not 4.
-- **Gate re-aim (§0.1 superseded by player direction):** the ring is no longer a "carrot from
-  minute one." `missions.gate_revealed` now starts at **0** (nobody knows of the ring/protomolecule
-  at the start); the first beat is voiced only when play turns one up (ascent/salvage), escalating
-  N/7. Removed the always-visible RING-GATE bar/% from the objective panel + status line; the
-  mystery lives in the LEDGER's **Mysteries** tab. **Byte-identical to QA** — the lore reveal-shift
-  isn't sampled, and the tab wires the same `gate_lore`/`gate_beats` the old panel did.
+- **Gate story removed (placeholder, until the proper arc lands):** the gate mystery was a stand-in;
+  it's now fully hidden from the player until `MID_LATE_GAME_STORY.md` is built. `reveal_gate_beat`
+  still advances the counter (keeps the machinery + save field + QA `gate_carrot` live) but **voices
+  nothing**; the **Mysteries ledger tab** is removed; the **golden ring visual + progress-glow** are
+  hidden in the orrery (the gate **sim body stays** — `body_count` is load-bearing for the salvage
+  RNG, §7.1); the late tiers are reframed off the gate (**The Gate→The Frontier**, **Beyond the
+  Gate→The Far Reaches**). A *persona reaches the Gate tier in the QA sample*, so the tier rename is
+  visible → **regenerate QA** (rename-only diff, no new concerns). `GATE_LORE`/`reveal_gate`/
+  `transit_gate`/`Tier::Gate|Beyond` all stay dormant for that arc to re-wire.
 - **Adding a 6th nav view** means extending **every** `view`-indexed const in lockstep —
   `V_*`, `VIEW_GLYPH`, `VIEW_CAP`, **and `VIEW_TITLE`** (the easy one to miss → an out-of-bounds
   in `_refresh_chrome`). A generic **sortable ledger** = a tab index + `_led_sort`/`_led_asc`, a

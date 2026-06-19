@@ -90,7 +90,7 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 | treasury | 50000 → 50000 cr (+0, ~1×) |
 | actions | 174 over 4% of ticks |
 | pacing | 3976 ticks pending · longest idle 24 ticks |
-| campaign | The Gate · gate 100% · 3 ascent(s) |
+| campaign | The Frontier · gate 100% · 3 ascent(s) |
 | gate reached | tick 2713 (~113 days) |
 | CEO level | 34 · techs 0 |
 | traffic | 166 flew, 0 arrived, 166 cut, 166 shortages |
@@ -98,7 +98,7 @@ _Cuts every convoy it can — climbs the retention spine and tracks the reputati
 | standings (E/M/B/I) | -1000 / 1000 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 193 → Sol & the Cold War @ 913 → The Gate @ 2713
+**Ascents:** The Region @ 193 → Sol & the Cold War @ 913 → The Frontier @ 2713
 
 **Findings:**
 
@@ -147,7 +147,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 | treasury | 37000 → 121153 cr (+84153, ~3×) |
 | actions | 3098 over 74% of ticks |
 | pacing | 75 ticks pending · longest idle 9 ticks |
-| campaign | The Gate · gate 100% · 3 ascent(s) |
+| campaign | The Frontier · gate 100% · 3 ascent(s) |
 | gate reached | tick 2785 (~116 days) |
 | CEO level | 34 · techs 6 |
 | traffic | 166 flew, 90 arrived, 75 cut, 75 shortages |
@@ -155,7 +155,7 @@ _The intended full-loop operator: trade, route, raid to climb, auto-research, an
 | standings (E/M/B/I) | -1000 / 188 / 0 / 0 |
 | market wall hits | 0 |
 
-**Ascents:** The Region @ 193 → Sol & the Cold War @ 912 → The Gate @ 2785
+**Ascents:** The Region @ 193 → Sol & the Cold War @ 912 → The Frontier @ 2785
 
 **Findings:**
 
@@ -319,15 +319,15 @@ _A **static** affordance audit of the shell's contract with the sim — the gdex
 | metric | value |
 | --- | --- |
 | bindings exposed | 319 |
-| wired by the shell | 264 (82%) |
+| wired by the shell | 261 (81%) |
 | keyboard bindings | 45 |
 | pointer/touch | 15 pointer hit(s), native touch: true |
 | controls legend | true |
 
 **Findings:**
 
-- **[GOOD]** _UI · wiring_ — Every one of the shell's 264 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
-- **[NOTE]** _UI · coverage_ — The shell wires 82% of the 319 exposed bindings; 55 are never referenced (e.g. ["admin_load", "alert_threshold", "ally_count", "alpha", "blueprint_discover", "blueprint_known_count"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
+- **[GOOD]** _UI · wiring_ — Every one of the shell's 261 sim calls resolves to a real binding — no phantom calls that would break at runtime (GDScript wouldn't catch them until that path runs).
+- **[NOTE]** _UI · coverage_ — The shell wires 81% of the 319 exposed bindings; 58 are never referenced (e.g. ["admin_load", "alert_threshold", "ally_count", "alpha", "blueprint_discover", "blueprint_known_count"]). Some are deliberately read-only or future, but a verb the shell never calls is a capability the player can't reach.
 - **[GOOD]** _UI · exception→verb_ — The act-now exception loop is pressable: the shell wires a one-press answer to shortages/contracts, so an alert resolves into a verb rather than a dead notification (§0.4).
 - **[GOOD]** _UI · status visibility_ — The load-bearing state is on screen — treasury, the tier/destination, the alert feed, and the now-goal are all read by the shell (Nielsen #1, the §0 three-horizon stack).
 - **[GOOD]** _UI · recognition_ — A controls legend is on screen — the keymap is recognised, not recalled (Nielsen #6).

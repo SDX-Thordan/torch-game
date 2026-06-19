@@ -4844,12 +4844,13 @@ impl Sim {
         }
     }
 
-    /// Reveal the next gate-mystery beat (§0.1), voiced as "The Gate".
+    /// Advance the gate-mystery beat counter (§0.1) — but **no longer voice it**. The
+    /// placeholder gate lore is removed from the player's view until the proper mid/late-game
+    /// arc lands (`docs/MID_LATE_GAME_STORY.md`); the `Missions::reveal_gate` machinery +
+    /// `GATE_LORE` stay live (counter still advances, save field still meaningful) so that
+    /// arc can re-wire the feed/UI. Re-enable by re-announcing the returned beat here.
     fn reveal_gate_beat(&mut self) {
-        if let Some(beat) = self.missions.reveal_gate() {
-            let tick = self.tick;
-            self.feed.announce("The Gate", beat.to_string(), tick);
-        }
+        let _ = self.missions.reveal_gate();
     }
 
     /// **Transit the open ring-gate** (§0.1/§17) — the climactic, deliberate payoff
