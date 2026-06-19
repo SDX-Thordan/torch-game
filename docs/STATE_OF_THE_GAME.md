@@ -113,8 +113,11 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
     hauler (byte-identical); the route dispatch carries `min(route.qty, best_hauler_cargo)`, a no-op
     for the base tier. Old saves rebuild Light haulers from the legacy count. Shown by name + class in
     the FLEET view, OUTLINER (a new Haulers group), and the buy-trader tier cycle.
-  - [ ] **Civilian self-defense fitting** — 1–2 PDC mounts on haulers + an OPA **torpedo-hauler**
-    variant (Ramshackle torpedoes only, OPA-standing-gated like the corvette).
+  - [x] **Civilian self-defense fitting** — haulers carry **1–2 PDC mounts** (Light 1 / Heavy·Bulk 2)
+    and a new **OPA Q-Runner** variant (cargo 70, OPA-standing-gated like the corvette) mounts 1 PDC +
+    **2 Ramshackle torpedoes**. Arm via a fleet-wide **⛨ Arm Haulers** verb (charged per added mount);
+    armed haulers add a **self-defense screen** to `effective_escorts` (every 4 PDC-equiv = 1 escort,
+    a torpedo = 2), so a trade fleet can defend its own convoys against piracy. Unarmed = byte-identical.
   - [ ] **Convoys** — group haulers + miners into named convoys; a miner paired with a hauler in its
     convoy works more efficiently (the synergy).
   - [ ] **Military escort** — warships protect a convoy; the raid/piracy systems resolve escorted vs.

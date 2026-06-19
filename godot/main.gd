@@ -2281,6 +2281,9 @@ func _build_build_view() -> void:
 	var freighter := UiKit.action_button("⛟  BUY TRADER")
 	freighter.pressed.connect(_buy_freighter)
 	centre.add_child(freighter)
+	var arm := UiKit.action_button("⛨  ARM HAULERS (self-defense)")
+	arm.pressed.connect(_arm_fleet)
+	centre.add_child(arm)
 
 	# Right: construction queue.
 	var right := VBoxContainer.new()
@@ -2525,17 +2528,44 @@ func _commission_selected() -> void:
 
 ## Buy a civilian trader (freighter) — no shipyard needed; the hull you put on trade routes.
 func _cycle_hauler_tier() -> void:
-	hauler_tier = (hauler_tier + 1) % 3
+	hauler_tier = (hauler_tier + 1) % 4   # Light · Heavy · Bulk · OPA Q-Runner
 	if _hauler_tier_btn:
 		_hauler_tier_btn.text = "◇  Class: %s" % String(sim.hauler_class_name(hauler_tier))
-	status = "Hauler: %s — %s cr, %d cargo/trip, %d crew." % [
+	var arms := ""
+	var pm: int = sim.hauler_class_pdc_mounts(hauler_tier)
+	var tm: int = sim.hauler_class_torpedo_mounts(hauler_tier)
+	if pm > 0 or tm > 0:
+		arms = " · mounts %d PDC%s" % [pm, (" + %d Torp" % tm) if tm > 0 else ""]
+	var gate := "" if sim.can_commission_hauler(hauler_tier) else " · ⚠ needs OPA standing"
+	status = "Hauler: %s — %s cr, %d cargo/trip, %d crew%s%s." % [
 		String(sim.hauler_class_name(hauler_tier)), _commas(sim.hauler_class_cost(hauler_tier)),
-		sim.hauler_class_cargo(hauler_tier), sim.hauler_class_crew(hauler_tier)]
+		sim.hauler_class_cargo(hauler_tier), sim.hauler_class_crew(hauler_tier), arms, gate]
 
 
 func _buy_freighter() -> void:
 	var msg := String(sim.commission_hauler(hauler_tier))
-	status = msg if msg != "" else "Can't build a %s — short on credits or crew." % String(sim.hauler_class_name(hauler_tier))
+	if msg != "":
+		status = msg
+	elif not sim.can_commission_hauler(hauler_tier):
+		status = "The OPA Q-Runner is Belt-built — earn OPA standing first."
+	else:
+		status = "Can't build a %s — short on credits or crew." % String(sim.hauler_class_name(hauler_tier))
+
+
+## Arm the whole trade fleet to its mounts (PDCs + the OPA Q-Runners' torpedoes) — armed
+## haulers screen their own convoys against piracy.
+func _arm_fleet() -> void:
+	var armed := 0
+	for i in sim.freighters():
+		var cls := sim.hauler_class(i)
+		if String(sim.arm_hauler(i, sim.hauler_class_pdc_mounts(cls), sim.hauler_class_torpedo_mounts(cls))) != "":
+			armed += 1
+	if armed > 0:
+		status = "Armed %d hauler(s) — convoy self-defense now %d (every 4 = one escort)." % [armed, sim.hauler_defense()]
+	elif sim.freighters() == 0:
+		status = "No haulers yet — buy a trader first."
+	else:
+		status = "Fleet already armed (or short on credits for the weapons)."
 
 
 ## Assemble the selected hull from the player's own component stock (§7d payoff).
@@ -4048,7 +4078,8 @@ func _refresh_fleet() -> void:
 			var hnm := String(sim.hauler_name(i))
 			var hcls := String(sim.hauler_class_name(sim.hauler_class(i)))
 			var hlabel := ("%s %d" % [hnm, i + 1]) if hnm != "" else ("Hauler %d" % (i + 1))
-			_fleet_row(hlabel, true, hcls, loc, assign,
+			var arms := String(sim.hauler_arms(i))
+			_fleet_row(hlabel, true, "%s · %s" % [hcls, arms], loc, assign,
 				1.0, UiKit.GOOD if en_route else UiKit.ACCENT)
 			shown += 1
 	if shown == 0:

@@ -48,6 +48,9 @@ pub enum HaulerClass {
     Light,
     Heavy,
     Bulk,
+    /// The OPA **Q-runner** — a Belt-built hauler with torpedo tubes (Ramshackle only), gated
+    /// on OPA standing. A merchantman that bites back; the equalizer for a trade fleet.
+    OpaRunner,
 }
 
 impl HaulerClass {
@@ -58,6 +61,7 @@ impl HaulerClass {
             HaulerClass::Light => 50,
             HaulerClass::Heavy => 120,
             HaulerClass::Bulk => 260,
+            HaulerClass::OpaRunner => 70,
         }
     }
     /// Purchase price — the Light tier keeps the original freighter price (dry_mass 2600 × 5).
@@ -66,6 +70,7 @@ impl HaulerClass {
             HaulerClass::Light => 13_000,
             HaulerClass::Heavy => 32_000,
             HaulerClass::Bulk => 70_000,
+            HaulerClass::OpaRunner => 40_000,
         }
     }
     /// Trained crew the hull ties up — the Light tier keeps the freighter's 8 (byte-identical).
@@ -74,6 +79,7 @@ impl HaulerClass {
             HaulerClass::Light => 8,
             HaulerClass::Heavy => 14,
             HaulerClass::Bulk => 22,
+            HaulerClass::OpaRunner => 16,
         }
     }
     pub fn name(self) -> &'static str {
@@ -81,12 +87,34 @@ impl HaulerClass {
             HaulerClass::Light => "Light Freighter",
             HaulerClass::Heavy => "Heavy Freighter",
             HaulerClass::Bulk => "Bulk Hauler",
+            HaulerClass::OpaRunner => "OPA Q-Runner",
         }
+    }
+    /// PDC mounts (point-defense for self-protection against piracy) the hull can carry.
+    pub fn pdc_mounts(self) -> u8 {
+        match self {
+            HaulerClass::Light => 1,
+            HaulerClass::Heavy => 2,
+            HaulerClass::Bulk => 2,
+            HaulerClass::OpaRunner => 1,
+        }
+    }
+    /// Torpedo mounts — only the OPA Q-Runner carries them (Ramshackle tubes), the equalizer.
+    pub fn torpedo_mounts(self) -> u8 {
+        match self {
+            HaulerClass::OpaRunner => 2,
+            _ => 0,
+        }
+    }
+    /// Whether commissioning this class needs OPA (Belt) standing.
+    pub fn needs_opa_standing(self) -> bool {
+        matches!(self, HaulerClass::OpaRunner)
     }
     pub fn from_index(i: i64) -> HaulerClass {
         match i {
             1 => HaulerClass::Heavy,
             2 => HaulerClass::Bulk,
+            3 => HaulerClass::OpaRunner,
             _ => HaulerClass::Light,
         }
     }
@@ -117,6 +145,19 @@ pub struct Hauler {
     pub name: String,
     #[serde(default)]
     pub commissioned_tick: u64,
+    /// Mounted PDCs (self-defense against piracy), 0..=`class.pdc_mounts()`.
+    #[serde(default)]
+    pub pdc: u8,
+    /// Mounted Ramshackle torpedoes (OPA Q-Runner only), 0..=`class.torpedo_mounts()`.
+    #[serde(default)]
+    pub torpedo: u8,
+}
+
+impl Hauler {
+    /// Self-defense weight (in PDC-equivalents): each torpedo bites like two PDCs.
+    pub fn defense(&self) -> i64 {
+        self.pdc as i64 + self.torpedo as i64 * 2
+    }
 }
 
 /// A ship in the player's fleet: a validated fit, a christened name (§14), and an
@@ -336,7 +377,20 @@ impl Corp {
             class,
             name,
             commissioned_tick: tick,
+            pdc: 0,
+            torpedo: 0,
         });
+    }
+
+    /// Mutable access to owned hauler `i` (for arming it).
+    pub fn hauler_mut(&mut self, i: usize) -> Option<&mut Hauler> {
+        self.haulers.get_mut(i)
+    }
+
+    /// Total self-defense weight across the trade fleet (in PDC-equivalents) — armed haulers
+    /// screen their own convoys against piracy. 0 with an unarmed fleet (byte-identical).
+    pub fn hauler_defense(&self) -> i64 {
+        self.haulers.iter().map(Hauler::defense).sum()
     }
 
     /// The owned haulers (named, tiered ships).
