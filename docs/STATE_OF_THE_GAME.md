@@ -102,6 +102,9 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   actions** (only the verbs the tapped body affords) + finger map control; **pause/play**
   buttons in the top bar; dilemma popups are now a **large centred modal that hard-pauses
   for every popup**; HUD panels are **drag-to-move**; opens centred/zoomed on the home station.
+- [x] **Ledger view (EU4-style)** — a 6th nav view: a sortable, tabbed numeric overview of
+  every asset class (Fleet / Miners / Outposts / Colonies / Markets) with click-to-sort column
+  headers + an asset-summary line. Pure shell over existing bindings (byte-identical).
 - [x] **Object-contextual interaction model** — the tapped object is the centre: the right
   panel re-centres on it (identity + a detail block: mineral yield / miner status / contested
   **influence gauge** / colony dev) and the action stack shows only what it affords — **Send/
