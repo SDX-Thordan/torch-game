@@ -2107,6 +2107,39 @@ impl TorchSim {
         self.sim.outpost_stored(body.max(0) as usize).0
     }
 
+    /// Whether the outpost at `body` has a collector hauler draining its store (§10).
+    #[func]
+    fn outpost_has_collector(&self, body: i64) -> bool {
+        self.sim.outpost_has_collector(body.max(0) as usize)
+    }
+
+    /// Whether a free hauler can be dedicated to collect from the outpost at `body`.
+    #[func]
+    fn can_assign_collector(&self, body: i64) -> bool {
+        self.sim.can_assign_collector(body.max(0) as usize)
+    }
+
+    /// Dedicate a hauler to ferry the outpost-at-`body`'s store to the warehouse (the freighter
+    /// alternative to a Hangar). Returns a feedback message (empty on failure).
+    #[func]
+    fn assign_collector(&mut self, body: i64) -> GString {
+        if self.sim.assign_collector(body.max(0) as usize) {
+            GString::from("Collector hauler assigned — it ferries the store to your warehouse.")
+        } else {
+            GString::new()
+        }
+    }
+
+    /// Recall the collector hauler from the outpost at `body` back to the trade pool.
+    #[func]
+    fn recall_collector(&mut self, body: i64) -> GString {
+        if self.sim.recall_collector(body.max(0) as usize) {
+            GString::from("Collector recalled — the hauler is free for trade routes again.")
+        } else {
+            GString::new()
+        }
+    }
+
     /// The outpost-at-`body`'s local storage capacity (deepened by a Storage facility).
     #[func]
     fn outpost_store_cap(&self, body: i64) -> i64 {
