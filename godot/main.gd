@@ -2639,7 +2639,15 @@ func _update_world(delta: float) -> void:
 	var beyond: bool = sim.far_side_revealed()
 	for b in sim.body_count():
 		if b < _body_nodes.size():
-			_body_nodes[b].position = _world3d(sim.body_x(b), sim.body_y(b))
+			# Glide toward the latest per-tick sim position (§28 interpolation) instead of
+			# snapping each tick — at 1× a body steps 6×/s, which reads as stutter. Snap on a
+			# big jump (a far-side reveal / a large time-compression step) so it never lags.
+			var node: Node3D = _body_nodes[b]
+			var target := _world3d(sim.body_x(b), sim.body_y(b))
+			if node.position.distance_to(target) > 8.0:
+				node.position = target
+			else:
+				node.position = node.position.lerp(target, clampf(delta * VIEW_LERP, 0.0, 1.0))
 			# Spin the body on its (tilted) axis — purely cosmetic view interpolation
 			# like §28 marker smoothing, so it turns even while the sim is paused.
 			if b < _body_spin.size() and _body_spin[b] != null and _body_spin_rate[b] != 0.0:
