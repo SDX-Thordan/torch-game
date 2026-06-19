@@ -3559,12 +3559,18 @@ func _refresh_object_panel() -> void:
 				else:
 					facs.append("[color=#7a8696]%s[/color]" % fk[1])
 			detail += "\nFacilities: %s" % "  ".join(facs)
+			var pop: int = sim.outpost_population(fb)
+			var pop_need: int = sim.outpost_promote_population()
+			var has_ice: bool = sim.cargo(_idx_water) >= 1
+			detail += "\nPopulation: [color=#cfd8e0]%d[/color] %s" % [pop, ("[color=#78e68c](↑ growing — fed Ice)[/color]" if has_ice else "[color=#e6a060](stalled — supply Ice to grow)[/color]")]
 			if is_colony:
 				detail += "\n[color=#9fd8ff]★ Promoted colony — triple yield.[/color]"
 			elif not sim.outpost_has_facility(fb, 0):
 				detail += "\n[color=#e6a060]⚠ No Mine — produces no raw goods yet (only tribute).[/color]"
 			elif sim.can_promote_outpost(fb):
 				detail += "\n[color=#78e68c]★ Ready to promote to a Colony (★ verb below).[/color]"
+			elif pop < pop_need:
+				detail += "\n[color=#7a8696]To promote: max level + all facilities + %d/%d population.[/color]" % [pop, pop_need]
 			if sim.miner_at(fb):
 				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):

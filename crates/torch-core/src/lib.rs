@@ -1913,6 +1913,21 @@ impl TorchSim {
             .unwrap_or(-1)
     }
 
+    /// The outpost-at-`body`'s population (0 if none).
+    #[func]
+    fn outpost_population(&self, body: i64) -> i64 {
+        self.sim
+            .outpost_at(body.max(0) as usize)
+            .map(|o| o.population)
+            .unwrap_or(0)
+    }
+
+    /// Population needed to promote an outpost to a colony (the gate threshold).
+    #[func]
+    fn outpost_promote_population(&self) -> i64 {
+        sim::world::PROMOTE_POP
+    }
+
     /// Whether the outpost at `body` can be promoted to a colony (maxed + all facilities).
     #[func]
     fn can_promote_outpost(&self, body: i64) -> bool {
