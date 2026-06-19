@@ -2478,7 +2478,7 @@ func _commission_selected() -> void:
 		_des_model_id(2), _des_rail,
 		_des_burn)
 	match code:
-		0: status = "%s commissioned to your design." % String(shipyard.class_name(build_pick))
+		0: status = "%s laid down to your design — it joins the fleet when built (see the build queue)." % String(shipyard.class_name(build_pick))
 		1: status = "Can't build — short on credits."
 		2: status = "Can't build — not enough trained crew."
 		4: status = "Need your own shipyard for this hull (Tycho sells only civilians + corvettes)."
@@ -2495,7 +2495,7 @@ func _assemble_selected() -> void:
 	var cls := String(shipyard.class_name(build_pick))
 	match sim.assemble_ship(build_pick):
 		0:
-			status = "%s assembled from parts — the chain pays off." % cls
+			status = "%s laid down from parts — it joins the fleet when built (see the build queue)." % cls
 		1:
 			status = "Missing components — need %s (build them up the chain)." % String(sim.ship_bom_desc(build_pick))
 		3:
@@ -3921,6 +3921,13 @@ func _refresh_build() -> void:
 			var ec := sim.expand_shipyard_cost()
 			var more := "  ·  expand → %s cr" % _commas(ec) if ec >= 0 else "  ·  max tier"
 			_yard_lbl.text = "Tier %d — builds up to %s%s" % [tier, String(sim.shipyard_max_hull()), more]
+		# Build queue: hulls laid down and counting down to completion (timed commissioning).
+		var nq: int = sim.pending_ship_count()
+		if nq > 0:
+			var q := PackedStringArray()
+			for i in mini(nq, 4):
+				q.append(String(sim.pending_ship_label(i)))
+			_yard_lbl.text += "\n⚙ Building: %s" % "  ·  ".join(q)
 	# Designer (A2): step values + live fit stats.
 	if _des_vals.has("pdc"):
 		(_des_vals["pdc"] as Label).text = "%d/%d" % [_des_pdc, shipyard.pdc_mounts(build_pick)]
@@ -4219,8 +4226,8 @@ func _refresh_outliner() -> void:
 	for i in sim.colony_count():
 		if sim.colony_controlled(i):
 			ncol += 1
-	var sig := "%d|%d|%d|%d|%d|%d" % [sim.fleet_size(), sim.miner_count(),
-		sim.outpost_count(), ncol, sim.shipyard_tier(), _focus_body]
+	var sig := "%d|%d|%d|%d|%d|%d|%d" % [sim.fleet_size(), sim.miner_count(),
+		sim.outpost_count(), ncol, sim.shipyard_tier(), sim.pending_ship_count(), _focus_body]
 	for i in sim.outpost_count():
 		sig += ".%d" % sim.outpost_rank(sim.outpost_body(i))
 	if sig == _outliner_sig:
@@ -4234,6 +4241,11 @@ func _refresh_outliner() -> void:
 		_outliner_group("Fleet (%d)" % sim.fleet_size())
 		for i in mini(int(sim.fleet_size()), 16):
 			_outliner_row("⚔", String(sim.ship_name(i)), -1, V_FLEET)
+	# Warships under construction (the timed build queue) — a row jumps to the SHIPYARD.
+	if sim.pending_ship_count() > 0:
+		_outliner_group("Building (%d)" % sim.pending_ship_count())
+		for i in mini(int(sim.pending_ship_count()), 8):
+			_outliner_row("⚙", String(sim.pending_ship_label(i)), -1, V_BUILD)
 	# Deployed miners.
 	if sim.miner_count() > 0:
 		_outliner_group("Miners (%d)" % sim.miner_count())
@@ -4400,7 +4412,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			auto_pause = not auto_pause
 			status = "Auto-pause %s." % ("on" if auto_pause else "off")
 		KEY_N:
-			status = "Frigate commissioned." if sim.commission_ship(0) else "Can't build: short on crew or credits."
+			status = "Frigate laid down — it joins the fleet when built." if sim.commission_ship(0) else "Can't build: short on crew or credits."
 		KEY_P:
 			sim.toggle_patrol()
 			status = "Interdiction patrol %s." % ("engaged" if sim.patrol_enabled() else "stood down")

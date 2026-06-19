@@ -130,6 +130,9 @@ pub struct SaveState {
     pub shipyard_body: usize,
     #[serde(default)]
     pub shipyard_ready_tick: u64,
+    /// Warships under construction (the timed commission queue); empty for old saves.
+    #[serde(default)]
+    pub pending_ships: Vec<super::world::PendingShip>,
     /// Deployed mining ships (early industry).
     #[serde(default)]
     pub miners: Vec<super::world::Miner>,

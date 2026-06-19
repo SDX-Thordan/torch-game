@@ -71,8 +71,12 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   bridgehead/defend verbs + the gate-endgame status line are gone from the shell (the sim code
   stays, dormant). The ring remains a slow-burn mystery in the Mysteries tab. *(Still to do: soften
   the late campaign tiers so "The Gate" isn't framed as the destination.)*
-- [~] **Timed everything** — outpost founding/develop (~180d), shipyard founding/expand (~360/240d), and colony development (~180d) are now multi-day builds with visible countdowns + lagged benefit. Only ship commission is still instant.
-  become multi-day builds with a visible countdown (no instant macro actions).
+- [x] **Timed everything** — outpost founding/develop (~180d), shipyard founding/expand (~360/240d),
+  colony development (~180d), **and now ship commissioning** (frigate ~30d → capital ~180d, scaled by
+  hull) are all multi-day builds with visible countdowns + lagged benefit. A commissioned hull is laid
+  down (cost paid, crew reserved, the *op* counted at order — committing to the build is the macro
+  decision) and joins the fleet when built; the queue shows in the SHIPYARD panel + the OUTLINER. No
+  instant macro actions remain (civilian miners/freighters stay quick buys by design).
 - [~] **UI toward the Stellaris-style mockup** — top-bar resource **rates** (+/tick) ✅ and an
   **OUTLINER** ✅ (a draggable, collapsible top-left list grouping Fleet / Miners / Stations /
   Colonies / Shipyard / Markets; each row click-to-jumps the camera + the relevant view, the

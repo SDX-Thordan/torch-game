@@ -2152,6 +2152,23 @@ impl TorchSim {
         self.sim.shipyard_build_days() as i64
     }
 
+    /// How many warships are under construction in the yard (the timed commission queue).
+    #[func]
+    fn pending_ship_count(&self) -> i64 {
+        self.sim.pending_ship_count() as i64
+    }
+
+    /// A one-line label for queued build `i` ("Frigate · 58 days", "" if out of range).
+    #[func]
+    fn pending_ship_label(&self, i: i64) -> GString {
+        match self.sim.pending_ship(i.max(0) as usize) {
+            Some((class, days)) => {
+                GString::from(format!("{} · {} days", sim::ships::hull(class).name, days))
+            }
+            None => GString::new(),
+        }
+    }
+
     /// Sandbox/test affordance: stand up a free max-tier shipyard so a fresh sim can
     /// build any warship (the gated acquisition path is covered by the native tests).
     #[func]
