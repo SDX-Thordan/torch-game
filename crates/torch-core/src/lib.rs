@@ -962,6 +962,16 @@ impl TorchSim {
             .unwrap_or(false)
     }
 
+    /// The latest ambient system-wire chatter line ("Voice: message"), or "" before the
+    /// first beat — a dedicated low-key ticker so flavour isn't buried under urgent alerts.
+    #[func]
+    fn latest_chatter(&self) -> GString {
+        match self.sim.latest_chatter() {
+            Some((voice, msg)) => GString::from(format!("{voice}:  {msg}")),
+            None => GString::new(),
+        }
+    }
+
     /// One-press answer to the loudest open act-now shortage: exploit it (§0.4).
     /// Returns whether a shortage was answered.
     #[func]

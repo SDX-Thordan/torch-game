@@ -5,6 +5,7 @@
 //! thin binding over this.
 
 pub mod alerts;
+pub mod ambient;
 pub mod automation;
 pub mod bridgehead;
 pub mod campaign;

@@ -6,6 +6,7 @@
 //! the Godot shell binds to and that keeps the core headless and testable.
 
 use super::alerts::{AlertFeed, Priority, Verb};
+use super::ambient::AmbientChatter;
 use super::automation::AutomationPolicy;
 use super::bridgehead::Bridgehead;
 use super::campaign::{Campaign, EndgameOutcome, Tier};
@@ -770,6 +771,9 @@ pub struct Sim {
     /// Weapon-model production lines in progress (id, completion tick) — Phase B.
     weapon_production: Vec<(usize, u64)>,
     salvage: SalvageField,
+    /// Ambient flavour chatter (§19 texture) — occasional system colour voiced to the feed.
+    /// Its own RNG keeps the economy byte-identical (§27).
+    ambient: AmbientChatter,
     /// The player's far-side foothold (§17 endgame, G3). Unfounded until the player
     /// transits the gate and founds it; inert pre-transit.
     bridgehead: Bridgehead,
@@ -917,6 +921,7 @@ impl Sim {
             next_decision_id: 1,
             weapon_production: Vec::new(),
             salvage: SalvageField::new(seed, blueprint_count, body_count),
+            ambient: AmbientChatter::new(seed),
             bridgehead: Bridgehead::new(),
             endgame_since: None,
             pending_incursion: None,
@@ -1035,6 +1040,12 @@ impl Sim {
     /// The alert feed (§19) — the voiced, ranked exception stream.
     pub fn feed(&self) -> &AlertFeed {
         &self.feed
+    }
+
+    /// The latest ambient flavour beat — `(voice, message)` — for the shell's system-wire
+    /// ticker (§19 texture). `None` before the first beat fires.
+    pub fn latest_chatter(&self) -> Option<(&'static str, &'static str)> {
+        self.ambient.latest()
     }
 
     /// The player's standing with each faction (§10).
@@ -3421,6 +3432,11 @@ impl Sim {
         // keeps the economy bit-identical whether or not anyone salvages.
         if let Some(id) = self.salvage.maybe_sight(self.tick) {
             self.events.push(Event::WreckSighted { id });
+        }
+        // Ambient flavour chatter (§19 texture) — occasional system colour, its own RNG, no
+        // mechanical effect, so the economy stays bit-identical.
+        if let Some((voice, msg)) = self.ambient.maybe_chatter(self.tick) {
+            self.feed.chatter(voice, msg.to_string(), self.tick);
         }
         self.charge_upkeep();
         if self.tick.is_multiple_of(REP_RECOVERY_INTERVAL) {

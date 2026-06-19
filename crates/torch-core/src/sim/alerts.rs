@@ -222,6 +222,20 @@ impl AlertFeed {
         });
     }
 
+    /// Push **ambient chatter** (§19 texture) — low-key system colour under a named voice.
+    /// `Notice`/`Fyi`: visible at the default threshold so the feed feels alive, but never a
+    /// demand and quiet enough to filter out. Pure flavour, no mechanical effect.
+    pub fn chatter(&mut self, voice: &str, message: String, tick: u64) {
+        self.push(Alert {
+            tick,
+            priority: Priority::Notice,
+            urgency: Urgency::Fyi,
+            voice: voice.to_string(),
+            message,
+            verb: None,
+        });
+    }
+
     fn push(&mut self, alert: Alert) {
         self.alerts.push(alert);
         if self.alerts.len() > MAX_ALERTS {
