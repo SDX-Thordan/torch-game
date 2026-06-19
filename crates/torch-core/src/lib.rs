@@ -2459,7 +2459,7 @@ impl TorchSim {
         )
     }
 
-    /// Class index (0 Light · 1 Heavy · 2 Bulk) of owned hauler `i`.
+    /// Class index (0 Light · 1 Heavy · 2 Bulk · 3 OPA Q-Runner) of owned hauler `i`.
     #[func]
     fn hauler_class(&self, i: i64) -> i64 {
         self.sim
@@ -2470,8 +2470,68 @@ impl TorchSim {
                 sim::corp::HaulerClass::Light => 0,
                 sim::corp::HaulerClass::Heavy => 1,
                 sim::corp::HaulerClass::Bulk => 2,
+                sim::corp::HaulerClass::OpaRunner => 3,
             })
             .unwrap_or(0)
+    }
+
+    /// Owned hauler `i`'s armament as "P/T" mounted (e.g. "2 PDC · 1 Torp"), or "unarmed".
+    #[func]
+    fn hauler_arms(&self, i: i64) -> GString {
+        match self.sim.corp().haulers().get(i.max(0) as usize) {
+            Some(h) if h.pdc > 0 || h.torpedo > 0 => {
+                let mut parts = Vec::new();
+                if h.pdc > 0 {
+                    parts.push(format!("{} PDC", h.pdc));
+                }
+                if h.torpedo > 0 {
+                    parts.push(format!("{} Torp", h.torpedo));
+                }
+                GString::from(parts.join(" · "))
+            }
+            _ => GString::from("unarmed"),
+        }
+    }
+
+    /// PDC mounts available on hauler class index `c` (the self-defense cap).
+    #[func]
+    fn hauler_class_pdc_mounts(&self, c: i64) -> i64 {
+        sim::corp::HaulerClass::from_index(c).pdc_mounts() as i64
+    }
+
+    /// Torpedo mounts on hauler class index `c` (only the OPA Q-Runner, index 3).
+    #[func]
+    fn hauler_class_torpedo_mounts(&self, c: i64) -> i64 {
+        sim::corp::HaulerClass::from_index(c).torpedo_mounts() as i64
+    }
+
+    /// Whether the player may commission hauler class index `c` now (OPA standing for #3).
+    #[func]
+    fn can_commission_hauler(&self, c: i64) -> bool {
+        self.sim
+            .can_commission_hauler(sim::corp::HaulerClass::from_index(c))
+    }
+
+    /// Arm owned hauler `i` with `pdc` PDCs + `torpedo` tubes (clamped to its mounts); charges
+    /// the weapon cost for any added mounts. Returns a feedback message (empty on failure).
+    #[func]
+    fn arm_hauler(&mut self, i: i64, pdc: i64, torpedo: i64) -> GString {
+        let idx = i.max(0) as usize;
+        let p = pdc.clamp(0, 9) as u8;
+        let t = torpedo.clamp(0, 9) as u8;
+        match self.sim.arm_hauler(idx, p, t) {
+            Ok(()) => GString::from("Hauler armed — it now helps screen your convoys."),
+            Err(sim::world::CommissionError::CantAfford) => {
+                GString::from("Can't afford the weapons.")
+            }
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Total armed-hauler self-defense weight (PDC-equivalents) screening the trade fleet.
+    #[func]
+    fn hauler_defense(&self) -> i64 {
+        self.sim.corp().hauler_defense()
     }
 
     /// Display name for hauler class index `c`.

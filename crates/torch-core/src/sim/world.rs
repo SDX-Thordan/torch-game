@@ -635,6 +635,12 @@ const PIRACY_INTERVAL: u64 = 90;
 const HOLDINGS_PER_ESCORT: usize = 3;
 /// Cargo (credits) pirates take per under-covered escort slot when you fall short.
 const PIRACY_LOSS_PER_ESCORT_SHORT: i64 = 800;
+/// Armed-hauler self-defense weight (PDC-equivalents) that equals one warship escort —
+/// a screen of armed merchantmen substitutes for some of the navy (EP3).
+const HAULER_DEFENSE_PER_ESCORT: i64 = 4;
+/// Credit cost to bolt a PDC / Ramshackle torpedo onto a hauler.
+const HAULER_PDC_COST: i64 = 4_000;
+const HAULER_TORPEDO_COST: i64 = 6_000;
 
 // ---- faction inspections & enforcement: the political cost (EP4) ----
 /// Max customs surcharge (basis points) added to the trade fee at a fully-hostile
@@ -2847,6 +2853,11 @@ impl Sim {
         &mut self,
         class: super::corp::HaulerClass,
     ) -> Result<(), CommissionError> {
+        // The OPA Q-Runner is a Belt-built hull — it needs OPA standing, like the corvette.
+        if class.needs_opa_standing() && self.relations.standing(Faction::Belt) < CORVETTE_STANDING
+        {
+            return Err(CommissionError::NeedShipyard);
+        }
         if self.corp.credits() < class.cost() {
             return Err(CommissionError::CantAfford);
         }
@@ -2857,6 +2868,37 @@ impl Sim {
         self.corp.assign_crew(class.crew());
         self.corp.add_hauler(class, self.tick);
         self.complete_op(); // standing up logistics is progress on the climb (§0)
+        Ok(())
+    }
+
+    /// Whether the player may commission hauler `class` right now (OPA standing for the
+    /// Q-Runner) — lets the shell gate the option before the player tries.
+    pub fn can_commission_hauler(&self, class: super::corp::HaulerClass) -> bool {
+        !class.needs_opa_standing() || self.relations.standing(Faction::Belt) >= CORVETTE_STANDING
+    }
+
+    /// Arm hauler `i` with `pdc` point-defense cannons (and, on the OPA Q-Runner, `torpedo`
+    /// Ramshackle tubes) for self-protection against piracy — clamped to the hull's mounts.
+    /// Charges the weapon cost for any *added* mounts (disarming is free). Armed haulers add to
+    /// the empire's effective escort screen (`effective_escorts`).
+    pub fn arm_hauler(&mut self, i: usize, pdc: u8, torpedo: u8) -> Result<(), CommissionError> {
+        let Some(h) = self.corp.haulers().get(i) else {
+            return Err(CommissionError::NeedShipyard);
+        };
+        let class = h.class;
+        let new_pdc = pdc.min(class.pdc_mounts());
+        let new_torp = torpedo.min(class.torpedo_mounts());
+        let added_pdc = new_pdc.saturating_sub(h.pdc) as i64;
+        let added_torp = new_torp.saturating_sub(h.torpedo) as i64;
+        let cost = added_pdc * HAULER_PDC_COST + added_torp * HAULER_TORPEDO_COST;
+        if self.corp.credits() < cost {
+            return Err(CommissionError::CantAfford);
+        }
+        self.corp.debit(cost);
+        if let Some(h) = self.corp.hauler_mut(i) {
+            h.pdc = new_pdc;
+            h.torpedo = new_torp;
+        }
         Ok(())
     }
 
@@ -3443,6 +3485,8 @@ impl Sim {
                     class: super::corp::HaulerClass::Light,
                     name: String::new(),
                     commissioned_tick: 0,
+                    pdc: 0,
+                    torpedo: 0,
                 })
                 .collect()
         } else {
@@ -4659,10 +4703,13 @@ impl Sim {
         }
     }
 
-    /// Escorts effectively screening your trade (EP3/E8): your warships on station
-    /// plus the ships **allied companies** lend you — diplomacy buys security.
+    /// Escorts effectively screening your trade (EP3/E8): your warships on station, the ships
+    /// **allied companies** lend you (diplomacy buys security), plus the screen from **armed
+    /// haulers** (a fleet that defends itself). An unarmed fleet adds nothing (byte-identical).
     pub fn effective_escorts(&self) -> usize {
-        self.warships_on_station() + self.diplomacy.ally_count()
+        self.warships_on_station()
+            + self.diplomacy.ally_count()
+            + (self.corp.hauler_defense() / HAULER_DEFENSE_PER_ESCORT) as usize
     }
 
     /// Whether the empire's shipping is adequately escorted (EP3/E8) — your navy plus
@@ -7074,6 +7121,58 @@ mod tests {
             bulk.corp().best_hauler_cargo() >= big_qty,
             "a Bulk hull lifts the fat route whole"
         );
+    }
+
+    #[test]
+    fn armed_haulers_screen_the_convoy_and_the_opa_runner_needs_standing() {
+        use crate::sim::corp::HaulerClass;
+        let mut sim = Sim::new(3);
+        sim.corp_mut().credit(500_000);
+        // The OPA Q-Runner (torpedo-armed hull) is gated on OPA standing.
+        assert!(!sim.can_commission_hauler(HaulerClass::OpaRunner));
+        assert!(matches!(
+            sim.commission_hauler(HaulerClass::OpaRunner),
+            Err(CommissionError::NeedShipyard)
+        ));
+        sim.relations_mut()
+            .adjust(crate::sim::Faction::Belt, CORVETTE_STANDING);
+        assert!(sim.can_commission_hauler(HaulerClass::OpaRunner));
+        sim.commission_hauler(HaulerClass::OpaRunner).unwrap();
+        // Arm it: 1 PDC + 2 Ramshackle torpedoes → defense weight 1 + 2×2 = 5.
+        let escorts0 = sim.effective_escorts();
+        let credits0 = sim.corp().credits();
+        sim.arm_hauler(0, 1, 2).unwrap();
+        assert!(sim.corp().credits() < credits0, "weapons cost credits");
+        assert_eq!(sim.corp().hauler_defense(), 5);
+        // The armed hull adds to the empire's escort screen (5 / 4 = 1 escort).
+        assert_eq!(sim.effective_escorts(), escorts0 + 1);
+        // Mounts are capped: a Light hauler can't carry torpedoes.
+        sim.commission_hauler(HaulerClass::Light).unwrap();
+        sim.arm_hauler(1, 5, 3).unwrap(); // over-asks
+        assert_eq!(sim.corp().haulers()[1].pdc, 1, "Light caps at 1 PDC");
+        assert_eq!(
+            sim.corp().haulers()[1].torpedo,
+            0,
+            "no torpedoes on a Light"
+        );
+    }
+
+    #[test]
+    fn an_unarmed_trade_fleet_is_byte_identical_to_the_old_freighter_pool() {
+        // Phase 3 must not perturb the economy for an unarmed fleet (the QA personas).
+        let mut a = Sim::new(9);
+        let mut b = Sim::new(9);
+        a.corp_mut().credit(100_000);
+        b.corp_mut().credit(100_000);
+        a.commission_freighter().unwrap();
+        b.commission_freighter().unwrap();
+        for _ in 0..200 {
+            a.step();
+            b.step();
+        }
+        assert_eq!(a.corp().hauler_defense(), 0);
+        assert_eq!(a.effective_escorts(), b.effective_escorts());
+        assert_eq!(a.corp().credits(), b.corp().credits());
     }
 
     #[test]
