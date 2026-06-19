@@ -197,6 +197,32 @@ pub struct Miner {
     pub commodity: usize,
 }
 
+/// A custom warship design (A2) held in the build queue: the chosen weapon model + count
+/// per slot and the remass fill (as a percent of tankage). Plain integers so a queued build
+/// persists across a save (the loadout itself carries `&'static` defs and can't serialize).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DesignSpec {
+    pub pdc_model: usize,
+    pub pdc: u32,
+    pub torp_model: usize,
+    pub torp: u32,
+    pub rail_model: usize,
+    pub rail: u32,
+    pub remass_bp: i64,
+}
+
+/// A warship under construction in the shipyard (§6): laid down now (cost paid, crew
+/// reserved) and standing up into the fleet once `ready_tick` passes — so commissioning a
+/// hull is a paced build like everything else, not an instant macro action. `design` is
+/// `None` for a reference loadout (rebuilt from current best weapons at completion).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PendingShip {
+    pub class: ShipClass,
+    pub ready_tick: u64,
+    #[serde(default)]
+    pub design: Option<DesignSpec>,
+}
+
 /// Why a miner could not be deployed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MinerError {
@@ -781,6 +807,9 @@ pub struct Sim {
     /// Tick the shipyard's current construction (founding / expansion) completes — until then
     /// it's a building site and lays down nothing (a major undertaking takes ~a year).
     shipyard_ready_tick: u64,
+    /// Warships under construction (§6) — laid down by a commission/assemble order and
+    /// standing up into the fleet once their `ready_tick` passes. Empty by default.
+    pending_ships: Vec<PendingShip>,
     /// Deployed mining ships (early industry) — each extracts a body's raw per tick.
     miners: Vec<Miner>,
     /// Player-founded outposts (the body-built station layer) — empty by default (inert).
@@ -901,6 +930,7 @@ impl Sim {
             shipyard_tier: 0,
             shipyard_body: 0,
             shipyard_ready_tick: 0,
+            pending_ships: Vec::new(),
             miners: Vec::new(),
             outposts: Vec::new(),
             next_war_flashpoint: 100,
@@ -1715,8 +1745,9 @@ impl Sim {
         }
     }
 
-    /// Commission a warship of `class` into the fleet (§5/§8c): pays its build
-    /// cost and draws its crew from the trained-crew pool.
+    /// Commission a warship of `class` into the fleet (§5/§8c): pays its build cost and
+    /// **reserves** its crew now, then lays the hull down in the shipyard — it stands up into
+    /// the fleet once the build completes ([`commission_build_ticks`]), not instantly.
     pub fn commission_ship(&mut self, class: ShipClass) -> Result<(), CommissionError> {
         self.hull_source_ok(class)?;
         let hull = self.catalog.hull(class);
@@ -1728,7 +1759,7 @@ impl Sim {
             return Err(CommissionError::NotEnoughCrew);
         }
         self.corp.debit(price);
-        self.stand_up_hull(class);
+        self.lay_down_ship(class, None);
         Ok(())
     }
 
@@ -2365,7 +2396,7 @@ impl Sim {
             self.corp.unstore(c, q);
         }
         self.corp.debit(fee);
-        self.stand_up_hull(class);
+        self.lay_down_ship(class, None);
         Ok(())
     }
 
@@ -2410,28 +2441,46 @@ impl Sim {
         if self.corp.trained_crew() < hull.crew_required {
             return Err(CommissionError::NotEnoughCrew);
         }
-        let remass = hull.remass_capacity * remass_bp.clamp(0, 100) / 100;
-        let pdc_def = self.chosen_weapon_def(WeaponKind::Pdc, pdc_model);
-        let torp_def = self.chosen_weapon_def(WeaponKind::Torpedo, torp_model);
-        let rail_def = self.chosen_weapon_def(WeaponKind::Railgun, rail_model);
-        let loadout = self
-            .catalog
+        // Validate the fit now (so a bad design is rejected before any cost is paid); the
+        // loadout is rebuilt from the persisted `DesignSpec` when the build completes.
+        let design = DesignSpec {
+            pdc_model,
+            pdc,
+            torp_model,
+            torp,
+            rail_model,
+            rail,
+            remass_bp: remass_bp.clamp(0, 100),
+        };
+        self.build_designed_loadout(class, &design)
+            .map_err(|_| CommissionError::BadFit)?;
+        self.corp.debit(price);
+        self.lay_down_ship(class, Some(design));
+        Ok(())
+    }
+
+    /// Rebuild a custom [`Loadout`] from a [`DesignSpec`] (validation at order time + stand-up
+    /// at completion share this), threading the current weapon catalog + rng.
+    fn build_designed_loadout(&mut self, class: ShipClass, d: &DesignSpec) -> Result<Loadout, ()> {
+        let hull = self.catalog.hull(class);
+        let remass = hull.remass_capacity * d.remass_bp.clamp(0, 100) / 100;
+        let pdc_def = self.chosen_weapon_def(WeaponKind::Pdc, d.pdc_model);
+        let torp_def = self.chosen_weapon_def(WeaponKind::Torpedo, d.torp_model);
+        let rail_def = self.chosen_weapon_def(WeaponKind::Railgun, d.rail_model);
+        self.catalog
             .custom_loadout_with(
                 class,
                 &pdc_def,
-                pdc,
+                d.pdc,
                 &torp_def,
-                torp,
+                d.torp,
                 &rail_def,
-                rail,
+                d.rail,
                 remass,
                 50,
                 &mut self.rng,
             )
-            .map_err(|_| CommissionError::BadFit)?;
-        self.corp.debit(price);
-        self.stand_up_loadout(loadout);
-        Ok(())
+            .map_err(|_| ())
     }
 
     /// The [`WeaponDef`] for a player-chosen weapon model of `kind` — if the model is in
@@ -2466,19 +2515,103 @@ impl Sim {
         self.stand_up_loadout(loadout);
     }
 
-    /// Stand a fitted hull up into the fleet (shared by reference + custom builds).
+    /// Stand a fitted hull up into the fleet (shared by reference + custom builds). The crew
+    /// was **reserved at lay-down** ([`lay_down_ship`]), so this does not draw it again.
     fn stand_up_loadout(&mut self, loadout: Loadout) {
-        let crew_required = loadout.hull().crew_required;
         let hull_name = loadout.hull().name;
-        self.corp.assign_crew(crew_required);
         // A christened call-sign + class, e.g. "Lodestar (Frigate)" (§14). It rolls
         // off the line docked at Ceres Yards (the shipyard) with a full tank (§6).
         let name = format!("{} ({})", ships::christen_ship(&mut self.rng), hull_name);
         let home = self.markets[0].body();
         self.corp
             .add_ship(OwnedShip::new(name, loadout, self.tick, home));
+        // The op + the FirstWarship beat are counted when the hull is *ordered*
+        // (`lay_down_ship`) — committing to the build is the macro decision that climbs the
+        // spine (§0); this is just its delivery.
+    }
+
+    /// Build-out time for a commissioned hull, in ticks (6 = 1 day): bigger hulls take
+    /// longer. A frigate is weeks; a battleship the better part of a year — so building a
+    /// fleet is a paced commitment, not an instant purchase.
+    pub fn commission_build_ticks(class: ShipClass) -> u64 {
+        match class {
+            ShipClass::Frigate | ShipClass::QShip => 180, // ~30 days (a small hull)
+            ShipClass::Destroyer => 360,                  // ~60 days
+            ShipClass::Cruiser => 600,                    // ~100 days
+            ShipClass::Battleship => 1080,                // ~180 days (a capital)
+            _ => 120,                                     // civilians (~20 days)
+        }
+    }
+
+    /// Lay a hull down in the shipyard: **reserve** its crew now and queue it to stand up
+    /// into the fleet once the build completes. Cost/parts are already paid by the caller.
+    fn lay_down_ship(&mut self, class: ShipClass, design: Option<DesignSpec>) {
+        let crew_required = self.catalog.hull(class).crew_required;
+        self.corp.assign_crew(crew_required);
+        let ready_tick = self.tick + Self::commission_build_ticks(class);
+        self.pending_ships.push(PendingShip {
+            class,
+            ready_tick,
+            design,
+        });
         self.note_mission(super::missions::Trigger::FirstWarship); // §16 tutorial
-        self.complete_op(); // building the fleet is progress on the climb (§0)
+        self.complete_op(); // committing to the build is progress on the climb (§0)
+    }
+
+    /// Stand up any queued hull whose build has completed (called each `step`).
+    fn run_shipyard_builds(&mut self) {
+        if self.pending_ships.is_empty() {
+            return;
+        }
+        let tick = self.tick;
+        let ready: Vec<PendingShip> = {
+            let mut done = Vec::new();
+            self.pending_ships.retain(|p| {
+                if p.ready_tick <= tick {
+                    done.push(*p);
+                    false
+                } else {
+                    true
+                }
+            });
+            done
+        };
+        for p in ready {
+            match p.design {
+                Some(d) => {
+                    if let Ok(loadout) = self.build_designed_loadout(p.class, &d) {
+                        self.stand_up_loadout(loadout);
+                    } else {
+                        self.stand_up_hull(p.class); // design no longer valid — fall back
+                    }
+                }
+                None => self.stand_up_hull(p.class),
+            }
+        }
+    }
+
+    /// Warships currently under construction (count) — for the shell's build queue.
+    pub fn pending_ship_count(&self) -> usize {
+        self.pending_ships.len()
+    }
+
+    /// `(class, days-left)` for queued build `i`, soonest-ordered first.
+    pub fn pending_ship(&self, i: usize) -> Option<(ShipClass, u64)> {
+        self.pending_ships
+            .get(i)
+            .map(|p| (p.class, p.ready_tick.saturating_sub(self.tick).div_ceil(6)))
+    }
+
+    /// Test helper: stand up every queued hull at the current tick (skip the build wait),
+    /// leaving the rest of the world untouched — so an acceptance test reads as if
+    /// commissioning were instant (the behavior these tests assert pre-dates timed builds).
+    #[cfg(test)]
+    pub(crate) fn finish_pending_ships(&mut self) {
+        let t = self.tick;
+        for p in self.pending_ships.iter_mut() {
+            p.ready_tick = t;
+        }
+        self.run_shipyard_builds();
     }
 
     /// Order warship `idx` to fly to `dest` body (§6): commit a trajectory at the
@@ -3068,6 +3201,7 @@ impl Sim {
             shipyard_tier: self.shipyard_tier,
             shipyard_ready_tick: self.shipyard_ready_tick,
             shipyard_body: self.shipyard_body,
+            pending_ships: self.pending_ships.clone(),
             miners: self.miners.clone(),
             outposts: self.outposts.clone(),
             next_war_flashpoint: self.next_war_flashpoint,
@@ -3208,6 +3342,7 @@ impl Sim {
         self.shipyard_tier = s.shipyard_tier;
         self.shipyard_ready_tick = s.shipyard_ready_tick;
         self.shipyard_body = s.shipyard_body;
+        self.pending_ships = s.pending_ships.clone();
         self.miners = s.miners.clone();
         self.outposts = s.outposts.clone();
         if s.next_war_flashpoint > 0 {
@@ -3273,6 +3408,7 @@ impl Sim {
         self.run_contracts();
         self.run_weapon_production();
         self.run_shipyard_upkeep();
+        self.run_shipyard_builds();
         self.run_miners();
         self.run_outposts();
         self.run_war();
@@ -5051,6 +5187,7 @@ mod tests {
             sim.commission_designed(ShipClass::Frigate, 0, 2, 8, 0, 13, 0, 50),
             Ok(())
         );
+        sim.finish_pending_ships();
         assert_eq!(sim.corp().fleet().len(), 1);
         let lean = sim.corp().fleet()[0].loadout.stats();
         // A fully-armed frigate (torpedoes added).
@@ -5058,6 +5195,7 @@ mod tests {
             sim.commission_designed(ShipClass::Frigate, 0, 2, 8, 2, 13, 0, 100),
             Ok(())
         );
+        sim.finish_pending_ships();
         let armed = sim.corp().fleet()[1].loadout.stats();
         assert!(
             armed.raw_alpha > lean.raw_alpha,
@@ -5077,6 +5215,7 @@ mod tests {
         let mut sim = Sim::new(0);
         yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         let full = sim.corp().fleet()[0].nav.remass;
         assert!(
             !sim.corp().fleet()[0].nav.in_transit(sim.tick()),
@@ -5335,6 +5474,7 @@ mod tests {
             for _ in 0..3 {
                 sim.commission_ship(ShipClass::Frigate).unwrap();
             }
+            sim.finish_pending_ships();
             let out = sim.engage_raiders(Band::Close).unwrap();
             if out.winner.is_some() {
                 decisive += 1;
@@ -5398,6 +5538,7 @@ mod tests {
         );
         // A newly built Frigate fits the produced PDC.
         sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         let ship = sim.corp().fleet().last().unwrap();
         assert!(
             ship.loadout
@@ -5415,6 +5556,7 @@ mod tests {
         let mut sim = Sim::new(0);
         yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         let pdc = |s: &Sim| {
             s.corp().fleet()[0]
                 .loadout
@@ -5461,6 +5603,7 @@ mod tests {
             for _ in 0..3 {
                 sim.commission_ship(ShipClass::Frigate).unwrap();
             }
+            sim.finish_pending_ships();
             let before = sim.corp().credits();
             let out = sim.engage_raiders(Band::Close).unwrap();
             if out.winner == Some(0) {
@@ -5717,14 +5860,41 @@ mod tests {
         yard(&mut sim);
         let (credits0, crew0) = (sim.corp().credits(), sim.corp().trained_crew());
         sim.commission_ship(ShipClass::Frigate).unwrap();
-        assert_eq!(sim.corp().fleet().len(), 1);
+        // Cost is charged + crew reserved at order time; the hull stands up once built.
         assert!(sim.corp().credits() < credits0);
         assert!(sim.corp().trained_crew() < crew0);
+        sim.finish_pending_ships();
+        assert_eq!(sim.corp().fleet().len(), 1);
         // A battleship needs more crew than the starting pool can field (§8c).
         assert_eq!(
             sim.commission_ship(ShipClass::Battleship),
             Err(CommissionError::NotEnoughCrew)
         );
+    }
+
+    #[test]
+    fn commissioning_a_hull_is_a_timed_build_not_instant() {
+        // The "no instant macro actions" pace re-aim: a commissioned hull is laid down in
+        // the yard and only joins the fleet once its build completes (a frigate ~60 days).
+        let mut sim = Sim::new(0);
+        yard(&mut sim);
+        sim.commission_ship(ShipClass::Frigate).unwrap();
+        assert_eq!(sim.corp().fleet().len(), 0, "the hull isn't instant");
+        assert_eq!(sim.pending_ship_count(), 1, "it's under construction");
+        let (class, days) = sim.pending_ship(0).unwrap();
+        assert_eq!(class, ShipClass::Frigate);
+        assert!(days > 0, "a build countdown is showing ({days} days)");
+        // Run past the build; it stands up exactly once, then the queue is empty.
+        let build = Sim::commission_build_ticks(ShipClass::Frigate);
+        for _ in 0..=build {
+            sim.step();
+        }
+        assert_eq!(
+            sim.corp().fleet().len(),
+            1,
+            "the hull joins the fleet when built"
+        );
+        assert_eq!(sim.pending_ship_count(), 0, "the queue drained");
     }
 
     #[test]
@@ -5946,6 +6116,7 @@ mod tests {
         for _ in 0..5 {
             let _ = sim.commission_ship(ShipClass::Frigate);
         }
+        sim.finish_pending_ships();
         // Seize a lightly-garrisoned independent colony (2 defenders) — 5 frigates win.
         let owner = sim.colonies()[indie].faction;
         let alarm_before = sim.coalition_alarm();
@@ -6016,6 +6187,7 @@ mod tests {
         for _ in 0..5 {
             let _ = sim.commission_ship(ShipClass::Frigate);
         }
+        sim.finish_pending_ships();
         assert!(!sim.corp().fleet().is_empty());
         let mut defended = false;
         for _ in 0..600 {
@@ -6154,6 +6326,7 @@ mod tests {
         for _ in 0..(sim.escorts_needed() + 2) {
             let _ = sim.commission_ship(ShipClass::Frigate);
         }
+        sim.finish_pending_ships();
         assert!(
             sim.empire_secure(),
             "a navy that scales with the empire protects it"
@@ -6806,6 +6979,7 @@ mod tests {
         for _ in 0..5 {
             let _ = sim.commission_ship(ShipClass::Frigate);
         }
+        sim.finish_pending_ships();
         assert!(!sim.corp().fleet().is_empty(), "a squadron stands ready");
         let full = sim.bridgehead().integrity();
         // Advance until an incursion is pending, then defend it.
@@ -6999,6 +7173,7 @@ mod tests {
         let credits_before = sim.corp().credits();
         let fleet_before = sim.corp().fleet().len();
         sim.assemble_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         assert_eq!(
             sim.corp().fleet().len(),
             fleet_before + 1,
@@ -7023,6 +7198,7 @@ mod tests {
         let mut sim = Sim::new(0);
         yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         assert!(sim.rename_ship(0, "Valkyrie"));
         assert_eq!(sim.corp().fleet()[0].name, "Valkyrie (Frigate)");
         assert!(!sim.rename_ship(0, "   "), "blank names are rejected");
@@ -7043,6 +7219,7 @@ mod tests {
         );
         sim.commission_ship(ShipClass::Frigate).unwrap();
         sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         let fleet_before = sim.corp().fleet().len();
         let outcome = sim.engage_raiders(Band::Medium).expect("a fleet can fight");
         assert!(outcome.winner.is_some() || outcome.ticks > 0);
@@ -7069,6 +7246,7 @@ mod tests {
         yard(&mut sim);
         sim.commission_ship(ShipClass::Frigate).unwrap();
         sim.commission_ship(ShipClass::Frigate).unwrap();
+        sim.finish_pending_ships();
         assert_eq!(sim.warships_on_station(), 2, "fresh hulls dock at the core");
         assert!(
             sim.engage_raiders(Band::Medium).is_some(),
