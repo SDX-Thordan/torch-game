@@ -64,7 +64,12 @@ pub struct SaveState {
     pub credits: i64,
     pub warehouse: Vec<i64>,
     pub trained_crew: i64,
+    /// Owned-hauler **count** — kept for backward compatibility (old saves predate hull tiers);
+    /// on load it synthesizes Light haulers when `haulers` is empty.
     pub freighters: i64,
+    /// Owned haulers as tiered, named ships; empty for old saves (→ rebuilt from `freighters`).
+    #[serde(default)]
+    pub haulers: Vec<super::corp::Hauler>,
     pub fleet: Vec<ShipSave>,
     /// Scrap parts + weapon schematics + arsenal + production lines (Phase B).
     #[serde(default)]

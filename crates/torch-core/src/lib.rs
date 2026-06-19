@@ -2420,10 +2420,82 @@ impl TorchSim {
         self.sim.corp().freighters()
     }
 
-    /// Commission a civilian freighter; returns whether it was built (§5/§4).
+    /// Commission a civilian freighter (the base Light hauler); returns whether it was built.
     #[func]
     fn commission_freighter(&mut self) -> bool {
         self.sim.commission_freighter().is_ok()
+    }
+
+    /// Commission a hauler of class `c` (0 Light · 1 Heavy · 2 Bulk) — the tiered version.
+    /// Returns a feedback message (empty on failure).
+    #[func]
+    fn commission_hauler(&mut self, c: i64) -> GString {
+        let class = sim::corp::HaulerClass::from_index(c);
+        match self.sim.commission_hauler(class) {
+            Ok(()) => GString::from(format!(
+                "{} commissioned — {} cargo/trip; assign it a route in MARKET.",
+                class.name(),
+                class.cargo()
+            )),
+            Err(sim::world::CommissionError::NotEnoughCrew) => GString::from(format!(
+                "Not enough trained crew — a {} needs {} crew.",
+                class.name(),
+                class.crew()
+            )),
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Christened name of owned hauler `i`, or "".
+    #[func]
+    fn hauler_name(&self, i: i64) -> GString {
+        GString::from(
+            self.sim
+                .corp()
+                .haulers()
+                .get(i.max(0) as usize)
+                .map(|h| h.name.as_str())
+                .unwrap_or(""),
+        )
+    }
+
+    /// Class index (0 Light · 1 Heavy · 2 Bulk) of owned hauler `i`.
+    #[func]
+    fn hauler_class(&self, i: i64) -> i64 {
+        self.sim
+            .corp()
+            .haulers()
+            .get(i.max(0) as usize)
+            .map(|h| match h.class {
+                sim::corp::HaulerClass::Light => 0,
+                sim::corp::HaulerClass::Heavy => 1,
+                sim::corp::HaulerClass::Bulk => 2,
+            })
+            .unwrap_or(0)
+    }
+
+    /// Display name for hauler class index `c`.
+    #[func]
+    fn hauler_class_name(&self, c: i64) -> GString {
+        GString::from(sim::corp::HaulerClass::from_index(c).name())
+    }
+
+    /// Credit cost of hauler class index `c`.
+    #[func]
+    fn hauler_class_cost(&self, c: i64) -> i64 {
+        sim::corp::HaulerClass::from_index(c).cost()
+    }
+
+    /// Crew tied up by hauler class index `c`.
+    #[func]
+    fn hauler_class_crew(&self, c: i64) -> i64 {
+        sim::corp::HaulerClass::from_index(c).crew()
+    }
+
+    /// Cargo per trip of hauler class index `c`.
+    #[func]
+    fn hauler_class_cargo(&self, c: i64) -> i64 {
+        sim::corp::HaulerClass::from_index(c).cargo()
     }
 
     /// Engage the player fleet against a raider pack at `band` (0 close, 1 medium,

@@ -107,9 +107,12 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
     Barge) scales yield ×1/×3/×6, cost (9k/30k/75k), and **crew** (0/10/24, the real gate); each rig
     is **christened** (deterministic names, no RNG → economy byte-identical) and shown by name/class in
     the OUTLINER, object panel, and ledger. `buy_miner` stays the byte-identical Prospector first move.
-  - [ ] **Haulers as tiered ships** — freighters from an `i64` count → individual named haulers
-    (Light/Heavy/Bulk) with tier-scaled cargo capacity (route throughput); the count-pool stays
-    byte-identical for the base tier.
+  - [x] **Haulers as tiered ships** — freighters are now individual named haulers (Light / Heavy /
+    Bulk) in a `Vec<Hauler>` (not an `i64` count), with tier-scaled cargo/trip (50/120/260 — the
+    route-throughput cap), cost (13k/32k/70k), and crew (8/14/22). `commission_freighter` → a Light
+    hauler (byte-identical); the route dispatch carries `min(route.qty, best_hauler_cargo)`, a no-op
+    for the base tier. Old saves rebuild Light haulers from the legacy count. Shown by name + class in
+    the FLEET view, OUTLINER (a new Haulers group), and the buy-trader tier cycle.
   - [ ] **Civilian self-defense fitting** — 1–2 PDC mounts on haulers + an OPA **torpedo-hauler**
     variant (Ramshackle torpedoes only, OPA-standing-gated like the corvette).
   - [ ] **Convoys** — group haulers + miners into named convoys; a miner paired with a hauler in its

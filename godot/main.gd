@@ -179,6 +179,8 @@ var _ctx_actions: VBoxContainer            # the contextual-action stack (no per
 var _mine_btn: Button
 var _miner_tier_btn: Button                   # cycles the miner class to deploy (0/1/2)
 var miner_tier := 0                            # 0 Prospector · 1 Harvester · 2 Refinery Barge
+var _hauler_tier_btn: Button                   # cycles the hauler class to buy (0/1/2)
+var hauler_tier := 0                           # 0 Light · 1 Heavy · 2 Bulk
 var _withdraw_btn: Button
 var _outpost_btn: Button
 var _dev_outpost_btn: Button
@@ -2271,9 +2273,12 @@ func _build_build_view() -> void:
 	var assemble := UiKit.action_button("⚙  ASSEMBLE FROM PARTS")
 	assemble.pressed.connect(_assemble_selected)
 	centre.add_child(assemble)
-	# Civilian trader (freighter) — buildable from the start (no shipyard needed); the
-	# logistics hull you assign to trade routes. The early-game money-maker.
-	var freighter := UiKit.action_button("⛟  BUY TRADER (FREIGHTER)")
+	# Civilian trader (hauler) — buildable from the start (no shipyard needed); the
+	# logistics hull you assign to trade routes. Now tiered: cycle the class, then buy.
+	_hauler_tier_btn = UiKit.action_button("◇  Class: Light Freighter")
+	_hauler_tier_btn.pressed.connect(_cycle_hauler_tier)
+	centre.add_child(_hauler_tier_btn)
+	var freighter := UiKit.action_button("⛟  BUY TRADER")
 	freighter.pressed.connect(_buy_freighter)
 	centre.add_child(freighter)
 
@@ -2519,8 +2524,18 @@ func _commission_selected() -> void:
 
 
 ## Buy a civilian trader (freighter) — no shipyard needed; the hull you put on trade routes.
+func _cycle_hauler_tier() -> void:
+	hauler_tier = (hauler_tier + 1) % 3
+	if _hauler_tier_btn:
+		_hauler_tier_btn.text = "◇  Class: %s" % String(sim.hauler_class_name(hauler_tier))
+	status = "Hauler: %s — %s cr, %d cargo/trip, %d crew." % [
+		String(sim.hauler_class_name(hauler_tier)), _commas(sim.hauler_class_cost(hauler_tier)),
+		sim.hauler_class_cargo(hauler_tier), sim.hauler_class_crew(hauler_tier)]
+
+
 func _buy_freighter() -> void:
-	status = "Trader commissioned — assign it a route in MARKET." if sim.commission_freighter() else "Can't build a trader — short on credits or crew."
+	var msg := String(sim.commission_hauler(hauler_tier))
+	status = msg if msg != "" else "Can't build a %s — short on credits or crew." % String(sim.hauler_class_name(hauler_tier))
 
 
 ## Assemble the selected hull from the player's own component stock (§7d payoff).
@@ -4030,7 +4045,10 @@ func _refresh_fleet() -> void:
 			var loc := String(sim.freighter_trip(i)) if en_route else "Ceres Yards"
 			var assign := ("In transit %d%%  ·  %d fuel" % [sim.freighter_progress(i), sim.freighter_fuel(i)]) if en_route else (
 				String(sim.route_status()) if sim.route_count() > 0 else "Idle")
-			_fleet_row("Logistics Wing %d" % (i + 1), true, "Freighter", loc, assign,
+			var hnm := String(sim.hauler_name(i))
+			var hcls := String(sim.hauler_class_name(sim.hauler_class(i)))
+			var hlabel := ("%s %d" % [hnm, i + 1]) if hnm != "" else ("Hauler %d" % (i + 1))
+			_fleet_row(hlabel, true, hcls, loc, assign,
 				1.0, UiKit.GOOD if en_route else UiKit.ACCENT)
 			shown += 1
 	if shown == 0:
@@ -4386,8 +4404,8 @@ func _refresh_outliner() -> void:
 	for i in sim.colony_count():
 		if sim.colony_controlled(i):
 			ncol += 1
-	var sig := "%d|%d|%d|%d|%d|%d|%d" % [sim.fleet_size(), sim.miner_count(),
-		sim.outpost_count(), ncol, sim.shipyard_tier(), sim.pending_ship_count(), _focus_body]
+	var sig := "%d|%d|%d|%d|%d|%d|%d|%d" % [sim.fleet_size(), sim.miner_count(),
+		sim.outpost_count(), ncol, sim.shipyard_tier(), sim.pending_ship_count(), sim.freighters(), _focus_body]
 	for i in sim.outpost_count():
 		sig += ".%d" % sim.outpost_rank(sim.outpost_body(i))
 	if sig == _outliner_sig:
@@ -4406,6 +4424,13 @@ func _refresh_outliner() -> void:
 		_outliner_group("Building (%d)" % sim.pending_ship_count())
 		for i in mini(int(sim.pending_ship_count()), 8):
 			_outliner_row("⚙", String(sim.pending_ship_label(i)), -1, V_BUILD)
+	# Haulers (named, tiered trade ships) — a row jumps to the FLEET view.
+	if sim.freighters() > 0:
+		_outliner_group("Haulers (%d)" % sim.freighters())
+		for i in mini(int(sim.freighters()), 12):
+			var hn := String(sim.hauler_name(i))
+			var hl := "%s · %s" % [hn, String(sim.hauler_class_name(sim.hauler_class(i)))] if hn != "" else String(sim.hauler_class_name(sim.hauler_class(i)))
+			_outliner_row("⛟", hl, -1, V_FLEET)
 	# Deployed miners.
 	if sim.miner_count() > 0:
 		_outliner_group("Miners (%d)" % sim.miner_count())
