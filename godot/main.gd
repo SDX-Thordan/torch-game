@@ -260,6 +260,7 @@ var _station_markers: Array[Node3D] = []     # colony/station glyphs (LOD-toggle
 var _station_labels: Array[Label3D] = []     # colony/station name tags (LOD-toggled)
 var _gate_tm: TorusMesh                       # the gate ring mesh (zoom-scaled tube)
 var _gate_r := 40.0
+var _map_font: Font                           # the Protomolecule typeface for orrery labels (j)
 var _hauler_pool: Array[MeshInstance3D] = []
 var _faction_haul_mats: Array[StandardMaterial3D] = []   # per-faction hauler livery (§4)
 var _ship_pool: Array[MeshInstance3D] = []     # §6 player warships on the map
@@ -347,6 +348,9 @@ func _resolve_commodity_indices() -> void:
 # ============================================================================
 
 func _build_world() -> void:
+	# The Protomolecule typeface (The Expanse fan font) for the orrery labels (j).
+	if ResourceLoader.exists("res://assets/fonts/Protomolecule.ttf"):
+		_map_font = load("res://assets/fonts/Protomolecule.ttf")
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	# A procedural deep-space sky (stars + Milky Way + nebulae) at infinity (§21).
@@ -401,6 +405,8 @@ func _build_world() -> void:
 			gtag.text = "⟁ " + name
 			gtag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 			gtag.fixed_size = true
+			if _map_font != null:
+				gtag.font = _map_font
 			gtag.modulate = Color(0.98, 0.86, 0.45)
 			gtag.pixel_size = LABEL_PIXEL
 			gtag.position = Vector3(0.0, 0.7, 0.0)
@@ -437,6 +443,8 @@ func _build_world() -> void:
 		tag.text = name
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		tag.fixed_size = true   # constant on-screen size — never balloons when zoomed in (i)
+		if _map_font != null:
+			tag.font = _map_font
 		tag.modulate = Color(0.6, 0.7, 0.78) if (kind == 4 or kind == 7) else Color(0.72, 0.84, 0.95)
 		tag.pixel_size = LABEL_PIXEL_SMALL if (kind == 4 or kind == 7) else LABEL_PIXEL
 		tag.position = Vector3(0, rad + 0.05, 0)
@@ -464,6 +472,8 @@ func _build_world() -> void:
 		clbl.text = sim.colony_name(ci)
 		clbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		clbl.fixed_size = true
+		if _map_font != null:
+			clbl.font = _map_font
 		clbl.modulate = fcol
 		clbl.pixel_size = LABEL_PIXEL_SMALL
 		clbl.position = Vector3(0.0, -crad - 0.06, 0.0)
