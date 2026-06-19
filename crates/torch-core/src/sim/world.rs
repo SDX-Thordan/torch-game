@@ -382,6 +382,10 @@ const SHIPYARD_FOUND_COST: i64 = 60_000;
 const SHIPYARD_EXPAND_COST: i64 = 50_000; // × current tier
 const SHIPYARD_UPKEEP_PER_TIER: i64 = 50;
 const MAX_SHIPYARD_TIER: i64 = 3;
+/// A shipyard is a **major undertaking** — founding takes ~a year (360 days), expanding ~240
+/// days. It lays down nothing until the build completes (the relaxing, macro pace).
+const SHIPYARD_FOUND_TICKS: u64 = 2160;
+const SHIPYARD_EXPAND_TICKS: u64 = 1440;
 /// Belt/OPA standing needed to buy corvettes (Frigates) from Tycho.
 const CORVETTE_STANDING: i64 = 250;
 /// Phase A dilemma tuning: the profiteer's panic premium (bp of the sale), the relief
@@ -698,6 +702,9 @@ pub struct Sim {
     /// (corvettes need it *or* OPA standing). Very expensive to build + maintain.
     shipyard_tier: i64,
     shipyard_body: usize,
+    /// Tick the shipyard's current construction (founding / expansion) completes — until then
+    /// it's a building site and lays down nothing (a major undertaking takes ~a year).
+    shipyard_ready_tick: u64,
     /// Deployed mining ships (early industry) — each extracts a body's raw per tick.
     miners: Vec<Miner>,
     /// Player-founded outposts (the body-built station layer) — empty by default (inert).
@@ -816,6 +823,7 @@ impl Sim {
             dev_doctrine: DevDoctrine::default(),
             shipyard_tier: 0,
             shipyard_body: 0,
+            shipyard_ready_tick: 0,
             miners: Vec::new(),
             outposts: Vec::new(),
             next_war_flashpoint: 100,
@@ -1652,12 +1660,21 @@ impl Sim {
     /// Whether `class` can be built given your shipyard + OPA standing. Civilians come
     /// from Tycho freely; **corvettes** (Frigates) need a yard *or* good Belt standing;
     /// **Destroyer/Cruiser/Battleship** need a yard of tier ≥ 1/2/3.
+    /// The shipyard tier that's **operational** right now — 0 while a found/expand build is
+    /// still in progress (a building yard can't lay down hulls yet).
+    fn operational_shipyard_tier(&self) -> i64 {
+        if self.shipyard_tier > 0 && self.tick >= self.shipyard_ready_tick {
+            self.shipyard_tier
+        } else {
+            0
+        }
+    }
+
     fn hull_source_ok(&self, class: ShipClass) -> Result<(), CommissionError> {
+        let tier = self.operational_shipyard_tier();
         let need = match class {
             ShipClass::Frigate => {
-                if self.shipyard_tier >= 1
-                    || self.relations.standing(Faction::Belt) >= CORVETTE_STANDING
-                {
+                if tier >= 1 || self.relations.standing(Faction::Belt) >= CORVETTE_STANDING {
                     return Ok(());
                 }
                 return Err(CommissionError::NeedShipyard);
@@ -1667,10 +1684,20 @@ impl Sim {
             ShipClass::Battleship => 3,
             _ => return Ok(()), // civilians: bought from Tycho
         };
-        if self.shipyard_tier >= need {
+        if tier >= need {
             Ok(())
         } else {
             Err(CommissionError::NeedShipyard)
+        }
+    }
+
+    /// Days left on the shipyard's current build (0 iff operational — ceiling so it only
+    /// reads 0 once `tick >= ready_tick`, matching `operational_shipyard_tier`).
+    pub fn shipyard_build_days(&self) -> u64 {
+        if self.shipyard_tier > 0 && self.tick < self.shipyard_ready_tick {
+            (self.shipyard_ready_tick - self.tick).div_ceil(6)
+        } else {
+            0
         }
     }
 
@@ -1726,6 +1753,7 @@ impl Sim {
         self.corp.debit(SHIPYARD_FOUND_COST);
         self.shipyard_tier = 1;
         self.shipyard_body = body;
+        self.shipyard_ready_tick = self.tick + SHIPYARD_FOUND_TICKS; // ~a year to stand up
         self.complete_op();
         Ok(())
     }
@@ -1738,11 +1766,16 @@ impl Sim {
         if self.shipyard_tier >= MAX_SHIPYARD_TIER {
             return Err(ShipyardError::Maxed);
         }
+        // Can't start a new expansion while the current build is still in progress.
+        if self.tick < self.shipyard_ready_tick {
+            return Err(ShipyardError::NoneBuilt);
+        }
         let cost = SHIPYARD_EXPAND_COST * self.shipyard_tier;
         if self.corp.credits() < cost {
             return Err(ShipyardError::CantAfford);
         }
         self.corp.debit(cost);
+        self.shipyard_ready_tick = self.tick + SHIPYARD_EXPAND_TICKS;
         self.shipyard_tier += 1;
         self.complete_op();
         Ok(())
@@ -2816,6 +2849,7 @@ impl Sim {
             colony_dev: self.colony_dev.clone(),
             dev_doctrine: self.dev_doctrine,
             shipyard_tier: self.shipyard_tier,
+            shipyard_ready_tick: self.shipyard_ready_tick,
             shipyard_body: self.shipyard_body,
             miners: self.miners.clone(),
             outposts: self.outposts.clone(),
@@ -2952,6 +2986,7 @@ impl Sim {
         }
         self.dev_doctrine = s.dev_doctrine;
         self.shipyard_tier = s.shipyard_tier;
+        self.shipyard_ready_tick = s.shipyard_ready_tick;
         self.shipyard_body = s.shipyard_body;
         self.miners = s.miners.clone();
         self.outposts = s.outposts.clone();
@@ -6058,15 +6093,31 @@ mod tests {
             sim.commission_ship(ShipClass::Destroyer),
             Err(CommissionError::NeedShipyard)
         ));
-        // A shipyard unlocks warships, gated by its tier.
+        // A shipyard unlocks warships, gated by its tier — but founding is a ~1-year build,
+        // so it lays down nothing until construction finishes.
         let home = sim.markets()[0].body();
         sim.found_shipyard(home).unwrap();
+        assert!(sim.shipyard_build_days() > 0);
+        assert!(
+            matches!(
+                sim.commission_ship(ShipClass::Destroyer),
+                Err(CommissionError::NeedShipyard)
+            ),
+            "a building yard lays down nothing yet"
+        );
+        while sim.shipyard_build_days() > 0 {
+            sim.step();
+        }
         assert_eq!(sim.shipyard_max_hull(), "Destroyer");
         assert!(matches!(
             sim.commission_ship(ShipClass::Cruiser),
             Err(CommissionError::NeedShipyard)
         ));
+        sim.corp_mut().credit(2_000_000); // the year-long build drained the treasury (overhead sink)
         sim.expand_shipyard().unwrap();
+        while sim.shipyard_build_days() > 0 {
+            sim.step();
+        }
         assert_eq!(sim.shipyard_max_hull(), "Cruiser");
         assert!(matches!(
             sim.found_shipyard(home),

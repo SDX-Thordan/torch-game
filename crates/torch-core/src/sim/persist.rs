@@ -121,11 +121,13 @@ pub struct SaveState {
     pub colony_dev: Vec<i64>,
     #[serde(default)]
     pub dev_doctrine: super::world::DevDoctrine,
-    /// The player's shipyard (tier + body).
+    /// The player's shipyard (tier + body + the in-progress build's completion tick).
     #[serde(default)]
     pub shipyard_tier: i64,
     #[serde(default)]
     pub shipyard_body: usize,
+    #[serde(default)]
+    pub shipyard_ready_tick: u64,
     /// Deployed mining ships (early industry).
     #[serde(default)]
     pub miners: Vec<super::world::Miner>,

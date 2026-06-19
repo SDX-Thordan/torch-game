@@ -1795,7 +1795,7 @@ impl TorchSim {
     fn found_shipyard_at(&mut self, body: i64) -> GString {
         match self.sim.found_shipyard(body.max(0) as usize) {
             Ok(()) => GString::from(
-                "Shipyard founded here — it can lay down Destroyers (expand for bigger).",
+                "Shipyard construction begun — a major undertaking (~360 days) before it can lay down hulls.",
             ),
             Err(_) => GString::new(),
         }
@@ -2000,6 +2000,13 @@ impl TorchSim {
         }
     }
 
+    /// Days left on the shipyard's current build (0 if none / operational) — a major
+    /// undertaking takes ~a year, so the BUILD view shows the countdown.
+    #[func]
+    fn shipyard_build_days(&self) -> i64 {
+        self.sim.shipyard_build_days() as i64
+    }
+
     /// Sandbox/test affordance: stand up a free max-tier shipyard so a fresh sim can
     /// build any warship (the gated acquisition path is covered by the native tests).
     #[func]
@@ -2038,7 +2045,7 @@ impl TorchSim {
         let home = self.sim.markets()[0].body();
         match self.sim.found_shipyard(home) {
             Ok(()) => {
-                GString::from("Shipyard founded — it can lay down Destroyers (expand for bigger).")
+                GString::from("Shipyard construction begun — a major undertaking (~360 days) before it can lay down hulls.")
             }
             Err(_) => GString::new(),
         }
