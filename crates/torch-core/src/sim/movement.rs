@@ -12,11 +12,13 @@
 
 use super::ships::Loadout;
 
-/// Cruise-speed scale: `units/tick = max_thrust × K / dry_mass` (thrust-to-mass is
-/// acceleration, the speed proxy). Tuned so ~1 AU is a few dozen ticks economical.
-const SPEED_K: i64 = 30_000;
-/// Floor on cruise so a heavy hull still moves.
-const MIN_CRUISE: i64 = 15_000;
+/// Acceleration scale: `accel (units/tick²) = max_thrust × K / dry_mass` (thrust-to-mass
+/// *is* acceleration). A ship flies a flip-and-burn (brachistochrone): it accelerates to the
+/// midpoint, flips, and brakes to rest, so `travel = 2·√(distance / accel)`. Tuned so a
+/// warship's harder burn out-runs a civilian hauler and ~1 AU is a few dozen ticks.
+const ACCEL_K: i64 = 1_200;
+/// Floor on acceleration so a heavy hull still moves.
+const MIN_ACCEL: i64 = 600;
 /// Floor on travel so even a short hop takes real time (§21 felt distance).
 const MIN_TRAVEL: u64 = 4;
 /// Remass cost numerator/denominator: `cost = distance × NUM / (drive_efficiency ×
@@ -80,12 +82,13 @@ pub struct Plan {
 /// **hard** burn (§6 verb #4): a hard burn halves the time but doubles the remass.
 pub fn plan(loadout: &Loadout, distance: i64, hard_burn: bool) -> Plan {
     let h = loadout.hull();
-    let cruise = (h.max_thrust * SPEED_K / h.dry_mass.max(1)).max(MIN_CRUISE);
-    let base_ticks = (distance / cruise.max(1)) as u64;
+    let accel = (h.max_thrust * ACCEL_K / h.dry_mass.max(1)).max(MIN_ACCEL);
+    // Flip-and-burn: t = 2·√(distance / accel). A hard burn pushes ~2× the G, ≈0.7× the time.
+    let base_ticks = (2 * (distance.max(0) / accel.max(1)).isqrt()) as u64;
     let base_cost = (distance * REMASS_NUM / (h.drive_efficiency.max(1) * REMASS_DEN)).max(1);
     if hard_burn {
         Plan {
-            travel_ticks: (base_ticks / 2).max(MIN_TRAVEL),
+            travel_ticks: (base_ticks * 7 / 10).max(MIN_TRAVEL),
             remass_cost: base_cost * 2,
         }
     } else {

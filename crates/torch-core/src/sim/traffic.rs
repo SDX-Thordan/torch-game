@@ -23,13 +23,24 @@ pub struct Hauler {
 }
 
 impl Hauler {
-    /// Interpolated position at `tick`, clamped to the arrival endpoint.
+    /// Position at `tick`, clamped to the arrival endpoint, following a **flip-and-burn**
+    /// (brachistochrone) profile: accelerate to the midpoint, flip, decelerate to rest — so
+    /// the hauler eases out of the origin, peaks at mid-flight, and brakes into the dest,
+    /// instead of gliding at a flat speed. Distance fraction of elapsed fraction `f = t/T`:
+    /// `2·f²` for the first half, `1 − 2·(1−f)²` for the braking half (0→0.5→1 at f=0,½,1).
     pub fn position(&self, tick: u64) -> (i64, i64) {
         let span = (self.arrival_tick - self.depart_tick).max(1) as i64;
         let t = (tick.clamp(self.depart_tick, self.arrival_tick) - self.depart_tick) as i64;
         let (ox, oy) = self.origin_pos;
         let (dx, dy) = self.dest_pos;
-        (ox + (dx - ox) * t / span, oy + (dy - oy) * t / span)
+        // Fixed-point distance fraction = num / (span·span), brachistochrone-shaped.
+        let den = span * span;
+        let num = if 2 * t <= span {
+            2 * t * t
+        } else {
+            den - 2 * (span - t) * (span - t)
+        };
+        (ox + (dx - ox) * num / den, oy + (dy - oy) * num / den)
     }
 }
 
