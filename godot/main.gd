@@ -250,6 +250,10 @@ var _arsenal_sig := ""                         # rebuild the list only when it c
 var _flow: Control
 var _chart: Control
 var _ticker_grid: GridContainer
+var _ticker_title: Label
+var _chart_title: Label
+var _mkt_sel_lbl: Label
+var _mkt_routes_lbl: Label
 var _chart_legend: VBoxContainer
 
 # ---- 3D world ---------------------------------------------------------------
@@ -2458,6 +2462,21 @@ func _build_market_view() -> void:
 	v.add_theme_constant_override("separation", 8)
 	panel.add_child(v)
 
+	# Market + route controls (a trade-management header — no longer keyboard-only).
+	var ctl := HBoxContainer.new()
+	ctl.add_theme_constant_override("separation", 6)
+	v.add_child(ctl)
+	ctl.add_child(_make_op_button("◀", func(): _cycle_market(-1)))
+	_mkt_sel_lbl = UiKit.label("", 13, UiKit.TEXT_HI)
+	_mkt_sel_lbl.custom_minimum_size = Vector2(180, 0)
+	_mkt_sel_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ctl.add_child(_mkt_sel_lbl)
+	ctl.add_child(_make_op_button("▶", func(): _cycle_market(1)))
+	ctl.add_child(_make_op_button("＋ Create Route (to best market)", _create_route_from_sel))
+	ctl.add_child(_make_op_button("✕ Clear Routes", func(): sim.clear_trade_route(); status = "Trade routes cleared."))
+	_mkt_routes_lbl = UiKit.label("", 11, UiKit.TEXT_DIM)
+	v.add_child(_mkt_routes_lbl)
+
 	# Top: commodity-flow schematic.
 	v.add_child(UiKit.kicker("Trade Flow"))
 	var flowp := UiKit.make_panel(UiKit.BG_INSET, UiKit.LINE, 8)
@@ -2483,7 +2502,8 @@ func _build_market_view() -> void:
 	bottom.add_child(tickerp)
 	var tv := VBoxContainer.new()
 	tickerp.add_child(tv)
-	tv.add_child(UiKit.kicker("Market Ticker  ·  %s" % String(sim.market_name(sel_market))))
+	_ticker_title = UiKit.kicker("Market Ticker")
+	tv.add_child(_ticker_title)
 	tv.add_child(UiKit.rule())
 	var tsc := ScrollContainer.new()
 	tsc.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2500,7 +2520,8 @@ func _build_market_view() -> void:
 	bottom.add_child(chartp)
 	var cv := VBoxContainer.new()
 	chartp.add_child(cv)
-	cv.add_child(UiKit.kicker("Price History  ·  %s" % String(sim.market_name(sel_market))))
+	_chart_title = UiKit.kicker("Price History")
+	cv.add_child(_chart_title)
 	var chb := HBoxContainer.new()
 	chb.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cv.add_child(chb)
@@ -3774,7 +3795,46 @@ func _visible_market_count() -> int:
 	return n
 
 
+## Cycle the selected market (the trade cursor) — the MARKET view's ◀ ▶ controls.
+func _cycle_market(d: int) -> void:
+	var n := _visible_market_count()
+	sel_market = (sel_market + d + n) % n
+
+
+## Create a standing trade route from the selected market: sell the selected commodity into
+## the market where it's dearest (with room). The route then auto-runs against the freighter pool.
+func _create_route_from_sel() -> void:
+	var best := -1
+	var best_price := sim.price(sel_market, sel_comm)
+	for m in _visible_market_count():
+		if m == sel_market:
+			continue
+		var p := sim.price(m, sel_comm)
+		if p > best_price:
+			best_price = p
+			best = m
+	if best < 0:
+		status = "%s is already dearest here — no profitable route." % String(sim.commodity_name(sel_comm))
+		return
+	sim.set_trade_route(sel_comm, sel_market, best, trade_qty, 1)
+	status = "Route created: %s  %s → %s (auto-runs when a trader is free)." % [
+		String(sim.commodity_name(sel_comm)), String(sim.market_name(sel_market)), String(sim.market_name(best))]
+
+
 func _refresh_market() -> void:
+	# Dynamic titles + the trade-route summary (the management readout).
+	if _ticker_title:
+		_ticker_title.text = ("Market Ticker  ·  %s" % String(sim.market_name(sel_market))).to_upper()
+		_chart_title.text = ("Price History  ·  %s" % String(sim.market_name(sel_market))).to_upper()
+		_mkt_sel_lbl.text = "%s  ·  %s" % [String(sim.market_name(sel_market)), String(sim.commodity_name(sel_comm))]
+		var rc := sim.route_count()
+		if rc > 0:
+			var parts := PackedStringArray()
+			for i in rc:
+				parts.append(String(sim.route_desc(i)))
+			_mkt_routes_lbl.text = "Routes (%d/%d): %s" % [rc, sim.route_cap(), "   ·   ".join(parts)]
+		else:
+			_mkt_routes_lbl.text = "No trade routes yet — pick a market + commodity (↑↓), then ＋ Create Route. Traders run them automatically."
 	# Ticker grid.
 	for c in _ticker_grid.get_children():
 		c.queue_free()
