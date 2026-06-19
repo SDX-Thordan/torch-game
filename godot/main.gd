@@ -178,6 +178,7 @@ var _build_btn: Button
 var _expand_btn: Button
 var _court_btn: Button
 var _claim_btn: Button
+var _acquire_ctx_btn: Button
 var _develop_btn: Button
 var _send_btn: Button
 var _sys_mission: Label
@@ -1063,6 +1064,10 @@ func _build_systems_view() -> void:
 	_claim_btn = _make_op_button("◎ Claim", _claim_contested)
 	_claim_btn.visible = false
 	fo.add_child(_claim_btn)
+	# — An independent colony: buy it out (a mid-game goal — much pricier than an outpost).
+	_acquire_ctx_btn = _make_op_button("⊕ Acquire Colony", _acquire_focused_colony)
+	_acquire_ctx_btn.visible = false
+	fo.add_child(_acquire_ctx_btn)
 	# — A colony you own: develop it (the tall growth axis).
 	_develop_btn = _make_op_button("⬆ Develop", _develop_focused_colony)
 	_develop_btn.visible = false
@@ -1259,6 +1264,24 @@ func _found_outpost_here() -> void:
 func _develop_outpost_here() -> void:
 	var msg := String(sim.develop_outpost(_focus_body))
 	status = msg if msg != "" else "Can't develop this outpost — it's maxed, or you're short on credits."
+
+
+## Buy out the independent colony on the focused body — a mid-game goal (much pricier than
+## an outpost), bought by clicking the colony itself.
+func _acquire_focused_colony() -> void:
+	var ci := _colony_index_for_body(_focus_body)
+	if ci < 0 or not sim.colony_acquirable(ci):
+		status = "Tap an independent colony to buy it."
+		return
+	var cost: int = sim.colony_acquire_cost(ci)
+	var code: int = sim.acquire_colony(ci)
+	if code == 0:
+		ascend_flash = 1.0
+		status = "⊕ %s acquired — it joins your holdings." % String(sim.colony_name(ci))
+	elif code == 3:
+		status = "Can't afford %s — it costs %s cr (acquiring a colony is a mid-game goal)." % [String(sim.colony_name(ci)), _commas(cost)]
+	else:
+		status = "Can't acquire %s." % String(sim.colony_name(ci))
 
 
 ## Develop the colony sitting on the focused body (the tall growth axis).
@@ -3442,6 +3465,8 @@ func _refresh_object_panel() -> void:
 		detail += "  [color=#7a8696](→L%d: %s cr)[/color]" % [dev + 1, _commas(dcost)] if dcost >= 0 else "  [color=#7a8696](max)[/color]"
 	elif ci >= 0:
 		sub = "%s colony  ·  %s" % [_faction_name(sim.colony_faction(ci)), kind]
+		if sim.colony_acquirable(ci):
+			detail = "[color=#cfd8e0]Independent[/color] — buy out for [color=#e6c860]%s cr[/color] (a mid-game goal)." % _commas(sim.colony_acquire_cost(ci))
 	elif sim.shipyard_tier() > 0 and fb == sim.shipyard_body():
 		sub = "Your shipyard  ·  %s" % kind
 		detail = "[color=#9fd8ff]Shipyard[/color] — builds up to [color=#cfd8e0]%s[/color]" % String(sim.shipyard_max_hull())
@@ -3506,6 +3531,8 @@ func _refresh_systems() -> void:
 		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
 		_court_btn.visible = coni >= 0 and not owned
 		_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
+		# Buy out an independent colony by clicking it (not a contested hub — those use Claim).
+		_acquire_ctx_btn.visible = ci >= 0 and coni < 0 and sim.colony_acquirable(ci)
 		_develop_btn.visible = owned
 		_send_btn.visible = fb > 0 and sim.fleet_size() > 0
 	var mtxt := ""

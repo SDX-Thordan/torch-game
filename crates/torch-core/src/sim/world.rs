@@ -328,10 +328,12 @@ pub enum ContestError {
     NotStrongEnough,
 }
 
-/// Price to buy out an independent **market** colony (a producing frontier hub).
-const COLONY_PRICE_MARKET: i64 = 45_000;
+/// Price to buy out an independent **market** colony (a producing frontier hub). Acquiring a
+/// whole colony is a **mid-term goal**, not an early-game click — far pricier than founding an
+/// outpost (the short-term step), so the player trades/mines/outposts toward it for a long while.
+const COLONY_PRICE_MARKET: i64 = 320_000;
 /// Price to buy out an independent **outpost** colony (a lesser settlement).
-const COLONY_PRICE_OUTPOST: i64 = 25_000;
+const COLONY_PRICE_OUTPOST: i64 = 180_000;
 /// Per-tick tribute a controlled market colony pays the treasury (you run its
 /// economy now). A flat credit drip — it never touches market RNG, so the §7c gate
 /// is provably unaffected by who owns what.
@@ -5492,7 +5494,10 @@ mod tests {
         if let Some(j) = earth_owned {
             assert_eq!(sim.acquire_colony(j), Err(AcquireError::NotAcquirable));
         }
-        sim.corp_mut().credit(100_000);
+        // Credit just over the (now mid-game-priced) cost so post-purchase wealth stays under
+        // the free-float overhead sink — otherwise the sink masks the small colony tribute.
+        let cost = sim.colony_acquire_cost(i).unwrap();
+        sim.corp_mut().credit(cost + 8_000);
         let before = sim.corp().credits();
         let earth0 = sim.relations().standing(Faction::Earth);
         let belt0 = sim.relations().standing(Faction::Belt);
@@ -5759,7 +5764,7 @@ mod tests {
         // shipping. Countered by repairing the relationship.
         use crate::sim::faction::Faction;
         let mut sim = Sim::new(3);
-        sim.corp_mut().credit(200_000);
+        sim.corp_mut().credit(500_000);
         // Find an Earth-owned market; the fee is the baseline while neutral.
         let m = (0..sim.markets().len())
             .find(|&m| sim.markets()[m].faction() == Faction::Earth)
@@ -5892,9 +5897,9 @@ mod tests {
         // and NPC deliveries into it pay your treasury a tariff (your empire earns from
         // the living economy). A market you don't own does neither.
         let mut sim = Sim::new(1);
-        // A modest buffer (kept under the upkeep free-float so the wealth sink doesn't
-        // swamp the tribute/tariff we're measuring).
-        sim.corp_mut().credit(40_000);
+        // Just enough for the (mid-game-priced) market colony, kept under the free-float so
+        // the wealth sink doesn't swamp the tribute/tariff we're measuring.
+        sim.corp_mut().credit(330_000);
         // Find a market-colony to take, and its market index (same body).
         let colony = (0..sim.colonies().len())
             .find(|&i| {
@@ -5933,7 +5938,7 @@ mod tests {
         // EP1: a controlled colony produces its specialty raw into your warehouse each
         // tick — holdings feed your supply chain, not just a credit drip.
         let mut sim = Sim::new(1);
-        sim.corp_mut().credit(100_000);
+        sim.corp_mut().credit(500_000);
         let i = sim.acquirable_colonies()[0];
         let specialty = sim.colony_specialty(i);
         let before = sim.corp().cargo(specialty);
