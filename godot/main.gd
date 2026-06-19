@@ -369,6 +369,16 @@ func _build_world() -> void:
 			gate_r = _world3d(sim.body_x(b), sim.body_y(b)).length()
 			var ph := Node3D.new()
 			_orrery_root.add_child(ph)
+			# Label the always-visible ring-gate (§0 destination) so the golden ring out
+			# past the Kuiper edge reads as *the gate*, not a mystery orbit. The placeholder
+			# node tracks the gate's world position each frame, so the tag rides with it.
+			var gtag := Label3D.new()
+			gtag.text = "⟁ " + name
+			gtag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			gtag.modulate = Color(0.98, 0.86, 0.45)
+			gtag.pixel_size = 0.006
+			gtag.position = Vector3(0.0, 0.7, 0.0)
+			ph.add_child(gtag)
 			_body_nodes.append(ph)
 			_body_spin.append(null)
 			_body_spin_rate.append(0.0)
