@@ -126,6 +126,7 @@ var _help: Label
 # Systems view.
 var _sys_title: Label
 var _sys_sub: Label
+var _sys_object: RichTextLabel
 var _sys_status: Label
 var _sys_resources: VBoxContainer
 var _sys_queues: VBoxContainer
@@ -139,6 +140,12 @@ var _defend_btn: Button
 var _defend_holdings_btn: Button
 var _ctx_actions: VBoxContainer            # the contextual-action stack (no persistent buttons)
 var _mine_btn: Button
+var _withdraw_btn: Button
+var _build_btn: Button
+var _expand_btn: Button
+var _court_btn: Button
+var _claim_btn: Button
+var _develop_btn: Button
 var _send_btn: Button
 var _sys_mission: Label
 var _sys_lore: Label
@@ -837,6 +844,16 @@ func _build_systems_view() -> void:
 	col.add_child(_sys_title)
 	_sys_sub = UiKit.label("", 11, UiKit.TEXT_DIM)
 	col.add_child(_sys_sub)
+	# The tapped object's contextual detail (mineral yield / miner / contested influence /
+	# colony development) — the object is the centre of the panel, not just the market.
+	_sys_object = RichTextLabel.new()
+	_sys_object.bbcode_enabled = true
+	_sys_object.fit_content = true
+	_sys_object.scroll_active = false
+	_sys_object.add_theme_font_size_override("normal_font_size", 12)
+	_sys_object.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sys_object.visible = false
+	col.add_child(_sys_object)
 	col.add_child(UiKit.rule())
 	_sys_status = UiKit.label("", 12, UiKit.TEXT)
 	col.add_child(_sys_status)
@@ -925,11 +942,35 @@ func _build_systems_view() -> void:
 	fo.alignment = BoxContainer.ALIGNMENT_END
 	root.add_child(fo)
 	_ctx_actions = fo
-	# Deploy a miner on the tapped body (early industry) — lit only on a mineable site.
-	_mine_btn = _make_op_button("⛏ Deploy Miner", _deploy_miner)
+	# Every verb here is keyed to what you *tapped* (set visible in `_refresh_systems`):
+	# the object is the centre, and only the actions it affords appear.
+	# — A belt/outer-moon site: send an autonomous miner, or recall the one working it.
+	_mine_btn = _make_op_button("⛏ Send Miner", _deploy_miner)
 	_mine_btn.visible = false
 	fo.add_child(_mine_btn)
-	# Send the docked fleet to the tapped world — lit only with a world focused + ships home.
+	_withdraw_btn = _make_op_button("⤴ Withdraw Miner", _withdraw_miner_here)
+	_withdraw_btn.visible = false
+	fo.add_child(_withdraw_btn)
+	# — An uninhabited body: plant your shipyard (your first body-built station).
+	_build_btn = _make_op_button("⚓ Build Shipyard", _found_shipyard_here)
+	_build_btn.visible = false
+	fo.add_child(_build_btn)
+	# — Your shipyard's body: develop it further.
+	_expand_btn = _make_op_button("⬆ Expand Shipyard", _expand_shipyard)
+	_expand_btn.visible = false
+	fo.add_child(_expand_btn)
+	# — A contested colony: build influence over it, then claim it.
+	_court_btn = _make_op_button("◎ Court", _court_contested)
+	_court_btn.visible = false
+	fo.add_child(_court_btn)
+	_claim_btn = _make_op_button("◎ Claim", _claim_contested)
+	_claim_btn.visible = false
+	fo.add_child(_claim_btn)
+	# — A colony you own: develop it (the tall growth axis).
+	_develop_btn = _make_op_button("⬆ Develop", _develop_focused_colony)
+	_develop_btn.visible = false
+	fo.add_child(_develop_btn)
+	# — Any world: send the docked fleet there.
 	_send_btn = _make_op_button("🚀 Send Fleet", _dispatch_fleet_to_focus)
 	_send_btn.visible = false
 	fo.add_child(_send_btn)
@@ -1109,6 +1150,48 @@ func _deploy_miner() -> void:
 		return
 	var msg := String(sim.buy_miner(_focus_body))
 	status = msg if msg != "" else "Can't deploy a miner — need 9,000 cr (or the miner cap is reached)."
+
+
+## Recall the miner working the focused body (the "until withdrawn" half of the loop).
+func _withdraw_miner_here() -> void:
+	var msg := String(sim.withdraw_miner(_focus_body))
+	status = msg if msg != "" else "No miner here to withdraw."
+
+
+## Found the player's shipyard on the tapped (uninhabited) body — your first body-built station.
+func _found_shipyard_here() -> void:
+	var msg := String(sim.found_shipyard_at(_focus_body))
+	status = msg if msg != "" else "Can't build here — need 60,000 cr (a shipyard's a major undertaking)."
+
+
+## Develop the colony sitting on the focused body (the tall growth axis).
+func _develop_focused_colony() -> void:
+	var ci := _colony_index_for_body(_focus_body)
+	if ci < 0:
+		status = "Tap one of your colonies to develop it."
+		return
+	var msg := String(sim.develop_colony(ci))
+	status = msg if msg != "" else "Can't develop %s — it's maxed, or you're short on credits." % String(sim.colony_name(ci))
+
+
+## The colony index sitting on `body`, or -1 (object→index lookup for contextual actions).
+func _colony_index_for_body(body: int) -> int:
+	if body <= 0:
+		return -1
+	for i in sim.colony_count():
+		if sim.colony_body(i) == body:
+			return i
+	return -1
+
+
+## The contested-hub index sitting on `body`, or -1.
+func _contested_index_for_body(body: int) -> int:
+	if body <= 0:
+		return -1
+	for i in sim.contested_count():
+		if sim.contested_body(i) == body:
+			return i
+	return -1
 
 
 ## Send every docked warship on a committed trajectory to the focused world (§6).
@@ -2865,10 +2948,68 @@ func _commas(n: int) -> String:
 	return ("-" if n < 0 else "") + out
 
 
+## The display name for a body kind (0 Star … 7 Asteroid).
+func _body_kind_name(k: int) -> String:
+	match k:
+		0: return "Star"
+		1: return "Planet"
+		2: return "Gas Giant"
+		3: return "Dwarf Planet"
+		4: return "Moon"
+		5: return "Ring-Gate"
+		6: return "Far-Side World"
+		7: return "Asteroid"
+		_: return "Body"
+
+
+## Re-centre the right panel on the tapped object: its identity + a contextual detail block.
+func _refresh_object_panel() -> void:
+	var fb := _focus_body
+	if fb <= 0:
+		_sys_title.text = String(sim.market_name(sel_market))
+		_sys_sub.text = "Trading Node  ·  Sol System"
+		_sys_object.visible = false
+		return
+	_sys_title.text = String(sim.body_name(fb))
+	var kind := _body_kind_name(sim.body_kind(fb))
+	var ci := _colony_index_for_body(fb)
+	var coni := _contested_index_for_body(fb)
+	var sub := kind
+	var detail := ""
+	if coni >= 0:
+		# A contested hub — show the powers' grip (the influence gauge) + your standing.
+		sub = "Contested hub  ·  led by %s" % _faction_name(sim.contested_leader(coni))
+		detail = "[color=#cfd8e0]The great powers fight over this hub.[/color]\n" + _influence_bar(coni)
+		var pi: int = sim.contested_player_influence(coni)
+		var thr: int = sim.contested_claim_threshold()
+		var pcol := "#78e68c" if pi >= thr else "#e6c860"
+		detail += "\n[color=#7a8696]your standing[/color] [color=%s]%d/%d[/color]" % [pcol, pi, thr]
+	elif ci >= 0 and sim.colony_controlled(ci):
+		# Your colony — development state.
+		sub = "Your colony  ·  %s" % kind
+		var dev: int = sim.colony_dev(ci)
+		detail = "[color=#78e68c]✦ Owned colony[/color] — development [color=#e6c860]L%d[/color]" % dev
+		var dcost: int = sim.develop_cost(ci)
+		detail += "  [color=#7a8696](→L%d: %s cr)[/color]" % [dev + 1, _commas(dcost)] if dcost >= 0 else "  [color=#7a8696](max)[/color]"
+	elif ci >= 0:
+		sub = "%s colony  ·  %s" % [_faction_name(sim.colony_faction(ci)), kind]
+	elif sim.shipyard_tier() > 0 and fb == sim.shipyard_body():
+		sub = "Your shipyard  ·  %s" % kind
+		detail = "[color=#9fd8ff]Shipyard[/color] — builds up to [color=#cfd8e0]%s[/color]" % String(sim.shipyard_max_hull())
+	elif sim.can_mine_body(fb):
+		if sim.miner_at(fb):
+			detail = "[color=#f0a030]⛏ Miner working here[/color] — extracting [color=#cfd8e0]%s[/color]" % String(sim.body_mineral_name(fb))
+		else:
+			detail = "Mineable %s — yields [color=#cfd8e0]%s[/color]" % [kind.to_lower(), String(sim.body_mineral_name(fb))]
+	_sys_sub.text = sub
+	_sys_object.text = detail
+	_sys_object.visible = detail != ""
+
+
 func _refresh_systems() -> void:
-	# Title = the focused body if it's a market, else the trade-cursor market.
-	_sys_title.text = String(sim.market_name(sel_market))
-	_sys_sub.text = "Trading Node  ·  Sol System"
+	# The panel re-centres on whatever you tapped — the object is the subject, not just the
+	# market. Identity + a contextual detail block (yield / miner / influence / development).
+	_refresh_object_panel()
 	var holdings: int = sim.holding_count()
 	var cap: int = sim.admin_capacity()
 	# The expansion spine (E6): lead with the empire rank, then the holdings/cap.
@@ -2886,11 +3027,20 @@ func _refresh_systems() -> void:
 	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
 	if _defend_holdings_btn:
 		_defend_holdings_btn.visible = sim.coalition_strike_pending()
-	# Contextual map verbs — shown only for what the tapped body affords (no persistent grid).
+	# Object-contextual verbs — the tapped body is the centre; only what it affords appears.
 	if _mine_btn:
-		_mine_btn.visible = _focus_body > 0 and sim.can_mine_body(_focus_body)
-	if _send_btn:
-		_send_btn.visible = _focus_body > 0 and sim.fleet_size() > 0
+		var fb := _focus_body
+		var ci := _colony_index_for_body(fb)
+		var coni := _contested_index_for_body(fb)
+		var owned: bool = ci >= 0 and sim.colony_controlled(ci)
+		_mine_btn.visible = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
+		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
+		_build_btn.visible = fb > 0 and ci < 0 and sim.can_found_shipyard_at(fb)
+		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
+		_court_btn.visible = coni >= 0 and not owned
+		_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
+		_develop_btn.visible = owned
+		_send_btn.visible = fb > 0 and sim.fleet_size() > 0
 	var mtxt := ""
 	if sim.miner_count() > 0:
 		mtxt = "   ·   ⛏ %d miner(s)" % sim.miner_count()

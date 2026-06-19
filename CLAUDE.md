@@ -318,6 +318,13 @@ Status: [x] done, [~] in progress, [ ] todo.
   not a corner toast. Pause/play live in the top bar (the handheld's spacebar). Open the camera
   **centred + zoomed on the home station** (focus `market_body(0)`, a tight zoom) — at the
   orrery scale (`1 AU = 1` world unit) a "zoomed-in" zoom is ~2.2, not 4.
+- **Object-contextual model:** make the *tapped object the centre* — the right panel re-centres
+  on `_focus_body` (identity + a detail block) and a single action stack shows **only the verbs
+  that body affords**, classified in the refresh by cheap **body→index lookups** in GDScript
+  (`_colony_index_for_body` / `_contested_index_for_body` loop the existing `*_body(i)`
+  accessors) plus `can_mine_body` / `miner_at` / `can_found_shipyard_at` / `shipyard_body`. New
+  verbs slot in by adding a hidden button + one visibility line — no new panels. Belt **Asteroid**
+  bodies must be in `can_mine_body` (they're the literal "asteroid-belt sections" to mine).
 
 ### 7.5 Render-verify workflow
 
