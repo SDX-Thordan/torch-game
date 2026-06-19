@@ -1753,6 +1753,75 @@ impl TorchSim {
         }
     }
 
+    // ---- outposts: the body-built station layer (found anywhere → develop) ----
+
+    /// Number of outposts the player has founded.
+    #[func]
+    fn outpost_count(&self) -> i64 {
+        self.sim.outposts().len() as i64
+    }
+
+    /// The body outpost `i` sits on (−1 out of range).
+    #[func]
+    fn outpost_body(&self, i: i64) -> i64 {
+        self.sim
+            .outposts()
+            .get(i.max(0) as usize)
+            .map(|o| o.body as i64)
+            .unwrap_or(-1)
+    }
+
+    /// Outpost `i`'s development level (0 out of range).
+    #[func]
+    fn outpost_level(&self, i: i64) -> i64 {
+        self.sim
+            .outposts()
+            .get(i.max(0) as usize)
+            .map(|o| o.level)
+            .unwrap_or(0)
+    }
+
+    /// The development level of the outpost at `body` (0 if none) — contextual readout.
+    #[func]
+    fn outpost_level_at(&self, body: i64) -> i64 {
+        self.sim
+            .outpost_at(body.max(0) as usize)
+            .map(|o| o.level)
+            .unwrap_or(0)
+    }
+
+    /// Whether founding an outpost at `body` is possible right now (a free, valid site).
+    #[func]
+    fn can_found_outpost(&self, body: i64) -> bool {
+        self.sim.can_found_outpost(body.max(0) as usize)
+    }
+
+    /// Found an outpost at the tapped `body`. Returns a feedback message (empty on failure).
+    #[func]
+    fn found_outpost(&mut self, body: i64) -> GString {
+        match self.sim.found_outpost(body.max(0) as usize) {
+            Ok(()) => GString::from("Outpost founded — develop it into an industrial base."),
+            Err(_) => GString::new(),
+        }
+    }
+
+    /// Credit cost to develop the outpost at `body` a level (−1 if none / maxed).
+    #[func]
+    fn outpost_develop_cost(&self, body: i64) -> i64 {
+        self.sim
+            .outpost_develop_cost(body.max(0) as usize)
+            .unwrap_or(-1)
+    }
+
+    /// Develop the outpost at `body` a level. Returns a feedback message (empty on failure).
+    #[func]
+    fn develop_outpost(&mut self, body: i64) -> GString {
+        match self.sim.develop_outpost(body.max(0) as usize) {
+            Ok(()) => GString::from("Outpost developed — its tribute grows."),
+            Err(_) => GString::new(),
+        }
+    }
+
     // ---- contested colonies: the powers fight over the major hubs (early game) ----
 
     /// How many major hubs are contested by the great powers.

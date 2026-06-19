@@ -107,11 +107,14 @@ old "war as a state" and "narrative onboarding" items** (they're now this arc). 
   **influence gauge** / colony dev) and the action stack shows only what it affords — **Send/
   Withdraw Miner** on a belt/moon site, **Build Shipyard** on an uninhabited body, **Court/
   Claim** on a contested hub, **Develop** on a colony you own, **Expand** on your shipyard.
-- [ ] **Deeper object-interaction sim** (the rest of the vision) — **multiple body-built
-  outposts/stations** (today only the single shipyard), **station facilities** (storage/docks/
-  production) developing an outpost **into a colony**, and **miners hauling to the nearest
-  station** (today they deposit straight to the warehouse). The shell model above is ready to
-  surface these the moment the sim verbs exist.
+- [x] **Outpost layer (first slice)** — **multiple body-built outposts**: found one at any
+  uninhabited body (Build Outpost), **develop** it through levels (each pays a per-level credit
+  tribute), and a **co-located miner hauls to it for +50%** output. Wired to the object panel +
+  contextual verbs. Player-only ⇒ byte-identical.
+- [ ] **Outpost depth (the rest of the vision)** — discrete **facilities** (storage/docks/
+  production, each a building with its own effect) instead of a flat level; an outpost
+  **developing into a named colony** (joining the holdings/colony track); and true
+  **miner→nearest-station routing** (today the boost is on-body co-location). Shell-ready.
 - [ ] **Save UX on mobile** — manual save/load buttons were removed in the touch pass;
   persistence is the *Ironman autosave* toggle. Reinstate a save entry (e.g. a pause-menu
   item or an always-on periodic autosave decoupled from Ironman's no-reload rule).
