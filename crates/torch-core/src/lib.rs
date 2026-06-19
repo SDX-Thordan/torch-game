@@ -545,6 +545,13 @@ impl TorchSim {
         self.sim.colony_dev(i.max(0) as usize)
     }
 
+    /// Days left on colony `i`'s development build (0 if none / done) — the new level's
+    /// benefit lands when the build finishes (~180 days).
+    #[func]
+    fn colony_build_days(&self, i: i64) -> i64 {
+        self.sim.colony_build_days(i.max(0) as usize) as i64
+    }
+
     /// Credit cost to develop colony `i` one level (−1 if not controlled / maxed).
     #[func]
     fn develop_cost(&self, i: i64) -> i64 {
@@ -1806,7 +1813,7 @@ impl TorchSim {
     #[func]
     fn develop_colony(&mut self, i: i64) -> GString {
         match self.sim.develop_colony(i.max(0) as usize) {
-            Ok(()) => GString::from("Colony developed — its tribute and output grow."),
+            Ok(()) => GString::from("Colony development begun — ~180 days until the new level comes online."),
             Err(_) => GString::new(),
         }
     }
