@@ -7,8 +7,10 @@
 //! deterministic sim state (§27); player operations advance it, tier ascents are
 //! milestones, and the gate's approach is always visible.
 
-/// The tiers of play (§0.3) — each a different *kind* of game, not just bigger.
-/// `Beyond` is the post-gate endgame (§17), reached by *transiting* the open ring.
+/// The tiers of play (§0.3) — each a different *kind* of game, not just bigger. The two
+/// late tiers (`Gate`/`Beyond`) keep their internal names for the dormant endgame sim, but
+/// are shown to the player as generic frontier tiers — the placeholder gate *story* is
+/// removed until the proper mid/late-game arc lands (`docs/MID_LATE_GAME_STORY.md`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tier {
     Station,
@@ -24,8 +26,8 @@ impl Tier {
             Tier::Station => "The Station",
             Tier::Region => "The Region",
             Tier::Sol => "Sol & the Cold War",
-            Tier::Gate => "The Gate",
-            Tier::Beyond => "Beyond the Gate",
+            Tier::Gate => "The Frontier",
+            Tier::Beyond => "The Far Reaches",
         }
     }
 
@@ -62,8 +64,8 @@ impl Tier {
             Tier::Station => "Disrupt the lanes and prove the operation.",
             Tier::Region => "Extend your network across the Belt.",
             Tier::Sol => "Turn the great powers against each other.",
-            Tier::Gate => "The ring is open. When you are ready — transit the gate.",
-            Tier::Beyond => "You are through. Hold the bridgehead on the far side.",
+            Tier::Gate => "Push your operation to the cold edge of the system.",
+            Tier::Beyond => "Hold the frontier — the system is yours to command.",
         }
     }
 
@@ -81,10 +83,10 @@ impl Tier {
                 "Tier 3 — Sol & the Cold War. The whole system and its politics. Play the powers against each other and earn dominance."
             }
             Tier::Gate => {
-                "Tier 4 — The Gate. The ring is open and counting. Everything you built was to reach this. Transit when you are ready — there is no coming back the same."
+                "Tier 4 — The Frontier. Your reach extends to the system's cold edge — a sprawling network to run and defend."
             }
             Tier::Beyond => {
-                "Tier 5 — Beyond the Gate. A new sky, a new economy, and whatever was counting on the far side. The larger game begins here."
+                "Tier 5 — The Far Reaches. The whole system answers to your operation. Command it."
             }
         }
     }
@@ -289,7 +291,7 @@ mod tests {
         }
         assert_eq!(c.tier(), Tier::Gate);
         // The deliberate transit crosses into the endgame.
-        assert_eq!(c.transit(), Some("Beyond the Gate"));
+        assert_eq!(c.transit(), Some("The Far Reaches"));
         assert_eq!(c.tier(), Tier::Beyond);
         assert!(c.transited());
         assert!(c.gate_open());

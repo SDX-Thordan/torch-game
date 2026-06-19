@@ -69,8 +69,15 @@ rare (~1 per 180 days, already tuned), and the stake-less gate-progression is be
   outpost is inert until it comes online, then announces itself. The "set it and wait" loop.
 - [x] **Removed the gate-transit endgame** — the stake-less "⟁ Transit Gate" verb + the far-side
   bridgehead/defend verbs + the gate-endgame status line are gone from the shell (the sim code
-  stays, dormant). The ring remains a slow-burn mystery in the Mysteries tab. *(Still to do: soften
-  the late campaign tiers so "The Gate" isn't framed as the destination.)*
+  stays, dormant).
+- [x] **Removed the placeholder gate *story* (until the proper arc lands)** — the gate mystery is no
+  longer shown anywhere: the **Mysteries ledger tab** is gone, the **voiced "The Gate" lore beats**
+  are silenced (`reveal_gate_beat` advances the counter but announces nothing), the **always-visible
+  golden ring** + its progress-glow are hidden in the orrery, and the late campaign tiers are reframed
+  off the gate (**The Gate → The Frontier**, **Beyond the Gate → The Far Reaches**, with frontier
+  briefings/objectives, no "transit the ring"). The `GATE_LORE`/`reveal_gate`/`Tier::Gate|Beyond`/
+  `transit_gate` machinery + the gate sim body (load-bearing for the salvage RNG) all stay dormant for
+  the proper mid/late-game arc (`MID_LATE_GAME_STORY.md`) to re-wire.
 - [x] **Timed everything** — outpost founding/develop (~180d), shipyard founding/expand (~360/240d),
   colony development (~180d), **and now ship commissioning** (frigate ~30d → capital ~180d, scaled by
   hull) are all multi-day builds with visible countdowns + lagged benefit. A commissioned hull is laid
