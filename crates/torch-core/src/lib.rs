@@ -1790,6 +1790,16 @@ impl TorchSim {
             .unwrap_or(0)
     }
 
+    /// Days left on the outpost-at-`body` construction (−1 if none there / already operational).
+    /// Founding/developing is a slow build (~180/120 days) — the "set it and wait" pace.
+    #[func]
+    fn outpost_build_days(&self, body: i64) -> i64 {
+        self.sim
+            .outpost_build_remaining(body.max(0) as usize)
+            .map(|d| d as i64)
+            .unwrap_or(-1)
+    }
+
     /// Whether founding an outpost at `body` is possible right now (a free, valid site).
     #[func]
     fn can_found_outpost(&self, body: i64) -> bool {
@@ -1800,7 +1810,7 @@ impl TorchSim {
     #[func]
     fn found_outpost(&mut self, body: i64) -> GString {
         match self.sim.found_outpost(body.max(0) as usize) {
-            Ok(()) => GString::from("Outpost founded — develop it into an industrial base."),
+            Ok(()) => GString::from("Outpost construction begun — ~180 days until it comes online. Carry on; you'll be told when it's ready."),
             Err(_) => GString::new(),
         }
     }
@@ -1817,7 +1827,7 @@ impl TorchSim {
     #[func]
     fn develop_outpost(&mut self, body: i64) -> GString {
         match self.sim.develop_outpost(body.max(0) as usize) {
-            Ok(()) => GString::from("Outpost developed — its tribute grows."),
+            Ok(()) => GString::from("Outpost upgrade begun — ~120 days to complete."),
             Err(_) => GString::new(),
         }
     }

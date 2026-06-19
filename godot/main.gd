@@ -3101,7 +3101,7 @@ func _ledger_columns(t: int) -> Array:
 	match t:
 		0: return ["Ship", "Location", "Status", "Battles", "Won", "Age (d)"]
 		1: return ["Body", "Mineral", "Output/t", "On outpost"]
-		2: return ["Body", "Level", "Tribute/t", "Next cost"]
+		2: return ["Body", "Level", "Status", "Tribute/t"]
 		3: return ["Colony", "Faction", "Control", "Dev", "Supplies"]
 		_: return ["Market", "Body", "Yours"]
 
@@ -3125,8 +3125,10 @@ func _ledger_rows(t: int) -> Array:
 			for i in sim.outpost_count():
 				var ob := sim.outpost_body(i)
 				var lvl: int = sim.outpost_level(i)
-				var nc: int = sim.outpost_develop_cost(ob)
-				rows.append([String(sim.body_name(ob)), lvl, lvl * 30, (nc if nc >= 0 else 0)])
+				var bdays: int = sim.outpost_build_days(ob)
+				var st := "Building (%dd)" % bdays if bdays >= 0 else "Operational"
+				var trib: int = 0 if bdays >= 0 else lvl * 30
+				rows.append([String(sim.body_name(ob)), lvl, st, trib])
 		3:
 			for i in sim.colony_count():
 				var ctl := "Owned" if sim.colony_controlled(i) else _faction_name(sim.colony_faction(i))
@@ -3353,11 +3355,16 @@ func _refresh_object_panel() -> void:
 		# Your outpost — the body-built station base.
 		sub = "Your outpost  ·  %s" % kind
 		var lvl: int = sim.outpost_level_at(fb)
-		detail = "[color=#78e68c]⚑ Outpost[/color] — level [color=#e6c860]L%d[/color]" % lvl
-		var ocost: int = sim.outpost_develop_cost(fb)
-		detail += "  [color=#7a8696](→L%d: %s cr)[/color]" % [lvl + 1, _commas(ocost)] if ocost >= 0 else "  [color=#7a8696](max)[/color]"
-		if sim.miner_at(fb):
-			detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
+		var bdays: int = sim.outpost_build_days(fb)
+		if bdays >= 0:
+			# Still under construction — the slow "set it and wait" build (~180 days).
+			detail = "[color=#e6c860]⚙ Under construction[/color] — [color=#cfd8e0]%d days[/color] until it comes online (L%d)." % [bdays, lvl]
+		else:
+			detail = "[color=#78e68c]⚑ Outpost[/color] — level [color=#e6c860]L%d[/color]" % lvl
+			var ocost: int = sim.outpost_develop_cost(fb)
+			detail += "  [color=#7a8696](→L%d: %s cr, ~120 days)[/color]" % [lvl + 1, _commas(ocost)] if ocost >= 0 else "  [color=#7a8696](max)[/color]"
+			if sim.miner_at(fb):
+				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
 		if sim.miner_at(fb):
 			detail = "[color=#f0a030]⛏ Miner working here[/color] — extracting [color=#cfd8e0]%s[/color]" % String(sim.body_mineral_name(fb))
@@ -3398,8 +3405,9 @@ func _refresh_systems() -> void:
 		var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
 		_mine_btn.visible = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
 		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
+		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
 		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
-		_dev_outpost_btn.visible = has_outpost
+		_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
 		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
 		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
 		_court_btn.visible = coni >= 0 and not owned

@@ -61,6 +61,20 @@ Ordered by value to the *vision* (early→mid→late game) and the measured gaps
 small focused PR in the established style — additive, gated, determinism-preserving (§7c + QA
 byte-identical unless it legitimately changes the loop, then regenerate the review honestly).
 
+### P0 — The relaxing macro-pace re-aim *(active player direction)*
+The game should feel like a slow trade/management sim: macro decisions, then *wait* and react
+occasionally — not "clicky." Founding things **takes time** (an outpost ~180 days), events are
+rare (~1 per 180 days, already tuned), and the stake-less gate-progression is being removed.
+- [x] **Timed outpost construction** — founding is a ~180-day build (developing ~120); the
+  outpost is inert until it comes online, then announces itself. The "set it and wait" loop.
+- [ ] **Remove the gate progression** — rip out the click-to-transit endgame + the gate-as-goal
+  framing (it's stake-less); keep the campaign tiers only as internal content-scope, not "the point."
+- [ ] **Timed everything** — shipyard founding/expand, colony develop, ship build, trade legs all
+  become multi-day builds with a visible countdown (no instant macro actions).
+- [ ] **UI toward the Stellaris-style mockup** — top-bar resource **rates** (+/tick), an
+  **OUTLINER** (sectors/fleets/civilians/shipyards), an **OVERVIEW** home view, a **NOTIFICATIONS**
+  panel, and the object panel's action icons.
+
 ### P1 — The mid/late-game authored arc *(the headline forward direction)*
 The vision's whole middle and end. Design notes in `MID_LATE_GAME_STORY.md`; **subsumes the
 old "war as a state" and "narrative onboarding" items** (they're now this arc). Sequence:

@@ -208,11 +208,23 @@ pub enum MinerError {
 }
 
 /// A player-founded **outpost** — a station planted at a body that develops through levels
-/// into an industrial base. Pays a per-level tribute and boosts a co-located miner.
+/// into an industrial base. Pays a per-level tribute and boosts a co-located miner. Founding
+/// (and each development level) is a **slow construction** — `ready_tick` is when the current
+/// build finishes; until then the outpost is inert (the macro "set it and wait" loop).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Outpost {
     pub body: usize,
     pub level: i64,
+    /// Tick the in-progress construction completes (0 = idle/ready).
+    #[serde(default)]
+    pub ready_tick: u64,
+}
+
+impl Outpost {
+    /// Whether the outpost's current construction has finished (it's operational).
+    pub fn is_ready(&self, tick: u64) -> bool {
+        tick >= self.ready_tick
+    }
 }
 
 /// Why an outpost action failed.
@@ -347,6 +359,11 @@ const OUTPOST_TRIBUTE_PER_LEVEL: i64 = 30;
 const MAX_OUTPOSTS: usize = 16;
 /// A miner working an outpost's body extracts +50% (it hauls to the station on-site).
 const OUTPOST_MINER_BONUS_BP: i64 = 5_000;
+/// Founding an outpost is a **slow build — ~180 days** (6 ticks = 1 day): you commit the
+/// macro decision and the credits, then wait it out (the relaxing, un-clicky pace).
+pub const OUTPOST_BUILD_TICKS: u64 = 1080;
+/// Developing a level is a shorter build (~120 days).
+pub const OUTPOST_DEVELOP_TICKS: u64 = 720;
 /// Phase C — colony development (the *tall* growth axis). A colony starts at `DEV_BASE`
 /// and can be invested up to `MAX_DEV`; tribute + output scale by the level, so a
 /// developed holding is worth far more than a bare one. The cost to raise it escalates
@@ -1870,16 +1887,32 @@ impl Sim {
             return Err(OutpostError::CantAfford);
         }
         self.corp.debit(OUTPOST_FOUND_COST);
-        self.outposts.push(Outpost { body, level: 1 });
+        // A slow build (~180 days): the outpost is laid down now but inert until `ready_tick`.
+        self.outposts.push(Outpost {
+            body,
+            level: 1,
+            ready_tick: self.tick + OUTPOST_BUILD_TICKS,
+        });
         self.complete_op();
         Ok(())
     }
 
+    /// Build progress for the outpost at `body` as `(days_remaining, total_days)`, or `None`
+    /// if there's no outpost there or it's already operational.
+    pub fn outpost_build_remaining(&self, body: usize) -> Option<u64> {
+        let o = self.outpost_at(body)?;
+        if o.is_ready(self.tick) {
+            None
+        } else {
+            Some((o.ready_tick - self.tick) / 6) // 6 ticks = 1 day
+        }
+    }
+
     /// The credit cost to develop the outpost at `body` one level (escalates with level), or
-    /// `None` if there's none there / it's maxed.
+    /// `None` if there's none there, it's maxed, or a build is still in progress.
     pub fn outpost_develop_cost(&self, body: usize) -> Option<i64> {
         let o = self.outpost_at(body)?;
-        if o.level >= MAX_OUTPOST_LEVEL {
+        if o.level >= MAX_OUTPOST_LEVEL || !o.is_ready(self.tick) {
             return None;
         }
         Some(OUTPOST_DEVELOP_BASE * o.level)
@@ -1897,22 +1930,47 @@ impl Sim {
             return Err(OutpostError::CantAfford);
         }
         self.corp.debit(cost);
+        // Developing is also a build (~120 days): raise the level now but re-arm the timer so
+        // the new capacity only comes online when construction finishes.
+        let tick = self.tick;
         if let Some(o) = self.outposts.iter_mut().find(|o| o.body == body) {
             o.level += 1;
+            o.ready_tick = tick + OUTPOST_DEVELOP_TICKS;
         }
         self.complete_op();
         Ok(())
     }
 
-    /// Each outpost pays a per-level tribute into the treasury. No-op without outposts
-    /// (byte-identical: the §7c gate + QA never see this unless the player builds one).
+    /// Each **operational** outpost pays a per-level tribute into the treasury (one still
+    /// under construction pays nothing). No-op without outposts (byte-identical).
     fn run_outposts(&mut self) {
         if self.outposts.is_empty() {
             return;
         }
+        let tick = self.tick;
+        // Announce any outpost whose construction completes exactly this tick (the "you'll be
+        // told when it's ready" payoff for the slow build).
+        let completed: Vec<usize> = self
+            .outposts
+            .iter()
+            .filter(|o| o.ready_tick != 0 && o.ready_tick == tick)
+            .map(|o| o.body)
+            .collect();
+        for body in completed {
+            let name = super::orbit::default_system()
+                .get(body)
+                .map(|b| b.name)
+                .unwrap_or("the site");
+            self.feed.announce(
+                "Foundry",
+                format!("Outpost at {name} is now operational — it joins your industrial base."),
+                tick,
+            );
+        }
         let tribute: i64 = self
             .outposts
             .iter()
+            .filter(|o| o.is_ready(tick))
             .map(|o| o.level * OUTPOST_TRIBUTE_PER_LEVEL)
             .sum();
         self.corp.credit(tribute);
@@ -2009,7 +2067,10 @@ impl Sim {
             .miners
             .iter()
             .map(|m| {
-                let bonus = if self.outpost_at(m.body).is_some() {
+                let has_ready_outpost = self
+                    .outpost_at(m.body)
+                    .is_some_and(|o| o.is_ready(self.tick));
+                let bonus = if has_ready_outpost {
                     MINER_OUTPUT_PER_TICK * OUTPOST_MINER_BONUS_BP / 10_000
                 } else {
                     0
@@ -6020,26 +6081,32 @@ mod tests {
         assert!(sim.can_found_outpost(body));
         sim.found_outpost(body).unwrap();
         assert_eq!(sim.outposts().len(), 1);
-        assert!(sim.outpost_at(body).is_some());
-        // Can't found a second on the same body.
-        assert!(!sim.can_found_outpost(body));
-        // It pays a per-level tribute each tick.
+        // Founding is a slow build (~180 days): inert while under construction.
+        assert!(!sim.outpost_at(body).unwrap().is_ready(sim.tick()));
+        assert_eq!(sim.outpost_build_remaining(body), Some(180));
         let c0 = sim.corp().credits();
         sim.step();
-        assert!(sim.corp().credits() > c0, "an outpost pays tribute");
-        // Develop raises its level (and tribute).
-        let lvl0 = sim.outpost_at(body).unwrap().level;
-        sim.develop_outpost(body).unwrap();
-        assert_eq!(sim.outpost_at(body).unwrap().level, lvl0 + 1);
-        // A miner on the outpost's body hauls to the on-site station: +50% output.
+        assert_eq!(sim.corp().credits(), c0, "an outpost under construction pays nothing");
+        // Fast-forward past the build: it comes online and pays tribute.
+        while !sim.outpost_at(body).unwrap().is_ready(sim.tick()) {
+            sim.step();
+        }
+        assert!(sim.outpost_build_remaining(body).is_none());
+        let c1 = sim.corp().credits();
+        sim.step();
+        assert!(sim.corp().credits() > c1, "an operational outpost pays tribute");
+        // A miner on the (ready) outpost's body hauls to the on-site station: +50% output.
         let mineral = sim.body_mineral(body);
         sim.buy_miner(body).unwrap();
         let before = sim.corp().cargo(mineral);
         sim.step();
         assert!(
             sim.corp().cargo(mineral) > before + MINER_OUTPUT_PER_TICK,
-            "a co-located miner is boosted by the outpost"
+            "a co-located miner is boosted by the operational outpost"
         );
+        // Developing re-arms the build timer (the new level isn't instant).
+        sim.develop_outpost(body).unwrap();
+        assert!(!sim.outpost_at(body).unwrap().is_ready(sim.tick()));
     }
 
     #[test]
