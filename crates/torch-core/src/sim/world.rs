@@ -2837,17 +2837,25 @@ impl Sim {
 
     /// Commission a civilian freighter to run trade-route standing orders (§4).
     pub fn commission_freighter(&mut self) -> Result<(), CommissionError> {
-        let hull = self.catalog.hull(ShipClass::Freighter);
-        let price = hull.dry_mass * SHIP_PRICE_PER_MASS;
-        if self.corp.credits() < price {
+        self.commission_hauler(super::corp::HaulerClass::Light)
+    }
+
+    /// Commission a hauler of `class` — the tiered version. The Light tier is byte-identical
+    /// to the old `commission_freighter` (same price + crew); the Heavy/Bulk are pricier,
+    /// crew-heavier ships that carry far more per trip (fatter routes need a real hull).
+    pub fn commission_hauler(
+        &mut self,
+        class: super::corp::HaulerClass,
+    ) -> Result<(), CommissionError> {
+        if self.corp.credits() < class.cost() {
             return Err(CommissionError::CantAfford);
         }
-        if self.corp.trained_crew() < hull.crew_required {
+        if self.corp.trained_crew() < class.crew() {
             return Err(CommissionError::NotEnoughCrew);
         }
-        self.corp.debit(price);
-        self.corp.assign_crew(hull.crew_required);
-        self.corp.add_freighter();
+        self.corp.debit(class.cost());
+        self.corp.assign_crew(class.crew());
+        self.corp.add_hauler(class, self.tick);
         self.complete_op(); // standing up logistics is progress on the climb (§0)
         Ok(())
     }
@@ -2992,7 +3000,12 @@ impl Sim {
             }
             let buy = self.markets[rt.origin].price(rt.commodity);
             let spread = self.markets[rt.dest].price(rt.commodity) - buy;
-            let cost = buy * rt.qty;
+            // A trip carries at most the best owned hauler's cargo cap (the tier throughput
+            // limit); the Light tier's cap sits above the early routes, so this is a no-op for
+            // the base economy and only bites once a player sets a route fatter than their
+            // hulls can lift.
+            let load = rt.qty.min(self.corp.best_hauler_cargo());
+            let cost = buy * load;
             // Fuel (§6): the freighter refuels with Remass at the origin port, an
             // amount scaled by the trip distance. Long outer hauls cost far more
             // fuel — the delta-v constraint as opex — and a hub that produces cheap
@@ -3000,18 +3013,18 @@ impl Sim {
             let travel = self.travel_ticks(rt.origin, rt.dest);
             let remass_units = (travel / FREIGHTER_REMASS_DIVISOR).max(1) as i64;
             let fuel_cost = remass_units * self.markets[rt.origin].price(REMASS_COMMODITY);
-            let cargo_stocked = self.markets[rt.origin].stock(rt.commodity) > rt.qty;
+            let cargo_stocked = self.markets[rt.origin].stock(rt.commodity) > load;
             let fuel_stocked = self.markets[rt.origin].stock(REMASS_COMMODITY) >= remass_units;
             if spread >= rt.min_margin
                 && cargo_stocked
                 && fuel_stocked
                 && self.corp.credits() >= cost + fuel_cost
             {
-                self.markets[rt.origin].remove_stock(rt.commodity, rt.qty);
+                self.markets[rt.origin].remove_stock(rt.commodity, load);
                 self.markets[rt.origin].remove_stock(REMASS_COMMODITY, remass_units);
                 self.corp.debit(cost + fuel_cost);
                 rt.in_transit = true;
-                rt.carrying = rt.qty;
+                rt.carrying = load;
                 rt.departed = self.tick;
                 rt.arrival = self.tick + travel;
                 in_flight += 1;
@@ -3294,6 +3307,7 @@ impl Sim {
             warehouse: self.corp.warehouse().to_vec(),
             trained_crew: self.corp.trained_crew(),
             freighters: self.corp.freighters(),
+            haulers: self.corp.haulers().to_vec(),
             scrap: self.corp.scrap(),
             schematics: self.corp.schematics().to_vec(),
             arsenal: self.corp.arsenal().to_vec(),
@@ -3421,11 +3435,24 @@ impl Sim {
                 ship
             })
             .collect();
+        // Haulers: use the saved tiered list, or rebuild Light haulers from the legacy count
+        // (old saves predate hull tiers).
+        let haulers: Vec<super::corp::Hauler> = if s.haulers.is_empty() && s.freighters > 0 {
+            (0..s.freighters)
+                .map(|_| super::corp::Hauler {
+                    class: super::corp::HaulerClass::Light,
+                    name: String::new(),
+                    commissioned_tick: 0,
+                })
+                .collect()
+        } else {
+            s.haulers.clone()
+        };
         self.corp.restore(
             s.credits,
             s.warehouse.clone(),
             s.trained_crew,
-            s.freighters,
+            haulers,
             fleet,
         );
         self.corp.set_identity(s.corp_name.clone(), s.corp_livery);
@@ -7000,6 +7027,53 @@ mod tests {
         }
         assert_eq!(a.corp().credits(), b.corp().credits());
         assert_eq!(a.miners(), b.miners());
+    }
+
+    #[test]
+    fn haulers_are_tiered_named_ships_and_the_base_buy_is_byte_identical() {
+        use crate::sim::corp::HaulerClass;
+        // The base commission is a Light hauler (the byte-identical old freighter).
+        let mut a = Sim::new(2);
+        let mut b = Sim::new(2);
+        a.corp_mut().credit(200_000);
+        b.corp_mut().credit(200_000);
+        a.commission_freighter().unwrap();
+        b.commission_hauler(HaulerClass::Light).unwrap();
+        assert_eq!(a.corp().credits(), b.corp().credits());
+        assert_eq!(a.corp().haulers(), b.corp().haulers());
+        assert_eq!(a.corp().haulers()[0].class, HaulerClass::Light);
+        assert!(!a.corp().haulers()[0].name.is_empty(), "a hauler is named");
+        // A Bulk hauler costs far more, ties up more crew, and lifts much more cargo.
+        let credits0 = a.corp().credits();
+        let crew0 = a.corp().trained_crew();
+        a.commission_hauler(HaulerClass::Bulk).unwrap();
+        assert!(credits0 - a.corp().credits() >= HaulerClass::Bulk.cost());
+        assert!(crew0 - a.corp().trained_crew() == HaulerClass::Bulk.crew());
+        assert_eq!(a.corp().best_hauler_cargo(), HaulerClass::Bulk.cargo());
+        assert!(HaulerClass::Bulk.cargo() > HaulerClass::Light.cargo());
+    }
+
+    #[test]
+    fn a_bulk_hauler_lifts_a_fatter_route_than_a_light_one() {
+        use crate::sim::corp::HaulerClass;
+        // The tier's cargo cap is the route-throughput limit (the dispatch carries
+        // min(route.qty, best_hauler_cargo)): a fat route only moves its full load once a big
+        // enough hull is in the pool.
+        let big_qty = HaulerClass::Light.cargo() + 60; // above Light's cap, within Bulk's
+        let mut light = Sim::new(5);
+        light.corp_mut().credit(2_000_000);
+        light.commission_hauler(HaulerClass::Light).unwrap();
+        let mut bulk = Sim::new(5);
+        bulk.corp_mut().credit(2_000_000);
+        bulk.commission_hauler(HaulerClass::Bulk).unwrap();
+        assert!(
+            light.corp().best_hauler_cargo() < big_qty,
+            "a Light hull caps the fat route below its qty"
+        );
+        assert!(
+            bulk.corp().best_hauler_cargo() >= big_qty,
+            "a Bulk hull lifts the fat route whole"
+        );
     }
 
     #[test]

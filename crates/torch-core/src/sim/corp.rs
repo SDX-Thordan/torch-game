@@ -39,6 +39,86 @@ pub const LIVERY: [(u8, u8, u8); 6] = [
     (235, 235, 240), // white
 ];
 
+/// A civilian **hauler's** class (§8e) — the trade-route ship now comes in tiers, each a
+/// pricier, crew-heavier, bigger-cargo asset (so a fat route needs a real ship behind it).
+/// The base **Light** hauler is byte-identical to the old single freighter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum HaulerClass {
+    #[default]
+    Light,
+    Heavy,
+    Bulk,
+}
+
+impl HaulerClass {
+    /// Max cargo a single trip can carry (the route-throughput cap). The Light tier's cap is
+    /// comfortably above the early routes, so the base economy is unchanged.
+    pub fn cargo(self) -> i64 {
+        match self {
+            HaulerClass::Light => 50,
+            HaulerClass::Heavy => 120,
+            HaulerClass::Bulk => 260,
+        }
+    }
+    /// Purchase price — the Light tier keeps the original freighter price (dry_mass 2600 × 5).
+    pub fn cost(self) -> i64 {
+        match self {
+            HaulerClass::Light => 13_000,
+            HaulerClass::Heavy => 32_000,
+            HaulerClass::Bulk => 70_000,
+        }
+    }
+    /// Trained crew the hull ties up — the Light tier keeps the freighter's 8 (byte-identical).
+    pub fn crew(self) -> i64 {
+        match self {
+            HaulerClass::Light => 8,
+            HaulerClass::Heavy => 14,
+            HaulerClass::Bulk => 22,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            HaulerClass::Light => "Light Freighter",
+            HaulerClass::Heavy => "Heavy Freighter",
+            HaulerClass::Bulk => "Bulk Hauler",
+        }
+    }
+    pub fn from_index(i: i64) -> HaulerClass {
+        match i {
+            1 => HaulerClass::Heavy,
+            2 => HaulerClass::Bulk,
+            _ => HaulerClass::Light,
+        }
+    }
+}
+
+/// Evocative names for haulers, assigned by commission order (deterministic — no RNG draw,
+/// so commissioning never perturbs the shared market RNG, §27).
+const HAULER_NAMES: [&str; 12] = [
+    "Logistics Wing",
+    "Steady Hand",
+    "Long Haul",
+    "Brass Mule",
+    "Cargo Star",
+    "Patient Maru",
+    "Freight Train",
+    "Belt Runner",
+    "Heavy Lifter",
+    "Trade Wind",
+    "Bulk Carrier",
+    "Workhorse",
+];
+
+/// One owned civilian hauler — a named, tiered trade-route ship (the dedicated-ship
+/// treatment for civilians, like a warship but for logistics).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Hauler {
+    pub class: HaulerClass,
+    pub name: String,
+    #[serde(default)]
+    pub commissioned_tick: u64,
+}
+
 /// A ship in the player's fleet: a validated fit, a christened name (§14), and an
 /// accruing **service history** (§11/§13) — the age and battle record that turn a
 /// hull into a *beloved hero ship* and make losing a veteran a felt, permanent
@@ -111,8 +191,9 @@ pub struct Corp {
     fleet: Vec<OwnedShip>,
     /// Untasked trained crew available to stand up new warships (§8c).
     trained_crew: i64,
-    /// Freighters owned, for running trade-route standing orders (§4).
-    freighters: i64,
+    /// Civilian haulers owned, for running trade-route standing orders (§4) — now individual
+    /// named, tiered ships (the dedicated-ship treatment), not a bare count.
+    haulers: Vec<Hauler>,
     /// The player's corporation name (§14 expressive identity).
     name: String,
     /// Livery colour index into [`LIVERY`] — the company's flag across the fleet.
@@ -141,7 +222,7 @@ impl Corp {
             warehouse: vec![0; commodity_count],
             fleet: Vec::new(),
             trained_crew: STARTING_CREW,
-            freighters: 0,
+            haulers: Vec::new(),
             name: CORP_NAMES[0].to_string(),
             livery: 0,
             scrap: 0,
@@ -238,13 +319,39 @@ impl Corp {
         self.livery = livery % LIVERY.len();
     }
 
+    /// The count of owned haulers (kept as the route-dispatch pool size, §4).
     pub fn freighters(&self) -> i64 {
-        self.freighters
+        self.haulers.len() as i64
     }
 
-    /// Add a freighter to the books (a commissioned civilian hauler).
+    /// Add a base Light hauler to the books (the byte-identical old `add_freighter`).
     pub fn add_freighter(&mut self) {
-        self.freighters += 1;
+        self.add_hauler(HaulerClass::Light, 0);
+    }
+
+    /// Commission a hauler of `class`, christened by order (deterministic, no RNG).
+    pub fn add_hauler(&mut self, class: HaulerClass, tick: u64) {
+        let name = HAULER_NAMES[self.haulers.len() % HAULER_NAMES.len()].to_string();
+        self.haulers.push(Hauler {
+            class,
+            name,
+            commissioned_tick: tick,
+        });
+    }
+
+    /// The owned haulers (named, tiered ships).
+    pub fn haulers(&self) -> &[Hauler] {
+        &self.haulers
+    }
+
+    /// The largest single-trip cargo cap among owned haulers (the route-throughput limit);
+    /// 0 with no haulers.
+    pub fn best_hauler_cargo(&self) -> i64 {
+        self.haulers
+            .iter()
+            .map(|h| h.class.cargo())
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn credits(&self) -> i64 {
@@ -409,13 +516,13 @@ impl Corp {
         credits: i64,
         warehouse: Vec<i64>,
         trained_crew: i64,
-        freighters: i64,
+        haulers: Vec<Hauler>,
         fleet: Vec<OwnedShip>,
     ) {
         self.credits = credits;
         self.warehouse = warehouse;
         self.trained_crew = trained_crew;
-        self.freighters = freighters;
+        self.haulers = haulers;
         self.fleet = fleet;
     }
 }
