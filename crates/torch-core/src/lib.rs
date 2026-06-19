@@ -1904,6 +1904,32 @@ impl TorchSim {
             .outpost_has_facility(body.max(0) as usize, fac_bit(kind))
     }
 
+    /// The outpost-at-`body`'s rank (0 outpost · 1 colony), or −1 if there's no outpost there.
+    #[func]
+    fn outpost_rank(&self, body: i64) -> i64 {
+        self.sim
+            .outpost_at(body.max(0) as usize)
+            .map(|o| o.rank as i64)
+            .unwrap_or(-1)
+    }
+
+    /// Whether the outpost at `body` can be promoted to a colony (maxed + all facilities).
+    #[func]
+    fn can_promote_outpost(&self, body: i64) -> bool {
+        self.sim.can_promote_outpost(body.max(0) as usize)
+    }
+
+    /// Promote the fully-built outpost at `body` to a colony. Returns a feedback message.
+    #[func]
+    fn promote_outpost(&mut self, body: i64) -> GString {
+        match self.sim.promote_outpost(body.max(0) as usize) {
+            Ok(()) => GString::from(
+                "Promotion to colony begun — a ~1-year undertaking that triples its yield.",
+            ),
+            Err(_) => GString::new(),
+        }
+    }
+
     /// Build facility `kind` (0 Mine · 1 Storage · 2 Hangar) at the outpost on `body` — a
     /// ~120-day build. Returns a feedback message (empty on failure).
     #[func]

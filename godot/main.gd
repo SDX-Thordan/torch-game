@@ -177,6 +177,7 @@ var _dev_outpost_btn: Button
 var _fac_mine_btn: Button
 var _fac_storage_btn: Button
 var _fac_hangar_btn: Button
+var _promote_btn: Button
 var _build_btn: Button
 var _expand_btn: Button
 var _court_btn: Button
@@ -1073,6 +1074,10 @@ func _build_systems_view() -> void:
 	_fac_hangar_btn = _make_op_button("⊓ Build Hangar", func(): _build_facility(2))
 	_fac_hangar_btn.visible = false
 	fo.add_child(_fac_hangar_btn)
+	# — A fully-built outpost: promote it to a colony (triples its yield).
+	_promote_btn = _make_op_button("★ Promote to Colony", _promote_outpost_here)
+	_promote_btn.visible = false
+	fo.add_child(_promote_btn)
 	# — An uninhabited body: plant your shipyard (the warship facility).
 	_build_btn = _make_op_button("⚓ Build Shipyard", _found_shipyard_here)
 	_build_btn.visible = false
@@ -1294,6 +1299,16 @@ func _develop_outpost_here() -> void:
 func _build_facility(kind: int) -> void:
 	var msg := String(sim.build_outpost_facility(_focus_body, kind))
 	status = msg if msg != "" else "Can't build that facility — need 12,000 cr, and the outpost must be operational."
+
+
+## Promote the focused (fully-built) outpost to a colony.
+func _promote_outpost_here() -> void:
+	var msg := String(sim.promote_outpost(_focus_body))
+	if msg != "":
+		ascend_flash = 1.0
+		status = msg
+	else:
+		status = "Can't promote — the outpost must be maxed, fully facilitated, and you need 90,000 cr."
 
 
 ## Buy out the independent colony on the focused body — a mid-game goal (much pricier than
@@ -3530,7 +3545,10 @@ func _refresh_object_panel() -> void:
 			# Still under construction — the slow "set it and wait" build (~180 days).
 			detail = "[color=#e6c860]⚙ Under construction[/color] — [color=#cfd8e0]%d days[/color] until it comes online (L%d)." % [bdays, lvl]
 		else:
-			detail = "[color=#78e68c]⚑ Outpost[/color] — level [color=#e6c860]L%d[/color]" % lvl
+			var is_colony: bool = sim.outpost_rank(fb) >= 1
+			var rank_name := "Colony" if is_colony else "Outpost"
+			sub = "Your %s  ·  %s" % [rank_name.to_lower(), kind]
+			detail = "[color=#78e68c]%s %s[/color] — level [color=#e6c860]L%d[/color]" % ["★" if is_colony else "⚑", rank_name, lvl]
 			var ocost: int = sim.outpost_develop_cost(fb)
 			detail += "  [color=#7a8696](→L%d: %s cr, ~120 days)[/color]" % [lvl + 1, _commas(ocost)] if ocost >= 0 else "  [color=#7a8696](max)[/color]"
 			# Facilities — the progression rungs (Mine = produces raw goods).
@@ -3541,8 +3559,12 @@ func _refresh_object_panel() -> void:
 				else:
 					facs.append("[color=#7a8696]%s[/color]" % fk[1])
 			detail += "\nFacilities: %s" % "  ".join(facs)
-			if not sim.outpost_has_facility(fb, 0):
+			if is_colony:
+				detail += "\n[color=#9fd8ff]★ Promoted colony — triple yield.[/color]"
+			elif not sim.outpost_has_facility(fb, 0):
 				detail += "\n[color=#e6a060]⚠ No Mine — produces no raw goods yet (only tribute).[/color]"
+			elif sim.can_promote_outpost(fb):
+				detail += "\n[color=#78e68c]★ Ready to promote to a Colony (★ verb below).[/color]"
 			if sim.miner_at(fb):
 				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
@@ -3602,10 +3624,12 @@ func _refresh_systems() -> void:
 		var outpost_ready: bool = has_outpost and not outpost_building
 		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
 		_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
-		# Facilities — only on an operational outpost that lacks each (the progression rungs).
-		_fac_mine_btn.visible = outpost_ready and not sim.outpost_has_facility(fb, 0)
-		_fac_storage_btn.visible = outpost_ready and not sim.outpost_has_facility(fb, 1)
-		_fac_hangar_btn.visible = outpost_ready and not sim.outpost_has_facility(fb, 2)
+		# Facilities — only on an operational *outpost* (rank 0) that lacks each.
+		var is_plain_outpost: bool = outpost_ready and sim.outpost_rank(fb) == 0
+		_fac_mine_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 0)
+		_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
+		_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
+		_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
 		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
 		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
 		_court_btn.visible = coni >= 0 and not owned
