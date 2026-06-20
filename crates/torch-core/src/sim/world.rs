@@ -39,8 +39,9 @@ const FUEL_PER_DISTANCE: i64 = 50_000;
 /// A held market reservation: `(market index, commodity, quantity)`.
 type MarketResv = Option<(usize, usize, i64)>;
 
-/// How many ticks of food a settlement keeps on hand before a hauler restocks it.
-const FOOD_BUFFER_TICKS: i64 = 60;
+/// How many ticks of food a settlement keeps on hand before a hauler restocks it. Sized above the
+/// worst hauler round-trip so even distant belt outposts get fed before they run dry.
+const FOOD_BUFFER_TICKS: i64 = 150;
 
 /// A settlement's size tier — sets its population/crew and so its **food demand** per tick. From a
 /// crewed mining **Outpost** up through a planetary **Capital**.
@@ -110,12 +111,16 @@ pub struct Colony {
 
 impl Colony {
     pub fn new(owner: PlayerId, body: usize, population: i64) -> Self {
-        Self {
+        let mut c = Self {
             owner,
             body,
             population,
             store: vec![0; commodity::commodity_count()],
-        }
+        };
+        // Start with a full food larder so the population isn't starving at tick 0.
+        let food = c.food_demand() * FOOD_BUFFER_TICKS;
+        c.add(commodity::FOOD, food);
+        c
     }
     pub fn add(&mut self, c: usize, qty: i64) {
         if let Some(s) = self.store.get_mut(c) {
@@ -147,11 +152,15 @@ pub struct MiningStation {
 
 impl MiningStation {
     pub fn new(owner: PlayerId, body: usize) -> Self {
-        Self {
+        let mut s = Self {
             owner,
             body,
             store: vec![0; commodity::commodity_count()],
-        }
+        };
+        // Start with a full food larder for the crew.
+        let food = s.food_demand() * FOOD_BUFFER_TICKS;
+        s.add(commodity::FOOD, food);
+        s
     }
     pub fn add(&mut self, c: usize, qty: i64) {
         if let Some(s) = self.store.get_mut(c) {
@@ -1306,17 +1315,18 @@ mod tests {
 
     #[test]
     fn mining_stations_extract_their_bodys_raw_into_a_local_store() {
+        let raw = super::super::commodity::raw_count();
         let mut sim = Sim::new(0);
-        // The human's belt mining station accrues raw over time.
-        let s0: i64 = sim.mining_stations[0].store.iter().sum();
-        assert_eq!(s0, 0, "starts empty");
+        // The human's belt mining station accrues *raw* over time (food larder excluded).
+        let raw0: i64 = (0..raw).map(|c| sim.mining_stations[0].get(c)).sum();
+        assert_eq!(raw0, 0, "no raw mined yet");
         for _ in 0..50 {
             sim.step();
         }
-        let s1: i64 = sim.mining_stations[0].store.iter().sum();
+        let raw1: i64 = (0..raw).map(|c| sim.mining_stations[0].get(c)).sum();
         assert!(
-            s1 > 0,
-            "the station mined its body's raw into its store ({s1})"
+            raw1 > 0,
+            "the station mined its body's raw into its store ({raw1})"
         );
     }
 

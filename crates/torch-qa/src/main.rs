@@ -1,32 +1,22 @@
-//! `torch-qa` — play TORCH automatically and print a gameplay review.
+//! `torch-qa` — run the TORCH economy assessment renderless and print the report.
 //!
-//! Usage:
-//! ```text
-//! cargo run -p torch-qa                 # seed 7, 4000 ticks
-//! cargo run -p torch-qa -- <seed> <ticks>
-//! cargo run -p torch-qa -- 7 4000 > review.md
-//! ```
-//! Set `TORCH_QA_OUT=<dir>` to also write the report to a file in that dir.
+//! Usage: `cargo run -p torch-qa [--release] -- [TICKS] [SEED_COUNT]`
+//! Defaults: 6000 ticks × 8 seeds (0..8). Exits non-zero if any finding is a failure, so it can
+//! gate CI.
 
-use std::io::Write as _;
+use std::process::ExitCode;
 
-fn main() {
-    let mut args = std::env::args().skip(1);
-    let seed: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(7);
-    let ticks: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(4_000);
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().collect();
+    let ticks: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(6_000);
+    let seed_count: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(8);
+    let seeds: Vec<u64> = (0..seed_count).collect();
 
-    let report = torch_qa::render_report(seed, ticks);
-    print!("{report}");
+    let report = torch_qa::assess(&seeds, ticks);
+    print!("{}", report.render());
 
-    if let Ok(dir) = std::env::var("TORCH_QA_OUT") {
-        let path = std::path::Path::new(&dir).join(format!("gameplay-review-seed{seed}.md"));
-        match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, &report)) {
-            Ok(()) => {
-                let _ = writeln!(std::io::stderr(), "wrote {}", path.display());
-            }
-            Err(e) => {
-                let _ = writeln!(std::io::stderr(), "could not write {}: {e}", path.display());
-            }
-        }
+    match report.worst() {
+        torch_qa::Severity::Fail => ExitCode::FAILURE,
+        _ => ExitCode::SUCCESS,
     }
 }
