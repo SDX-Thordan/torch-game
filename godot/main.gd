@@ -1434,24 +1434,30 @@ func _develop_focused_colony() -> void:
 	status = msg if msg != "" else "Can't develop %s — it's maxed, or you're short on credits." % String(sim.colony_name(ci))
 
 
-## The colony index sitting on `body`, or -1 (object→index lookup for contextual actions).
-func _colony_index_for_body(body: int) -> int:
+## Index of the entity sitting on `body` (or -1), found by walking a count/accessor
+## pair — the shared object→index lookup behind the contextual actions.
+func _find_index_at_body(body: int, count: Callable, body_at: Callable) -> int:
 	if body <= 0:
 		return -1
-	for i in sim.colony_count():
-		if sim.colony_body(i) == body:
+	for i in int(count.call()):
+		if int(body_at.call(i)) == body:
 			return i
 	return -1
+
+
+## The colony index sitting on `body`, or -1.
+func _colony_index_for_body(body: int) -> int:
+	return _find_index_at_body(body, sim.colony_count, sim.colony_body)
 
 
 ## The contested-hub index sitting on `body`, or -1.
 func _contested_index_for_body(body: int) -> int:
-	if body <= 0:
-		return -1
-	for i in sim.contested_count():
-		if sim.contested_body(i) == body:
-			return i
-	return -1
+	return _find_index_at_body(body, sim.contested_count, sim.contested_body)
+
+
+## Centre the camera on the colony at index `idx` (a holding just changed hands).
+func _focus_holding(idx: int) -> void:
+	_focus_body = sim.colony_body(idx)
 
 
 ## Send every docked warship on a committed trajectory to the focused world (§6).
@@ -1647,7 +1653,7 @@ func _acquire_colony() -> void:
 		0:
 			ascend_flash = 1.0
 			status = "⊕ %s joins the company — the inners are watching." % name
-			_focus_body = sim.colony_body(best)
+			_focus_holding(best)
 		3:
 			status = "Not enough credits to acquire %s (needs %d cr)." % [name, best_cost]
 		_:
@@ -1675,7 +1681,7 @@ func _annex_colony() -> void:
 		0:
 			ascend_flash = 1.0
 			status = "⊕ %s joins us by treaty — cleaner than coin." % name
-			_focus_body = sim.colony_body(target)
+			_focus_holding(target)
 		3:
 			status = "The Independents don't trust us enough to annex %s yet." % name
 		4:
@@ -1705,7 +1711,7 @@ func _seize_colony() -> void:
 		1:
 			ascend_flash = 1.0
 			status = "⚔ %s taken by force — the owner will not forget this." % name
-			_focus_body = sim.colony_body(target)
+			_focus_holding(target)
 			_open_diorama()
 		0:
 			flash = 1.0
