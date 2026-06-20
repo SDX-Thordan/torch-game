@@ -280,7 +280,8 @@ func _toggle_escape_menu() -> void:
 
 
 func _save_path() -> String:
-	return "user://torch_save.bin"
+	# The Rust core writes via std::fs, so hand it a real OS path, not a Godot user:// URI.
+	return ProjectSettings.globalize_path("user://torch_save.bin")
 
 
 func _save_game() -> void:
