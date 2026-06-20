@@ -201,22 +201,20 @@ impl Market {
         self.reserved_in[c] = (self.reserved_in[c] - qty.max(0)).max(0);
     }
 
-    /// A hauler lifts `qty` of `c` out of the market: returns the cost (price sampled on the
-    /// pre-trade stock), removes the stock (reprices), and releases the full buy reservation.
+    /// Move `qty` of `c` out of the market (a buy): returns the cost (price sampled on the
+    /// pre-trade stock) and removes the stock (reprices). The caller releases the reservation.
     pub fn execute_buy(&mut self, c: usize, qty: i64) -> i64 {
         let q = qty.max(0).min(self.stocks[c].stock);
         let cost = q * self.stocks[c].price;
         self.remove_stock(c, q);
-        self.release_buy(c, qty);
         cost
     }
-    /// A hauler dumps `qty` of `c` into the market: returns the revenue (pre-trade price), adds
-    /// the stock (reprices), and releases the sell reservation.
+    /// Move `qty` of `c` into the market (a sell): returns the revenue (pre-trade price) and adds
+    /// the stock (reprices). The caller releases the reservation.
     pub fn execute_sell(&mut self, c: usize, qty: i64) -> i64 {
         let q = qty.max(0);
         let revenue = q * self.stocks[c].price;
         self.add_stock(c, q);
-        self.release_sell(c, qty);
         revenue
     }
 
@@ -354,11 +352,12 @@ mod tests {
             m.reserved_out(c) <= m.stock(c),
             "invariant: reserved ≤ stock"
         );
-        // Execute the buy: stock drops, reservation released, cost = pre-trade price × qty.
+        // Execute the buy (cost = pre-trade price × qty), then the caller releases the reservation.
         let price = m.price(c);
         let cost = m.execute_buy(c, 100);
+        m.release_buy(c, 100);
         assert_eq!(cost, 100 * price);
-        assert_eq!(m.reserved_out(c), 0, "reservation released on execute");
+        assert_eq!(m.reserved_out(c), 0, "reservation released by the caller");
         assert!(m.stock(c) < stock0, "buy removed stock");
         assert_eq!(m.available_to_buy(c), m.stock(c) - m.wall_low(c));
         // Sell side: reserve_sell reduces headroom; execute_sell adds stock + revenue.
@@ -367,6 +366,7 @@ mod tests {
         assert_eq!(m.headroom_to_sell(c), head0 - 50);
         let s_before = m.stock(c);
         let rev = m.execute_sell(c, 50);
+        m.release_sell(c, 50);
         assert!(rev > 0 && m.stock(c) > s_before);
         assert_eq!(m.reserved_in(c), 0);
     }

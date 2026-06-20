@@ -19,6 +19,14 @@ use serde::{Deserialize, Serialize};
 
 /// Minimum surplus at a source before a hauler bothers to pick it up (and the min load).
 const LOAD_MIN: i64 = 40;
+/// Basis-point denominator + the brokerage fee (the volume-scaled money sink) on each market leg.
+const BP: i64 = 10_000;
+const BROKER_FEE_BP: i64 = 200;
+/// Flat utility for keeping a starved facility/colony fed — high so supply beats small arbitrage
+/// (it only fires when a consumer is actually below its low-water mark).
+const SUPPLY_BONUS: i64 = 80_000;
+/// Credit-equivalent of one fuel unit, used only to *score* (deter) long hauls — not charged.
+const EST_FUEL_CREDIT: i64 = 60;
 /// A mining station / colony local raw store cap (so it stops digging when a hauler isn't
 /// collecting — bounds the world even when logistics stalls).
 const STATION_STORE_CAP: i64 = 1_000;
@@ -27,6 +35,9 @@ const STATION_STORE_CAP: i64 = 1_000;
 const SPEED_UNIT: i64 = 1_000;
 /// Distance units burned per unit of Fusion Fuel on a flight (lump-sum at departure).
 const FUEL_PER_DISTANCE: i64 = 50_000;
+
+/// A held market reservation: `(market index, commodity, quantity)`.
+type MarketResv = Option<(usize, usize, i64)>;
 
 /// Raw extracted per tick from a body whose abundance (0..=~252) is `abundance`. 0 if the body
 /// has none of that good; otherwise a small deterministic integer rate. No RNG.
@@ -221,6 +232,16 @@ impl Sim {
 
     /// Mining stations (and abundant colonies) extract their body's raw goods into a local store
     /// each tick, scaled by the body's abundance and capped. No RNG — fully deterministic.
+    /// Test baseline: advance only the market stabilizers (no trade), so markets rest at their
+    /// specialized setpoints — the wide-spread baseline arbitrage is measured against.
+    #[cfg(test)]
+    fn step_markets_only(&mut self) {
+        self.tick += 1;
+        for m in &mut self.markets {
+            m.step(&mut self.rng);
+        }
+    }
+
     fn run_extraction(&mut self) {
         let raw = commodity::raw_count();
         for st in &mut self.mining_stations {
@@ -258,21 +279,95 @@ impl Sim {
         }
     }
 
-    /// The object-driven logistics brain: each idle hauler (deterministic, fixed ship-index order)
-    /// commits to a job and runs it — pick up raw/output at a source, fly, drop off at a facility
-    /// or a demand-center sink (crediting the owner). Replaces the old global sink drain.
+    /// The greedy object-driven trade brain: each idle civilian hauler (deterministic, fixed
+    /// ship-index order) scores candidate jobs by value, commits to the best, **reserves** the
+    /// quantities at the markets so the next hauler fans out, and runs the job. Reservations are
+    /// freed on abandon / ship loss.
     fn run_logistics(&mut self) {
         for i in 0..self.ships.len() {
             if self.ships[i].class != ShipClass::Hauler || self.ships[i].in_flight() {
                 continue;
             }
             let owner = self.ships[i].owner;
-            // Assign a job if idle.
             if self.ships[i].job.is_none() {
-                self.ships[i].job = self.find_job(owner, self.ships[i].body);
+                let cap = super::ship::ship_stats(&self.ships[i]).cargo_capacity;
+                if let Some(job) = self.find_job(owner, self.ships[i].body, cap) {
+                    self.commit_reservations(&job);
+                    self.ships[i].job = Some(job);
+                }
             }
-            // Process the job — possibly load+launch, or unload, within this tick.
             self.service_hauler(i);
+        }
+    }
+
+    /// The two market reservations a job holds in its current phase: `(buy@from, sell@to)`, each
+    /// `(market, commodity, qty)`. A `ToPickup` job holds both (if those legs are markets); a
+    /// `ToDropoff` job has already executed its buy, so it holds only the sell. The single source
+    /// of truth shared by commit / free / reload.
+    fn job_reservations(job: &Job) -> (MarketResv, MarketResv) {
+        let sell = match job.to {
+            SiteRef::Market { market, commodity } => Some((market, commodity, job.qty)),
+            _ => None,
+        };
+        let buy = match (job.phase, job.from) {
+            (JobPhase::ToPickup, SiteRef::Market { market, commodity }) => {
+                Some((market, commodity, job.qty))
+            }
+            _ => None,
+        };
+        (buy, sell)
+    }
+
+    fn commit_reservations(&mut self, job: &Job) {
+        let (buy, sell) = Self::job_reservations(job);
+        if let Some((m, c, q)) = buy {
+            self.markets[m].reserve_buy(c, q);
+        }
+        if let Some((m, c, q)) = sell {
+            self.markets[m].reserve_sell(c, q);
+        }
+    }
+
+    /// Release a ship's outstanding market reservations (job abandoned, or — future — ship
+    /// destroyed). A `// COMBAT HOOK`: a future `destroy_ship(i)` MUST call this before removing the
+    /// ship, or the reservation leaks and depresses availability forever.
+    fn free_reservations(&mut self, i: usize) {
+        if let Some(job) = self.ships[i].job {
+            let (buy, sell) = Self::job_reservations(&job);
+            if let Some((m, c, q)) = buy {
+                self.markets[m].release_buy(c, q);
+            }
+            if let Some((m, c, q)) = sell {
+                self.markets[m].release_sell(c, q);
+            }
+        }
+    }
+
+    /// Re-place the reservations for every in-flight job after a load (the markets' reservation
+    /// counters are a derived cache; this rebuilds them). Wired into `from_save`.
+    #[allow(dead_code)]
+    fn reapply_reservations(&mut self) {
+        for i in 0..self.ships.len() {
+            if let Some(job) = self.ships[i].job {
+                let (buy, sell) = Self::job_reservations(&job);
+                if let Some((m, c, q)) = buy {
+                    self.markets[m].reserve_buy(c, q);
+                }
+                if let Some((m, c, q)) = sell {
+                    self.markets[m].reserve_sell(c, q);
+                }
+            }
+        }
+    }
+
+    fn credit(&mut self, owner: PlayerId, amount: i64) {
+        if let Some(p) = self.players.get_mut(owner as usize) {
+            p.credits += amount;
+        }
+    }
+    fn debit(&mut self, owner: PlayerId, amount: i64) {
+        if let Some(p) = self.players.get_mut(owner as usize) {
+            p.credits -= amount;
         }
     }
 
@@ -298,23 +393,45 @@ impl Sim {
             JobPhase::ToDropoff => self.site_body(job.to),
         };
         if self.ships[i].body != target {
-            // Not there yet — fly. If it can't (no fuel), drop the job to re-decide later.
+            // Not there yet — fly. If it can't (no fuel), free the reservations + drop the job.
             if !self.launch_ship(i, target) && !self.ships[i].in_flight() {
+                self.free_reservations(i);
                 self.ships[i].job = None;
             }
             return;
         }
         match job.phase {
             JobPhase::ToPickup => {
-                let cap = super::ship::ship_stats(&self.ships[i]).cargo_capacity;
-                let avail = self.site_available(job.from, job.good);
-                let qty = cap.min(avail);
-                if qty <= 0 {
+                let q = match job.from {
+                    // Buy from a market: pay the cost + broker fee, lift stock, release the buy
+                    // reservation (the full committed qty).
+                    SiteRef::Market { market, commodity } => {
+                        let avail = self.markets[market].available_to_buy(commodity);
+                        let q = job.qty.min(avail).max(0);
+                        let cost = self.markets[market].execute_buy(commodity, q);
+                        self.markets[market].release_buy(commodity, job.qty);
+                        let fee = cost * BROKER_FEE_BP / BP;
+                        self.debit(owner, cost + fee);
+                        q
+                    }
+                    // Pick up a producer's goods (owner-internal — no payment).
+                    _ => {
+                        let want = if job.qty > 0 {
+                            job.qty
+                        } else {
+                            super::ship::ship_stats(&self.ships[i]).cargo_capacity
+                        };
+                        let q = want.min(self.site_available(job.from, job.good)).max(0);
+                        self.site_take(job.from, job.good, q);
+                        q
+                    }
+                };
+                if q <= 0 {
+                    self.free_reservations(i);
                     self.ships[i].job = None; // source dried up — re-decide
                     return;
                 }
-                self.site_take(job.from, job.good, qty);
-                self.ships[i].add_cargo(job.good, qty);
+                self.ships[i].add_cargo(job.good, q);
                 self.ships[i].job = Some(Job {
                     phase: JobPhase::ToDropoff,
                     ..job
@@ -325,7 +442,17 @@ impl Sim {
             JobPhase::ToDropoff => {
                 let qty = self.ships[i].cargo_of(job.good);
                 self.ships[i].add_cargo(job.good, -qty);
-                self.deliver(job.to, job.good, qty, owner);
+                match job.to {
+                    // Sell into a market: receive revenue − fee, release the sell reservation.
+                    SiteRef::Market { market, commodity } => {
+                        let revenue = self.markets[market].execute_sell(commodity, qty);
+                        self.markets[market].release_sell(commodity, job.qty);
+                        let fee = revenue * BROKER_FEE_BP / BP;
+                        self.credit(owner, revenue - fee);
+                    }
+                    // Deposit into the owner's own facility/colony/station (no payment).
+                    _ => self.deliver(job.to, job.good, qty, owner),
+                }
                 self.ships[i].job = None;
             }
         }
@@ -367,34 +494,108 @@ impl Sim {
         }
     }
 
-    /// Pick a job for an idle hauler (deterministic, fixed scan order): (a) feed a starved
-    /// same-owner facility from a same-owner raw source; (b) sell a facility's output to its best
-    /// sink; (c) haul a raw surplus with no local consumer to its sink.
-    fn find_job(&self, owner: PlayerId, at_body: usize) -> Option<Job> {
-        use super::facility::FACILITY_LOW_WATER;
-        // (a) **sell** a facility's accumulated output to its best sink (checked first so feeding
-        //     never monopolizes the haulers and output actually turns into credits).
-        for (j, f) in self.facilities.iter().enumerate() {
-            if f.owner != owner {
-                continue;
+    /// The greedy utility-AI: enumerate candidate jobs for an idle hauler (fixed scan order),
+    /// score each by integer **value**, and return the best (value↓ → distance↑ → enumeration
+    /// index↑). Candidates: (A) sell the owner's producer output/raw into the best market; (B)
+    /// arbitrage cheap market A → dear market B; (C) supply the owner's starved facility/colony by
+    /// buying input from the cheapest market.
+    fn find_job(&self, owner: PlayerId, at_body: usize, cap: i64) -> Option<Job> {
+        use super::facility::{FACILITY_INPUT_CAP, FACILITY_LOW_WATER};
+        let dist2 = |a: usize, b: usize| {
+            orbit::distance(&self.bodies, at_body, a, self.tick)
+                + orbit::distance(&self.bodies, a, b, self.tick)
+        };
+        let fuel_est = |d: i64| (d / FUEL_PER_DISTANCE).max(0) * EST_FUEL_CREDIT;
+        let mut cands: Vec<(i64, i64, Job)> = Vec::new();
+
+        // (A) sell producer output (facilities) + orphan raw (stations/colonies) into a market.
+        let mut sell_from = |s: &Self, good: usize, avail: i64, src: SiteRef, src_body: usize| {
+            if avail < LOAD_MIN {
+                return;
             }
-            let out = f.kind.recipe().out;
-            if f.output_of(out) >= LOAD_MIN {
-                if let Some(market) = self.best_sell_market(out, at_body) {
-                    return Some(Job {
-                        good: out,
-                        from: SiteRef::Facility(j),
+            if let Some(m) = s.best_sell_market(good, src_body) {
+                let qty = cap.min(avail).min(s.markets[m].headroom_to_sell(good));
+                if qty < LOAD_MIN {
+                    return;
+                }
+                let gross = s.markets[m].price(good) * qty;
+                let d = dist2(src_body, s.markets[m].body());
+                let value = gross - gross * BROKER_FEE_BP / BP - fuel_est(d);
+                cands.push((
+                    value,
+                    d,
+                    Job {
+                        good,
+                        from: src,
                         to: SiteRef::Market {
-                            market,
-                            commodity: out,
+                            market: m,
+                            commodity: good,
                         },
                         phase: JobPhase::ToPickup,
-                        qty: 0,
-                    });
+                        qty,
+                    },
+                ));
+            }
+        };
+        for (j, f) in self.facilities.iter().enumerate() {
+            if f.owner == owner {
+                let out = f.kind.recipe().out;
+                sell_from(self, out, f.output_of(out), SiteRef::Facility(j), f.body);
+            }
+        }
+        for (k, st) in self.mining_stations.iter().enumerate() {
+            if st.owner == owner {
+                for raw in 0..commodity::raw_count() {
+                    if !self.owner_consumes(owner, raw) {
+                        sell_from(self, raw, st.get(raw), SiteRef::Station(k), st.body);
+                    }
                 }
             }
         }
-        // (b) feed a starved facility from a same-owner raw source.
+
+        // (B) arbitrage: cheap market A → dear market B (any hauler, on its own account).
+        for a in 0..self.markets.len() {
+            for b in 0..self.markets.len() {
+                if a == b {
+                    continue;
+                }
+                for g in 0..commodity::commodity_count() {
+                    let (pa, pb) = (self.markets[a].price(g), self.markets[b].price(g));
+                    if pb <= pa {
+                        continue;
+                    }
+                    let qty = cap
+                        .min(self.markets[a].available_to_buy(g))
+                        .min(self.markets[b].headroom_to_sell(g));
+                    if qty < LOAD_MIN {
+                        continue;
+                    }
+                    let gross = (pb - pa) * qty;
+                    let d = dist2(self.markets[a].body(), self.markets[b].body());
+                    let fees = (pa * qty + pb * qty) * BROKER_FEE_BP / BP;
+                    let value = gross - fees - fuel_est(d);
+                    cands.push((
+                        value,
+                        d,
+                        Job {
+                            good: g,
+                            from: SiteRef::Market {
+                                market: a,
+                                commodity: g,
+                            },
+                            to: SiteRef::Market {
+                                market: b,
+                                commodity: g,
+                            },
+                            phase: JobPhase::ToPickup,
+                            qty,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // (C) supply a starved same-owner facility (buy input from the cheapest market).
         for (j, f) in self.facilities.iter().enumerate() {
             if f.owner != owner {
                 continue;
@@ -403,57 +604,60 @@ impl Sim {
             if f.input_of(input) >= FACILITY_LOW_WATER {
                 continue;
             }
-            if let Some(from) = self.find_raw_source(owner, input) {
-                return Some(Job {
-                    good: input,
-                    from,
-                    to: SiteRef::Facility(j),
-                    phase: JobPhase::ToPickup,
-                    qty: 0,
-                });
-            }
-        }
-        // (c) raw with no local consumer → sell to the best market.
-        for (k, st) in self.mining_stations.iter().enumerate() {
-            if st.owner != owner {
-                continue;
-            }
-            for raw in 0..commodity::raw_count() {
-                if st.get(raw) >= LOAD_MIN && !self.owner_consumes(owner, raw) {
-                    if let Some(market) = self.best_sell_market(raw, at_body) {
-                        return Some(Job {
-                            good: raw,
-                            from: SiteRef::Station(k),
-                            to: SiteRef::Market {
-                                market,
-                                commodity: raw,
-                            },
-                            phase: JobPhase::ToPickup,
-                            qty: 0,
-                        });
-                    }
+            if let Some(m) = self.best_buy_market(input, f.body) {
+                let qty = cap
+                    .min(self.markets[m].available_to_buy(input))
+                    .min(FACILITY_INPUT_CAP - f.input_of(input));
+                if qty < LOAD_MIN {
+                    continue;
                 }
+                let cost = self.markets[m].price(input) * qty;
+                let d = dist2(self.markets[m].body(), f.body);
+                let value = SUPPLY_BONUS - cost - fuel_est(d);
+                cands.push((
+                    value,
+                    d,
+                    Job {
+                        good: input,
+                        from: SiteRef::Market {
+                            market: m,
+                            commodity: input,
+                        },
+                        to: SiteRef::Facility(j),
+                        phase: JobPhase::ToPickup,
+                        qty,
+                    },
+                ));
             }
         }
-        None
+
+        // Pick the best: value↓ → distance↑ → enumeration-index↑ (a full deterministic order).
+        cands
+            .iter()
+            .enumerate()
+            .filter(|(_, (v, _, _))| *v > 0)
+            .max_by(|(ia, a), (ib, b)| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(ib.cmp(ia)))
+            .map(|(_, (_, _, job))| *job)
     }
 
-    /// A same-owner station/colony with a pickup-worthy surplus of raw good `good`.
-    fn find_raw_source(&self, owner: PlayerId, good: usize) -> Option<SiteRef> {
-        for (k, st) in self.mining_stations.iter().enumerate() {
-            if st.owner == owner && st.get(good) >= LOAD_MIN {
-                return Some(SiteRef::Station(k));
-            }
-        }
-        for (c, col) in self.colonies.iter().enumerate() {
-            if col.owner == owner && col.get(good) >= LOAD_MIN {
-                return Some(SiteRef::Colony(c));
-            }
-        }
-        None
+    /// The cheapest market to **buy** `good` from `at_body` (with stock available): lowest price →
+    /// nearest → lowest index.
+    fn best_buy_market(&self, good: usize, at_body: usize) -> Option<usize> {
+        let tick = self.tick;
+        let dist = |m: usize| orbit::distance(&self.bodies, at_body, self.markets[m].body(), tick);
+        (0..self.markets.len())
+            .filter(|&m| self.markets[m].available_to_buy(good) >= LOAD_MIN)
+            .min_by(|&a, &b| {
+                self.markets[a]
+                    .price(good)
+                    .cmp(&self.markets[b].price(good))
+                    .then(dist(a).cmp(&dist(b)))
+                    .then(a.cmp(&b))
+            })
     }
 
-    /// Whether `owner` has a facility that consumes raw `good` (so it shouldn't be dumped to a sink).
+    /// Whether `owner` has a facility that consumes raw `good` (so it's kept for that facility
+    /// rather than sold off).
     fn owner_consumes(&self, owner: PlayerId, good: usize) -> bool {
         self.facilities
             .iter()
@@ -717,6 +921,78 @@ mod tests {
                 p.credits
             );
         }
+    }
+
+    #[test]
+    fn the_market_economy_is_living_and_bounded() {
+        // Under full hauler traffic across many seeds: no market price ever pins to a rail (the
+        // §7c structural guarantee), reservations never drive availability negative, and prices
+        // visibly vary (it's living, not static). Credits grow but stay bounded + positive.
+        let goods = super::super::commodity::commodity_count();
+        for seed in 0..16u64 {
+            let mut sim = Sim::new(seed);
+            let g = super::super::commodity::ALLOYS;
+            let (mut pmin, mut pmax) = (i64::MAX, i64::MIN);
+            for _ in 0..1_500 {
+                sim.step();
+                for m in sim.markets() {
+                    for c in 0..goods {
+                        let d = &m.defs()[c];
+                        assert!(
+                            m.price(c) > d.floor && m.price(c) < d.ceiling,
+                            "seed {seed}: price pinned to a rail"
+                        );
+                        assert!(m.available_to_buy(c) >= 0, "availability never negative");
+                    }
+                }
+                let p = sim.markets()[0].price(g);
+                pmin = pmin.min(p);
+                pmax = pmax.max(p);
+            }
+            assert!(
+                pmax - pmin > 10,
+                "seed {seed}: prices should vary (living), got {pmin}..{pmax}"
+            );
+            // Credits positive + not absurd (bounded by production throughput, not runaway).
+            let total: i64 = sim.players().iter().map(|p| p.credits).sum();
+            assert!(
+                total > 0 && total < 1_000_000_000,
+                "seed {seed}: credits bounded ({total})"
+            );
+            for p in sim.players() {
+                assert!(p.credits >= 0, "seed {seed}: {} insolvent", p.name);
+            }
+        }
+    }
+
+    #[test]
+    fn arbitrage_damps_the_inter_market_spread() {
+        use super::super::commodity::ALLOYS;
+        // With haulers trading, the Alloys spread between the cheap (Ceres) and dear (Earth) hubs
+        // is smaller than a no-logistics baseline where the stabilizers hold the setpoints apart.
+        let spread = |run_haulers: bool| -> i64 {
+            let mut sim = Sim::new(0);
+            let mut acc = 0i64;
+            let mut n = 0i64;
+            for t in 0..3_000 {
+                if run_haulers {
+                    sim.step();
+                } else {
+                    sim.step_markets_only();
+                }
+                if t >= 1_000 {
+                    acc += (sim.markets()[0].price(ALLOYS) - sim.markets()[2].price(ALLOYS)).abs();
+                    n += 1;
+                }
+            }
+            acc / n.max(1)
+        };
+        let traded = spread(true);
+        let baseline = spread(false);
+        assert!(
+            traded < baseline,
+            "arbitrage should compress the spread: traded {traded} vs baseline {baseline}"
+        );
     }
 
     #[test]
