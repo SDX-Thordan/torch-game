@@ -11,10 +11,10 @@ use super::ship::Ship;
 use super::world::{Colony, MiningStation};
 use serde::{Deserialize, Serialize};
 
-/// Bumped whenever the on-disk shape changes; load refuses mismatches. v3 = the locational
-/// logistics rebuild — entities now carry stores/cargo/movement state (prior dev saves are
-/// intentionally incompatible).
-pub const SAVE_VERSION: u32 = 3;
+/// Bumped whenever the on-disk shape changes; load refuses mismatches. v4 = the market-trade
+/// rebuild — jobs carry a reserved `qty` and the sinks are gone (prior dev saves are intentionally
+/// incompatible). Market reservations aren't stored; they're rebuilt from in-flight jobs on load.
+pub const SAVE_VERSION: u32 = 4;
 
 /// One market's dynamic state — the stock/price pair per good (price-defs rebuilt from code).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

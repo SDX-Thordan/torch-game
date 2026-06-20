@@ -357,7 +357,6 @@ impl Sim {
 
     /// Re-place the reservations for every in-flight job after a load (the markets' reservation
     /// counters are a derived cache; this rebuilds them). Wired into `from_save`.
-    #[allow(dead_code)]
     fn reapply_reservations(&mut self) {
         for i in 0..self.ships.len() {
             if let Some(job) = self.ships[i].job {
@@ -414,34 +413,37 @@ impl Sim {
         }
         match job.phase {
             JobPhase::ToPickup => {
+                // Peek the available quantity (no mutation yet, so the abandon path can release
+                // every still-held reservation exactly once via free_reservations).
                 let q = match job.from {
-                    // Buy from a market: pay the cost + broker fee, lift stock, release the buy
-                    // reservation (the full committed qty).
-                    SiteRef::Market { market, commodity } => {
-                        let avail = self.markets[market].available_to_buy(commodity);
-                        let q = job.qty.min(avail).max(0);
-                        let cost = self.markets[market].execute_buy(commodity, q);
-                        self.markets[market].release_buy(commodity, job.qty);
-                        let fee = cost * BROKER_FEE_BP / BP;
-                        self.debit(owner, cost + fee);
-                        q
-                    }
-                    // Pick up a producer's goods (owner-internal — no payment).
+                    SiteRef::Market { market, commodity } => job
+                        .qty
+                        .min(self.markets[market].available_to_buy(commodity))
+                        .max(0),
                     _ => {
                         let want = if job.qty > 0 {
                             job.qty
                         } else {
                             super::ship::ship_stats(&self.ships[i]).cargo_capacity
                         };
-                        let q = want.min(self.site_available(job.from, job.good)).max(0);
-                        self.site_take(job.from, job.good, q);
-                        q
+                        want.min(self.site_available(job.from, job.good)).max(0)
                     }
                 };
                 if q <= 0 {
-                    self.free_reservations(i);
-                    self.ships[i].job = None; // source dried up — re-decide
+                    self.free_reservations(i); // source dried up — release everything, re-decide
+                    self.ships[i].job = None;
                     return;
+                }
+                // Execute the pickup: a market buy pays cost + fee and releases its buy reservation;
+                // a producer pickup is owner-internal (no payment, no reservation).
+                match job.from {
+                    SiteRef::Market { market, commodity } => {
+                        let cost = self.markets[market].execute_buy(commodity, q);
+                        self.markets[market].release_buy(commodity, job.qty);
+                        let fee = cost * BROKER_FEE_BP / BP;
+                        self.debit(owner, cost + fee);
+                    }
+                    _ => self.site_take(job.from, job.good, q),
                 }
                 self.ships[i].add_cargo(job.good, q);
                 self.ships[i].job = Some(Job {
@@ -863,8 +865,11 @@ impl Sim {
         for (m, ms) in sim.markets.iter_mut().zip(&s.markets) {
             m.restore_stocks(&ms.stocks, &ms.prices);
         }
-        // Re-seed the rng to the loaded tick's expectations: the rng only feeds market noise,
-        // which is overwritten by restore_stocks, so a fresh rng is fine.
+        // Market reservations are a derived cache (zeroed by restore_stocks): rebuild them from
+        // the loaded in-flight jobs so availability matches a sim that ran to this tick.
+        sim.reapply_reservations();
+        // The rng only feeds market noise, which is overwritten by restore_stocks, so a fresh rng
+        // is fine.
         sim
     }
 
@@ -1071,18 +1076,33 @@ mod tests {
         let b = Sim::load_bytes(&bytes).expect("a save reloads");
         assert_eq!(a.to_save(), b.to_save());
         assert_eq!(a.tick(), b.tick());
-        // A reloaded in-flight ship keeps its arrival + cargo.
+        // A reloaded in-flight ship keeps its arrival + cargo + reserved job qty.
         let fi = a.ships().iter().position(|s| s.in_flight()).unwrap();
         assert_eq!(a.ships()[fi].arrival, b.ships()[fi].arrival);
         assert_eq!(a.ships()[fi].cargo, b.ships()[fi].cargo);
+        // Market reservations are rebuilt on load — they match the live sim good-for-good.
+        for (ma, mb) in a.markets().iter().zip(b.markets()) {
+            for c in 0..super::super::commodity::commodity_count() {
+                assert_eq!(
+                    ma.reserved_out(c),
+                    mb.reserved_out(c),
+                    "buy reservation rebuilt"
+                );
+                assert_eq!(
+                    ma.reserved_in(c),
+                    mb.reserved_in(c),
+                    "sell reservation rebuilt"
+                );
+            }
+        }
         // JSON round-trip.
         let json = a.save_json();
         assert!(json.starts_with('{'));
         let c = Sim::load_bytes(json.as_bytes()).expect("json reloads");
         assert_eq!(a.to_save(), c.to_save());
-        // The v2 gate rejects an old version.
+        // The version gate rejects an older save.
         let mut old = a.to_save();
-        old.version = 2;
+        old.version = 3;
         assert!(super::super::persist::SaveState::from_bincode(&old.to_bincode()).is_err());
     }
 
