@@ -16,7 +16,7 @@ pub mod ship;
 pub mod world;
 
 pub use commodity::{CommodityDef, GoodTier, Recipe};
-pub use economy::{Market, PriceDef, Sink};
+pub use economy::{Market, PriceDef};
 pub use facility::{Facility, FacilityKind};
 pub use orbit::{Body, BodyKind};
 pub use persist::{SaveState, SAVE_VERSION};

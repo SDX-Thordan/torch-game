@@ -22,16 +22,6 @@ const LOAD_MIN: i64 = 40;
 /// A mining station / colony local raw store cap (so it stops digging when a hauler isn't
 /// collecting — bounds the world even when logistics stalls).
 const STATION_STORE_CAP: i64 = 1_000;
-
-/// The best (highest) sink price for `commodity`, or 0 if it has no sink.
-fn best_sink_price(commodity: usize) -> i64 {
-    economy::sinks()
-        .iter()
-        .filter(|s| s.commodity == commodity)
-        .map(|s| s.price)
-        .max()
-        .unwrap_or(0)
-}
 /// Distance units a ship of speed 1 covers per tick — scales the AU-scale `position_of` coords
 /// (1 AU = 1_000_000) to sane travel times against the small `ship_stats.speed` numbers.
 const SPEED_UNIT: i64 = 1_000;
@@ -292,7 +282,7 @@ impl Sim {
             SiteRef::Station(k) => self.mining_stations[k].body,
             SiteRef::Facility(j) => self.facilities[j].body,
             SiteRef::Colony(c) => self.colonies[c].body,
-            SiteRef::Sink { body, .. } => body,
+            SiteRef::Market { market, .. } => self.markets[market].body(),
         }
     }
 
@@ -347,7 +337,8 @@ impl Sim {
             SiteRef::Station(k) => self.mining_stations[k].get(good),
             SiteRef::Facility(j) => self.facilities[j].output_of(good),
             SiteRef::Colony(c) => self.colonies[c].get(good),
-            SiteRef::Sink { .. } => 0,
+            // Buying from a market is added in the greedy-arbitrage commit; not a source yet.
+            SiteRef::Market { .. } => 0,
         }
     }
 
@@ -356,21 +347,21 @@ impl Sim {
             SiteRef::Station(k) => self.mining_stations[k].add(good, -qty),
             SiteRef::Facility(j) => self.facilities[j].add_output(good, -qty),
             SiteRef::Colony(c) => self.colonies[c].add(good, -qty),
-            SiteRef::Sink { .. } => {}
+            SiteRef::Market { .. } => {}
         }
     }
 
     /// Drop `qty` of `good` at `site`: into a facility's input / a colony's store, or **sell to a
-    /// sink** — crediting `owner` at the sink price (the new geographic, per-delivery payout).
+    /// market** (`execute_sell` moves stock + reprices) crediting `owner` at the live price.
     fn deliver(&mut self, site: SiteRef, good: usize, qty: i64, owner: PlayerId) {
         match site {
             SiteRef::Facility(j) => self.facilities[j].add_input(good, qty),
             SiteRef::Colony(c) => self.colonies[c].add(good, qty),
             SiteRef::Station(k) => self.mining_stations[k].add(good, qty),
-            SiteRef::Sink { commodity, .. } => {
-                let price = best_sink_price(commodity);
+            SiteRef::Market { market, commodity } => {
+                let revenue = self.markets[market].execute_sell(commodity, qty);
                 if let Some(p) = self.players.get_mut(owner as usize) {
-                    p.credits += qty * price;
+                    p.credits += revenue;
                 }
             }
         }
@@ -389,15 +380,16 @@ impl Sim {
             }
             let out = f.kind.recipe().out;
             if f.output_of(out) >= LOAD_MIN {
-                if let Some(body) = self.best_sink_body(out, at_body) {
+                if let Some(market) = self.best_sell_market(out, at_body) {
                     return Some(Job {
                         good: out,
                         from: SiteRef::Facility(j),
-                        to: SiteRef::Sink {
-                            body,
+                        to: SiteRef::Market {
+                            market,
                             commodity: out,
                         },
                         phase: JobPhase::ToPickup,
+                        qty: 0,
                     });
                 }
             }
@@ -417,25 +409,27 @@ impl Sim {
                     from,
                     to: SiteRef::Facility(j),
                     phase: JobPhase::ToPickup,
+                    qty: 0,
                 });
             }
         }
-        // (c) raw with no local consumer → its sink
+        // (c) raw with no local consumer → sell to the best market.
         for (k, st) in self.mining_stations.iter().enumerate() {
             if st.owner != owner {
                 continue;
             }
             for raw in 0..commodity::raw_count() {
                 if st.get(raw) >= LOAD_MIN && !self.owner_consumes(owner, raw) {
-                    if let Some(body) = self.best_sink_body(raw, at_body) {
+                    if let Some(market) = self.best_sell_market(raw, at_body) {
                         return Some(Job {
                             good: raw,
                             from: SiteRef::Station(k),
-                            to: SiteRef::Sink {
-                                body,
+                            to: SiteRef::Market {
+                                market,
                                 commodity: raw,
                             },
                             phase: JobPhase::ToPickup,
+                            qty: 0,
                         });
                     }
                 }
@@ -466,26 +460,20 @@ impl Sim {
             .any(|f| f.owner == owner && f.kind.recipe().input == good)
     }
 
-    /// The best sink body for `good` from `at_body`: highest price → nearest → lowest body index.
-    fn best_sink_body(&self, good: usize, at_body: usize) -> Option<usize> {
+    /// The best market index to **sell** `good` into from `at_body`: highest price → nearest →
+    /// lowest index (and it must have headroom to accept the goods).
+    fn best_sell_market(&self, good: usize, at_body: usize) -> Option<usize> {
         let tick = self.tick;
-        economy::sinks()
-            .iter()
-            .filter(|s| s.commodity == good)
-            .min_by(|a, b| {
-                b.price
-                    .cmp(&a.price)
-                    .then(
-                        orbit::distance(&self.bodies, at_body, a.body, tick).cmp(&orbit::distance(
-                            &self.bodies,
-                            at_body,
-                            b.body,
-                            tick,
-                        )),
-                    )
-                    .then(a.body.cmp(&b.body))
+        let dist = |m: usize| orbit::distance(&self.bodies, at_body, self.markets[m].body(), tick);
+        (0..self.markets.len())
+            .filter(|&m| self.markets[m].headroom_to_sell(good) >= LOAD_MIN)
+            .min_by(|&a, &b| {
+                self.markets[b]
+                    .price(good)
+                    .cmp(&self.markets[a].price(good))
+                    .then(dist(a).cmp(&dist(b)))
+                    .then(a.cmp(&b))
             })
-            .map(|s| s.body)
     }
 
     /// Refuel docked ships at port — fuel (Fusion Fuel, ultimately from Ice) is available where a

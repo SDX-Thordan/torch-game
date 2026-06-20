@@ -115,13 +115,18 @@ pub struct Section {
 }
 
 /// A logistics site a job picks up from / drops off at (indices into the world's `Vec`s, or a
-/// market sink). Pure data so it can live with `Ship` without a world dependency.
+/// market). Pure data so it can live with `Ship` without a world dependency.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SiteRef {
     Station(usize),
     Facility(usize),
     Colony(usize),
-    Sink { body: usize, commodity: usize },
+    /// A market (index into `Sim.markets`) trading `commodity` — a pickup here is a buy, a
+    /// dropoff a sell.
+    Market {
+        market: usize,
+        commodity: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +143,9 @@ pub struct Job {
     pub from: SiteRef,
     pub to: SiteRef,
     pub phase: JobPhase,
+    /// The committed quantity (reserved at markets on commit; released on execute/abandon).
+    #[serde(default)]
+    pub qty: i64,
 }
 
 /// An owned ship: an `owner`, a class, a name, its sections + a fuel tank, a cargo hold, and a

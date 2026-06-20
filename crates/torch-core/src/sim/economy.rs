@@ -299,74 +299,6 @@ pub fn default_markets() -> Vec<Market> {
     ]
 }
 
-// ---- infinite demand sinks (§ rework) ------------------------------------------------
-
-/// An **infinite demand sink**: a market point that buys any quantity of `commodity` at
-/// `price`, giving production (theoretically infinite) an outlet so stockpiles never saturate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sink {
-    pub body: usize,
-    pub commodity: usize,
-    pub price: i64,
-}
-
-/// The sink catalog — **Alloys at Ceres/Earth/Mars**, plus a sink for every other good, so
-/// nothing is a dead end. Extend by appending rows (geography is recorded for when ship
-/// movement lands; absorption is owner-stockpile based for now).
-pub fn sinks() -> Vec<Sink> {
-    use super::commodity::*;
-    let (ceres, earth, mars) = (5usize, 3usize, 4usize);
-    vec![
-        // Alloys — the headline triple sink.
-        Sink {
-            body: ceres,
-            commodity: ALLOYS,
-            price: 140,
-        },
-        Sink {
-            body: earth,
-            commodity: ALLOYS,
-            price: 150,
-        },
-        Sink {
-            body: mars,
-            commodity: ALLOYS,
-            price: 145,
-        },
-        // One sink per remaining good so production always has an outlet.
-        Sink {
-            body: ceres,
-            commodity: ICE,
-            price: 35,
-        },
-        Sink {
-            body: earth,
-            commodity: ORE,
-            price: 45,
-        },
-        Sink {
-            body: mars,
-            commodity: RARE,
-            price: 110,
-        },
-        Sink {
-            body: earth,
-            commodity: FUSION_FUEL,
-            price: 100,
-        },
-        Sink {
-            body: earth,
-            commodity: ELECTRONICS,
-            price: 280,
-        },
-        Sink {
-            body: mars,
-            commodity: FOOD,
-            price: 65,
-        },
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::commodity::commodity_count;
@@ -477,16 +409,5 @@ mod tests {
             }
         }
         assert!(!bad, "no market pins price to a rail");
-    }
-
-    #[test]
-    fn every_good_has_a_sink() {
-        let goods: std::collections::HashSet<usize> = sinks().iter().map(|s| s.commodity).collect();
-        for c in 0..commodity_count() {
-            assert!(
-                goods.contains(&c),
-                "good {c} has no sink — production would dead-end"
-            );
-        }
     }
 }
