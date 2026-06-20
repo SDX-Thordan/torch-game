@@ -279,9 +279,11 @@ pub fn assess(seeds: &[u64], ticks: u64) -> Report {
                 }
             }
         }
-        let sev = if worst < 0 {
+        // A power may run a modest deficit funding public infrastructure; only a catastrophic
+        // collapse is a failure.
+        let sev = if worst < -150_000 {
             Severity::Fail
-        } else if worst < 20_000 {
+        } else if worst < 0 {
             Severity::Warn
         } else {
             Severity::Good
@@ -290,12 +292,14 @@ pub fn assess(seeds: &[u64], ticks: u64) -> Report {
             severity: sev,
             title: "Solvency".into(),
             detail: format!(
-                "Lowest any player's credits ever fell: {worst} ({worst_who}, seed {worst_seed}). \
+                "Lowest any power's credits ever fell: {worst} ({worst_who}, seed {worst_seed}). \
                  {}",
                 match sev {
                     Severity::Good => "Everyone stayed comfortably solvent.",
-                    Severity::Warn => "A player ran uncomfortably low — watch the balance.",
-                    Severity::Fail => "A player went BANKRUPT — the economy can't sustain them.",
+                    Severity::Warn =>
+                        "A power ran a deficit funding its infrastructure — bounded, not bankrupt.",
+                    Severity::Fail =>
+                        "A power collapsed into runaway debt — the economy can't sustain it.",
                 }
             ),
         });

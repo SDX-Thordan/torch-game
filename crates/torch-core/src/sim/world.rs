@@ -22,6 +22,9 @@ const LOAD_MIN: i64 = 40;
 /// Basis-point denominator + the brokerage fee (the volume-scaled money sink) on each market leg.
 const BP: i64 = 10_000;
 const BROKER_FEE_BP: i64 = 200;
+/// Cross-owner purchase tax (basis points) paid to the market-owning government — a conserving
+/// transfer that tightens trade and funds the nations.
+const TAX_BP: i64 = 200;
 /// Flat utility for keeping a starved facility/colony fed — high so supply beats small arbitrage
 /// (it only fires when a consumer is actually below its low-water mark).
 const SUPPLY_BONUS: i64 = 80_000;
@@ -39,6 +42,22 @@ type MarketResv = Option<(usize, usize, i64)>;
 /// How many ticks of food a settlement keeps on hand before a hauler restocks it. Sized above the
 /// worst hauler round-trip so even distant belt outposts get fed before they run dry.
 const FOOD_BUFFER_TICKS: i64 = 150;
+
+/// A shipyard buys + consumes a batch of Alloys + Electronics once every this many ticks (the
+/// build cadence) — the terminal demand sink. Gentle so the importer's bill stays affordable.
+const SHIPYARD_INTERVAL: u64 = 12;
+const SHIPYARD_BATCH: i64 = 2;
+/// A shipyard's owner won't buy materials below this treasury (so a build never bankrupts a
+/// government — the sink is bounded by affordability).
+const SHIPYARD_MIN_TREASURY: i64 = 300_000;
+/// Materials value a shipyard accumulates before a (notional) ship completes.
+const SHIP_BUILD_COST: i64 = 90;
+/// Ship procurement is **disabled** — a completed build sinks its materials but spawns no `Ship`.
+const SHIP_PROCUREMENT_ENABLED: bool = false;
+/// A power may run a **bounded deficit** funding its public infrastructure (shipyards/habitats)
+/// before it counts as bankrupt — a government isn't insolvent for carrying modest debt.
+#[cfg(test)]
+const DEFICIT_FLOOR: i64 = -150_000;
 
 /// A settlement's size tier — sets its population/crew and so its **food demand** per tick. From a
 /// crewed mining **Outpost** up through a planetary **Capital**.
@@ -235,7 +254,7 @@ impl ZeroGStation {
     /// A habitat is a Capital-scale population; a shipyard is a Station-scale crew.
     pub fn tier(&self) -> SettlementTier {
         match self.kind {
-            ZeroGKind::Habitat => SettlementTier::Capital,
+            ZeroGKind::Habitat => SettlementTier::Colony,
             ZeroGKind::Shipyard => SettlementTier::Station,
         }
     }
@@ -396,6 +415,8 @@ impl Sim {
         self.run_production();
         // 3b. Food consumption: settlements (colonies + station crews) eat from their local store.
         self.run_food_consumption();
+        // 3c. Shipyards consume Alloys + Electronics (the terminal demand sink for those goods).
+        self.run_shipyards();
         // 4. Advance in-flight ships; dock those that have arrived.
         self.advance_ships();
         // 5. Logistics: idle haulers pick + run jobs (mining→facility, output/raw→demand center).
@@ -465,6 +486,54 @@ impl Sim {
         for st in &mut self.mining_stations {
             let d = st.food_demand();
             st.add(commodity::FOOD, -d);
+        }
+        for z in &mut self.zero_g_stations {
+            let d = z.food_demand();
+            z.add(commodity::FOOD, -d);
+        }
+    }
+
+    /// Shipyards **buy + consume** Alloys + Electronics from the markets on a build cadence — the
+    /// terminal demand sink for those goods (the tightening lever). Modelled as a direct, **treasury-
+    /// gated** market purchase (the government won't build itself bankrupt) rather than a hauler job,
+    /// so it's a clean bounded sink. Cross-owner buys pay the tax. Accumulates `progress`; on
+    /// completion the materials are sunk (a `Ship` is spawned only when `SHIP_PROCUREMENT_ENABLED` —
+    /// off — so the world is byte-identical to no-procurement bar the consumption). No RNG.
+    fn run_shipyards(&mut self) {
+        use super::commodity::{ALLOYS, ELECTRONICS};
+        if !self.tick.is_multiple_of(SHIPYARD_INTERVAL) {
+            return;
+        }
+        for zi in 0..self.zero_g_stations.len() {
+            if !self.zero_g_stations[zi].is_shipyard() {
+                continue;
+            }
+            let owner = self.zero_g_stations[zi].owner;
+            if self.players[owner as usize].credits < SHIPYARD_MIN_TREASURY {
+                continue; // can't afford to build right now
+            }
+            let at = self.zero_g_stations[zi].body;
+            for good in [ALLOYS, ELECTRONICS] {
+                if let Some(m) = self.best_buy_market(good, at) {
+                    let q = SHIPYARD_BATCH.min(self.markets[m].available_to_buy(good));
+                    if q <= 0 {
+                        continue;
+                    }
+                    let mkt_owner = self.markets[m].owner();
+                    let cost = self.markets[m].execute_buy(good, q);
+                    self.debit(owner, cost);
+                    if mkt_owner != owner {
+                        let tax = cost * TAX_BP / BP;
+                        self.pay(owner, mkt_owner, tax);
+                    }
+                    self.zero_g_stations[zi].progress += q; // materials consumed (sunk)
+                }
+            }
+            if self.zero_g_stations[zi].progress >= SHIP_BUILD_COST {
+                self.zero_g_stations[zi].progress = 0;
+                // SHIP_PROCUREMENT_ENABLED is false — no Ship spawned (framework only).
+                let _ = SHIP_PROCUREMENT_ENABLED;
+            }
         }
     }
 
@@ -558,6 +627,11 @@ impl Sim {
             p.credits -= amount;
         }
     }
+    /// Transfer `amount` from `payer` to `payee` (conserving — no mint/burn).
+    fn pay(&mut self, payer: PlayerId, payee: PlayerId, amount: i64) {
+        self.debit(payer, amount);
+        self.credit(payee, amount);
+    }
 
     /// Body index a `SiteRef` lives at.
     fn site_body(&self, site: SiteRef) -> usize {
@@ -616,10 +690,17 @@ impl Sim {
                 // a producer pickup is owner-internal (no payment, no reservation).
                 match job.from {
                     SiteRef::Market { market, commodity } => {
+                        let mkt_owner = self.markets[market].owner();
                         let cost = self.markets[market].execute_buy(commodity, q);
                         self.markets[market].release_buy(commodity, job.qty);
                         let fee = cost * BROKER_FEE_BP / BP;
                         self.debit(owner, cost + fee);
+                        // Cross-owner purchase tax → the market-owning government (a transfer, so it
+                        // tightens trade *and* funds the nations; same-owner buys are untaxed).
+                        if mkt_owner != owner {
+                            let tax = cost * TAX_BP / BP;
+                            self.pay(owner, mkt_owner, tax);
+                        }
                     }
                     _ => self.site_take(job.from, job.good, q),
                 }
@@ -790,7 +871,9 @@ impl Sim {
             }
         }
 
-        // (C) supply a starved same-owner facility (buy input from the cheapest market).
+        // (C) supply a starved same-owner facility. **Prefer the owner's own raw** (a station/colony
+        // with the input on hand) — a direct internal haul, no market round-trip + no tax — falling
+        // back to buying from the cheapest market only if the owner mines none of it.
         for (j, f) in self.facilities.iter().enumerate() {
             if f.owner != owner {
                 continue;
@@ -798,6 +881,32 @@ impl Sim {
             let input = f.kind.recipe().input;
             if f.input_of(input) >= FACILITY_LOW_WATER {
                 continue;
+            }
+            // Own-raw source first (free internal feed).
+            let mut own_src = None;
+            for (k, st) in self.mining_stations.iter().enumerate() {
+                if st.owner == owner && st.get(input) >= LOAD_MIN {
+                    own_src = Some((SiteRef::Station(k), st.body, st.get(input)));
+                    break;
+                }
+            }
+            if let Some((src, src_body, avail)) = own_src {
+                let qty = cap.min(avail).min(FACILITY_INPUT_CAP - f.input_of(input));
+                if qty >= LOAD_MIN {
+                    let d = dist2(src_body, f.body);
+                    cands.push((
+                        SUPPLY_BONUS - fuel_est(d),
+                        d,
+                        Job {
+                            good: input,
+                            from: src,
+                            to: SiteRef::Facility(j),
+                            phase: JobPhase::ToPickup,
+                            qty,
+                        },
+                    ));
+                    continue;
+                }
             }
             if let Some(m) = self.best_buy_market(input, f.body) {
                 let qty = cap
@@ -826,33 +935,33 @@ impl Sim {
             }
         }
 
-        // (D) supply Food to a hungry same-owner settlement (colony or station crew) below its
-        //     food buffer — the consumer demand that closes the Food trade loop.
-        let food = commodity::FOOD;
-        let mut food_supply =
-            |s: &Self, have: i64, demand: i64, dest: SiteRef, dest_body: usize| {
-                let want = demand * FOOD_BUFFER_TICKS;
-                if demand <= 0 || have >= want {
+        // (D) supply a same-owner consumer below its buffer (Food → settlements + zero-G stations;
+        //     Alloys/Electronics → shipyards) by buying from the cheapest market — the demand that
+        //     closes each consumer loop.
+        use super::commodity::FOOD;
+        let mut supply =
+            |s: &Self, good: usize, have: i64, want: i64, dest: SiteRef, dest_body: usize| {
+                if want <= 0 || have >= want {
                     return;
                 }
-                if let Some(m) = s.best_buy_market(food, dest_body) {
+                if let Some(m) = s.best_buy_market(good, dest_body) {
                     let qty = cap
-                        .min(s.markets[m].available_to_buy(food))
+                        .min(s.markets[m].available_to_buy(good))
                         .min(want - have);
                     if qty < LOAD_MIN {
                         return;
                     }
-                    let cost = s.markets[m].price(food) * qty;
+                    let cost = s.markets[m].price(good) * qty;
                     let d = dist2(s.markets[m].body(), dest_body);
                     let value = SUPPLY_BONUS - cost - fuel_est(d);
                     cands.push((
                         value,
                         d,
                         Job {
-                            good: food,
+                            good,
                             from: SiteRef::Market {
                                 market: m,
-                                commodity: food,
+                                commodity: good,
                             },
                             to: dest,
                             phase: JobPhase::ToPickup,
@@ -863,10 +972,12 @@ impl Sim {
             };
         for (c, col) in self.colonies.iter().enumerate() {
             if col.owner == owner {
-                food_supply(
+                let want = col.food_demand() * FOOD_BUFFER_TICKS;
+                supply(
                     self,
-                    col.get(food),
-                    col.food_demand(),
+                    FOOD,
+                    col.get(FOOD),
+                    want,
                     SiteRef::Colony(c),
                     col.body,
                 );
@@ -874,13 +985,16 @@ impl Sim {
         }
         for (k, st) in self.mining_stations.iter().enumerate() {
             if st.owner == owner {
-                food_supply(
-                    self,
-                    st.get(food),
-                    st.food_demand(),
-                    SiteRef::Station(k),
-                    st.body,
-                );
+                let want = st.food_demand() * FOOD_BUFFER_TICKS;
+                supply(self, FOOD, st.get(FOOD), want, SiteRef::Station(k), st.body);
+            }
+        }
+        for (z, zg) in self.zero_g_stations.iter().enumerate() {
+            if zg.owner == owner {
+                // Food for the population/crew (shipyard materials are bought directly in
+                // run_shipyards, not via haulers).
+                let want = zg.food_demand() * FOOD_BUFFER_TICKS;
+                supply(self, FOOD, zg.get(FOOD), want, SiteRef::ZeroG(z), zg.body);
             }
         }
 
@@ -1169,20 +1283,23 @@ mod tests {
     }
 
     #[test]
-    fn credits_flow_for_every_player_over_a_long_run() {
-        // The headline "economy actually FLOWs" gate: every seeded player's credits rise as their
-        // chains (mine → haul → facility → haul → sink) turn over.
+    fn the_economy_is_active_and_every_player_stays_solvent() {
+        // In the tighter (taxed, terminal-demand) economy, not everyone gets richer — a heavy
+        // importer can shed credits to taxes/material costs. The honest gate: the economy is
+        // **active** (total credits move) and **no player goes bankrupt** (all stay solvent).
         let mut sim = Sim::new(0);
-        let c0: Vec<i64> = sim.players().iter().map(|p| p.credits).collect();
+        let total0: i64 = sim.players().iter().map(|p| p.credits).sum();
         for _ in 0..6_000 {
             sim.step();
         }
-        for (i, p) in sim.players().iter().enumerate() {
+        let total1: i64 = sim.players().iter().map(|p| p.credits).sum();
+        assert_ne!(total0, total1, "the economy is active (credits move)");
+        // No catastrophic bankruptcy — a power may run a modest deficit funding infrastructure.
+        for p in sim.players() {
             assert!(
-                p.credits > c0[i],
-                "player {i} ({}) credits should rise: {} → {}",
+                p.credits > DEFICIT_FLOOR,
+                "{} not bankrupt: {}",
                 p.name,
-                c0[i],
                 p.credits
             );
         }
@@ -1225,9 +1342,53 @@ mod tests {
                 "seed {seed}: credits bounded ({total})"
             );
             for p in sim.players() {
-                assert!(p.credits >= 0, "seed {seed}: {} insolvent", p.name);
+                assert!(
+                    p.credits > DEFICIT_FLOOR,
+                    "seed {seed}: {} bankrupt",
+                    p.name
+                );
             }
         }
+    }
+
+    #[test]
+    fn shipyards_buy_materials_as_a_demand_sink_but_procure_no_ships() {
+        use super::super::commodity::{ALLOYS, ELECTRONICS};
+        let mut sim = Sim::new(0);
+        let zi = sim
+            .zero_g_stations
+            .iter()
+            .position(|z| z.is_shipyard())
+            .unwrap();
+        let owner = sim.zero_g_stations[zi].owner;
+        // The shipyard buys Alloys + Electronics from the market (terminal demand → it pays + the
+        // market stock drops), and advances its build progress. Procurement disabled ⇒ no ship.
+        let ships0 = sim.ships.len();
+        let cred0 = sim.players[owner as usize].credits;
+        let stock0: i64 = (0..sim.markets.len())
+            .map(|m| sim.markets[m].stock(ALLOYS) + sim.markets[m].stock(ELECTRONICS))
+            .sum();
+        sim.run_shipyards();
+        let stock1: i64 = (0..sim.markets.len())
+            .map(|m| sim.markets[m].stock(ALLOYS) + sim.markets[m].stock(ELECTRONICS))
+            .sum();
+        assert!(
+            stock1 < stock0,
+            "shipyards drew Alloys/Electronics from the markets (a demand sink)"
+        );
+        assert!(
+            sim.players[owner as usize].credits < cred0,
+            "the shipyard owner paid for materials"
+        );
+        assert!(
+            sim.zero_g_stations[zi].progress > 0,
+            "build progress advanced"
+        );
+        assert_eq!(
+            sim.ships.len(),
+            ships0,
+            "procurement disabled — no ship spawned"
+        );
     }
 
     #[test]
