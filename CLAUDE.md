@@ -229,6 +229,15 @@ Status: [x] done, [~] in progress, [ ] todo.
 - **Regenerating `SAMPLE_GAMEPLAY_REVIEW.md`:** restore its hand-added do-not-edit header
   line; regenerate **after** the shell edits (its UI-wiring facet scans `main.gd` for
   `sim.X()` calls vs the binding list, so any binding-call change shifts it).
+- **Splitting a monolithic file is a byte-identical *move*, not a rewrite** — verify with the
+  empty QA diff. A giant `impl Sim` carves into `world/<theme>.rs` child modules (each a fresh
+  `impl Sim` block + `use super::*`): a **child sees the parent's private fields, consts, and
+  even private `use` bindings**, so the move needs no API changes — only cross-module-called
+  private helpers widen to `pub(crate)`. Watch the **name clash**: a `mod combat;` collides
+  with `use super::combat::{self,…}` (the `self` binds `combat`) — name the child `defence`.
+  The shell's UI facet counts **distinct** `sim.X(` names, so dropping one `sim.foo()` call (e.g.
+  to a bare `sim.foo` Callable for a DRY helper) is byte-identical as long as `foo` is still
+  called with parens elsewhere.
 
 ### 7.2 Persistence (§30)
 

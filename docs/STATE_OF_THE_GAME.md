@@ -227,6 +227,13 @@ Recorded so they stop resurfacing as "unfinished":
 
 ## 4. Health check (what to protect)
 
+- **Code-standards pass (2026-06-20, `claude/code-review-standards-wd7tcl`)** — plan↔code
+  verified aligned (no deviations). Refactors, all byte-identical against the QA review:
+  `Sim::step` split into named phases; the 8.7k-line `world.rs` carved into `world/` themed
+  child modules + co-located `tests.rs`; combat duels parametrized + cryptic test args named +
+  a null-qty case; QA `engagement` helpers covered. Shell (GDScript): DRY'd the body→index
+  lookups + extracted the keymap. **Open (needs a Godot environment to verify safely):** the
+  deeper `main.gd` view-builder extraction + the split into `ui/` component scripts.
 - **The determinism discipline is the asset** — seed-reproducible reviews, byte-identical gating,
   the §7c gate, content-in-code persistence. It's *why* big layers land fast and safe. Hold the bar.
 - **The 3-lens QA harness** catches feel-regressions a unit test can't; regenerate
