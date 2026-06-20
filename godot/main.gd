@@ -958,6 +958,14 @@ func _build_systems_view() -> void:
 	_content.add_child(root)
 	_views.append(root)
 
+	_build_context_panel(root)
+	_build_objective_panel(root)
+	_build_outliner(root)
+	_build_feed_panel(root)
+	_build_context_actions(root)
+
+
+func _build_context_panel(root: Control) -> void:
 	# Right context panel (station detail), pinned to the right of the content.
 	var ctx := UiKit.make_panel()
 	ctx.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1002,6 +1010,8 @@ func _build_systems_view() -> void:
 	_add_toggle(col, "Ironman (autosave, no reloads)", _toggle_ironman)
 	_make_draggable(ctx, col)
 
+
+func _build_objective_panel(root: Control) -> void:
 	# Bottom-left overlay panel: NOW goal + the active mission + the gate mystery +
 	# the always-visible gate progress (§0.1 — the authored destination pull, §16).
 	var goal := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
@@ -1031,8 +1041,8 @@ func _build_systems_view() -> void:
 	gv.add_child(_sys_now)
 	_make_draggable(goal, gv)
 
-	_build_outliner(root)
 
+func _build_feed_panel(root: Control) -> void:
 	# Alert feed panel, bottom-centre over the orrery.
 	var feedp := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
 	feedp.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1062,6 +1072,8 @@ func _build_systems_view() -> void:
 	fv.add_child(_chatter_lbl)
 	_make_draggable(feedp, fv)
 
+
+func _build_context_actions(root: Control) -> void:
 	# Contextual actions — no persistent button grid; only the verbs relevant to what you
 	# tapped appear here (and the conditional endgame verbs), bottom-right over the orrery.
 	# Map zoom/rotate is fingers-only now (pinch / drag / twist); save is autosave (Ironman).
