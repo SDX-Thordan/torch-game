@@ -207,6 +207,60 @@ impl TorchSim {
         self.sim.players().len() as i64
     }
 
+    // ---- the living market economy (observe prices/stocks move) ----
+
+    #[func]
+    fn market_count(&self) -> i64 {
+        self.sim.markets().len() as i64
+    }
+    #[func]
+    fn market_name(&self, m: i64) -> GString {
+        GString::from(
+            self.sim
+                .markets()
+                .get(m.max(0) as usize)
+                .map(|mk| mk.name())
+                .unwrap_or(""),
+        )
+    }
+    #[func]
+    fn market_body(&self, m: i64) -> i64 {
+        self.sim
+            .markets()
+            .get(m.max(0) as usize)
+            .map(|mk| mk.body() as i64)
+            .unwrap_or(-1)
+    }
+    #[func]
+    fn market_price(&self, m: i64, c: i64) -> i64 {
+        self.sim
+            .markets()
+            .get(m.max(0) as usize)
+            .map(|mk| mk.price(c.max(0) as usize))
+            .unwrap_or(0)
+    }
+    #[func]
+    fn market_stock(&self, m: i64, c: i64) -> i64 {
+        self.sim
+            .markets()
+            .get(m.max(0) as usize)
+            .map(|mk| mk.stock(c.max(0) as usize))
+            .unwrap_or(0)
+    }
+    #[func]
+    fn commodity_count(&self) -> i64 {
+        sim::commodity::commodity_count() as i64
+    }
+    #[func]
+    fn commodity_name(&self, c: i64) -> GString {
+        GString::from(
+            sim::commodity::commodities()
+                .get(c.max(0) as usize)
+                .map(|d| d.name)
+                .unwrap_or(""),
+        )
+    }
+
     // ---- save / load (§30) ----
 
     /// Write a binary save to `path` (a globalized OS path). Returns "" or an error message.

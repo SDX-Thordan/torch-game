@@ -196,8 +196,8 @@ func _build_topbar() -> void:
 	logo.custom_minimum_size = Vector2(120, 0)
 	row.add_child(logo)
 
-	# Center: resource + asset readouts for the human player.
-	for key in ["DATE", "CREDITS", "HAULERS", "MINERS", "COMBAT", "COLONIES", "MINING"]:
+	# Center: resource + asset readouts for the human player + a live market price.
+	for key in ["DATE", "CREDITS", "HAULERS", "MINERS", "COMBAT", "COLONIES", "MINING", "ALLOYS E/C"]:
 		var cell := _make_cell(key)
 		row.add_child(cell[0])
 		_topbar_labels[key] = cell[1]
@@ -247,6 +247,11 @@ func _refresh_topbar() -> void:
 	(_topbar_labels["COMBAT"] as Label).text = str(sim.count_combat())
 	(_topbar_labels["COLONIES"] as Label).text = str(sim.count_colonies())
 	(_topbar_labels["MINING"] as Label).text = str(sim.count_mining_stations())
+	# Live Alloys price at the Earth (consumer) and Ceres (producer) hubs — the spread the
+	# arbitrage haulers trade on, visibly moving as they work. Alloys is commodity index 3.
+	var earth_p: int = sim.market_price(0, 3)
+	var ceres_p: int = sim.market_price(2, 3)
+	(_topbar_labels["ALLOYS E/C"] as Label).text = "%d / %d" % [earth_p, ceres_p]
 
 
 func _date_string() -> String:
