@@ -112,6 +112,11 @@ const CONTRACT_PREMIUM_BP: i64 = 13_000;
 /// Standing gained with the offering faction on fulfilment (§10): more than a
 /// single interdiction costs, so contracts are a real reputation-repair path.
 const CONTRACT_REP: i64 = 60;
+/// Base magnitude of a telegraphed raid threat (§13), and the extra magnitude per
+/// point of standing piracy pressure — together they size the stakes the player
+/// weighs when a `RaidThreat` dilemma surfaces.
+const RAID_MAG_BASE: i64 = 1_500;
+const RAID_MAG_PER_PIRACY: i64 = 30;
 
 /// Why a market order could not be filled (§5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3815,8 +3820,24 @@ impl Sim {
         // player too, not just for pirate/automation cuts).
         self.events.drain(0..self.returned);
         self.tick += 1;
-        // Inner markets step on the shared rng exactly as before (byte-identical);
-        // the far-side markets step on their own `far_rng` so they never perturb it.
+        self.step_markets();
+        self.run_subsystems();
+        self.sight_salvage();
+        self.emit_ambient_chatter();
+        self.charge_upkeep();
+        self.recover_reputation();
+        self.events.push(Event::Tick { tick: self.tick });
+        self.ingest_tick_events();
+        self.pressure.decay();
+        self.surface_dilemmas();
+        self.returned = self.events.len();
+        &self.events
+    }
+
+    /// Step every market. Inner markets advance on the shared rng exactly as before
+    /// (byte-identical); far-side markets use their own `far_rng` so they never
+    /// perturb the inner economy.
+    fn step_markets(&mut self) {
         let split = self.far_market_start;
         for m in self.markets[..split].iter_mut() {
             m.step(&mut self.rng);
@@ -3824,6 +3845,10 @@ impl Sim {
         for m in self.markets[split..].iter_mut() {
             m.step(&mut self.far_rng);
         }
+    }
+
+    /// Run the per-tick world subsystems in their fixed, deterministic order.
+    fn run_subsystems(&mut self) {
         self.deliver_arrivals();
         self.spawn_traffic();
         self.run_pressure();
@@ -3843,32 +3868,44 @@ impl Sim {
         self.run_coalition(self.tick);
         self.run_empire_piracy(self.tick);
         self.run_inspections(self.tick);
-        // Discovery (§15): the field may turn up a derelict to strip. Its own RNG
-        // keeps the economy bit-identical whether or not anyone salvages.
+    }
+
+    /// Discovery (§15): the field may turn up a derelict to strip. Its own RNG keeps
+    /// the economy bit-identical whether or not anyone salvages.
+    fn sight_salvage(&mut self) {
         if let Some(id) = self.salvage.maybe_sight(self.tick) {
             self.events.push(Event::WreckSighted { id });
         }
-        // Ambient flavour chatter (§19 texture) — occasional system colour, its own RNG, no
-        // mechanical effect, so the economy stays bit-identical.
+    }
+
+    /// Occasional system colour (§19 texture) — its own RNG, no mechanical effect, so
+    /// the economy stays bit-identical.
+    fn emit_ambient_chatter(&mut self) {
         if let Some((voice, msg)) = self.ambient.maybe_chatter(self.tick) {
             self.feed.chatter(voice, msg.to_string(), self.tick);
         }
-        self.charge_upkeep();
+    }
+
+    /// Standings drift back toward neutral on a slow cadence (§10 recovery).
+    fn recover_reputation(&mut self) {
         if self.tick.is_multiple_of(REP_RECOVERY_INTERVAL) {
             self.relations.decay_toward_neutral(REP_RECOVERY_STEP);
         }
-        self.events.push(Event::Tick { tick: self.tick });
-        // The alert feed (§19) consumes everything surfacing this tick (§29):
-        // the carried-over player events plus this tick's own.
+    }
+
+    /// Feed every event surfacing this tick (the carried-over player events plus this
+    /// tick's own) to the alert feed (§19/§29) and the pressure layer.
+    fn ingest_tick_events(&mut self) {
         let tick = self.tick;
         for e in &self.events {
             self.feed.ingest(e, tick);
             self.pressure.note_event(e, tick);
         }
-        // Gauges ebb each tick — biting-but-recoverable (§13).
-        self.pressure.decay();
-        // Phase A: surface fresh act-now exceptions as player dilemmas (menus of
-        // trade-off options), and drop any that timed out.
+    }
+
+    /// Phase A: turn this tick's fresh act-now exceptions into player dilemmas (menus
+    /// of trade-off options) and drop any that timed out.
+    fn surface_dilemmas(&mut self) {
         let now = self.tick;
         let mut shortages: Vec<(usize, usize)> = Vec::new();
         let mut wrecks: Vec<u64> = Vec::new();
@@ -3891,12 +3928,11 @@ impl Sim {
             self.push_decision(DecisionKind::Wreck, 0, 0, id, 0, now);
         }
         if raid {
-            let mag = 1500 + self.pressure.level(PressureKind::Piracy) as i64 * 30;
+            let piracy = self.pressure.level(PressureKind::Piracy) as i64;
+            let mag = RAID_MAG_BASE + piracy * RAID_MAG_PER_PIRACY;
             self.push_decision(DecisionKind::RaidThreat, 0, 0, 0, mag, now);
         }
         self.decisions.retain(|d| d.deadline_tick > now);
-        self.returned = self.events.len();
-        &self.events
     }
 
     /// The §13 pressure layer, run each tick: telegraph an incoming raid ahead of
