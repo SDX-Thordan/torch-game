@@ -75,6 +75,44 @@ scale (§0).
 `lib.rs` is only the thin gdext binding. This keeps the core headless and
 native-testable.
 
+## 3.5 Code standards (how the code reads)
+
+The bar for every change: **clean, readable, maintainable, extendable.** These are the
+Java/Python-flavoured SRP/DRY/KISS/SOLID principles, mapped to this stack. They're a *default*,
+not dogma — favour the idiom already in the file, and prefer reusing an existing helper over
+adding one (search first).
+
+- **SRP / small methods.** One concern per function. **Extract a functional-block comment into
+  a named method** — the `// ---- Feature:` block label *becomes* the method name (`Sim::step`
+  → `advance_economy`/`run_pressure_phase`; `_build_systems_view` → `_build_context_panel`/…).
+  No "monster methods": if a fn needs section headers to navigate, split it.
+- **No magic numbers / strings.** Name every bare literal as a `const` **next to the existing
+  const block** (the files have a strong named-const culture — extend it). Tuning numbers stay
+  **named consts in code** (§31 content-in-code), *not* migrated into data.
+- **DRY / KISS.** One helper for a repeated pattern (the body→index lookups, the acquisition
+  flows). Route player-attributed triggers through **centralized hooks** (`ripple_reputation`,
+  `complete_op`) so one path covers manual + managed. Keep agency un-fiddly: **macro > micro**,
+  one verb + escalating cost is the depth (§0.2, §7.10). Don't over-engineer for a 2nd consumer
+  that doesn't exist yet.
+- **Layering / composition (SOLID).** Logic in `sim` (no `godot`); `lib.rs` is the thin binding
+  (the boundary rule above). Rust: a monolith carves into themed `impl Sim` child modules under
+  `world/<theme>.rs` (a child sees the parent's private fields — a byte-identical *move*, §7.1).
+  GDScript: composition, not inheritance — reusable units are **stateless `static func` Kit
+  utilities the host calls** (`UiKit`/`PlanetShaders`/`OrreryKit`); extract only *pure* helpers,
+  leave host-coupled code as well-named methods in `main.gd` (§7.4).
+- **Concise docs, no narration.** A `///`/`#` doc says the **why** in one tight sentence; never
+  a comment that just restates the next line. Functional-block comments are a smell — make them
+  method names (above).
+- **Meaningful tests (AAA).** Tests live in `#[cfg(test)] mod tests` **co-located** with the
+  code (they move when a module splits). Arrange-Act-Assert; **table-driven** loops for inputs
+  that share a shape (`for (case, expected) in [...]`, no new deps); **name cryptic args** via
+  small builders/consts; reuse setup helpers. Cover the **negative/null/edge** cases (bad index,
+  empty fleet, zero-qty, threshold boundaries). Test the deciding helper, not framework noise.
+- **The gate.** Every refactor ends **green** (`cargo fmt --all --check` + `clippy -D warnings`
+  + `cargo test --all` + GUT) **and QA byte-identical** (§7.1) — a pure refactor must not move
+  the gameplay review. GDScript changes also keep the distinct `sim.X(` binding set unchanged
+  and are render-verified (§7.5).
+
 ## 4. Repo layout
 
 ```
