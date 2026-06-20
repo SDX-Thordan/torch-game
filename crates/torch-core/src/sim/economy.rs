@@ -285,10 +285,12 @@ pub fn default_markets() -> Vec<Market> {
     };
     // [Ice, Ore, Rare, Alloys, FusionFuel, Electronics, Food]
     let _ = (ICE, ORE, RARE, ALLOYS, FUSION_FUEL, ELECTRONICS, FOOD);
-    let earth = setpoints([Mid, Consumer, Mid, Consumer, Mid, Consumer, Consumer]);
-    let mars = setpoints([Mid, Mid, Consumer, Producer, Mid, Mid, Consumer]);
+    // Earth is the population + agriculture centre: a cheap Food producer (so settlements can
+    // afford to feed their crews) and a consumer of industrial goods.
+    let earth = setpoints([Mid, Consumer, Mid, Consumer, Mid, Consumer, Producer]);
+    let mars = setpoints([Mid, Mid, Consumer, Producer, Mid, Mid, Mid]);
     let ceres = setpoints([
-        Producer, Producer, Producer, Producer, Producer, Consumer, Consumer,
+        Producer, Producer, Producer, Producer, Producer, Consumer, Mid,
     ]);
     vec![
         Market::with_setpoints("Earth Hub", 3, 1, defs.clone(), earth),

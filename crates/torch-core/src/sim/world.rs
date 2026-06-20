@@ -39,6 +39,54 @@ const FUEL_PER_DISTANCE: i64 = 50_000;
 /// A held market reservation: `(market index, commodity, quantity)`.
 type MarketResv = Option<(usize, usize, i64)>;
 
+/// How many ticks of food a settlement keeps on hand before a hauler restocks it.
+const FOOD_BUFFER_TICKS: i64 = 60;
+
+/// A settlement's size tier — sets its population/crew and so its **food demand** per tick. From a
+/// crewed mining **Outpost** up through a planetary **Capital**.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettlementTier {
+    Outpost,
+    Station,
+    Colony,
+    Hub,
+    Capital,
+}
+
+impl SettlementTier {
+    pub fn name(self) -> &'static str {
+        match self {
+            SettlementTier::Outpost => "Outpost",
+            SettlementTier::Station => "Station",
+            SettlementTier::Colony => "Colony",
+            SettlementTier::Hub => "Hub",
+            SettlementTier::Capital => "Capital",
+        }
+    }
+    /// Food consumed per tick by this tier's population/crew. Kept modest so a settlement's food
+    /// bill stays well under its owner's trade income (the QA harness flags it if a player can't
+    /// keep up).
+    pub fn food_per_tick(self) -> i64 {
+        match self {
+            SettlementTier::Outpost => 1,
+            SettlementTier::Station => 1,
+            SettlementTier::Colony => 2,
+            SettlementTier::Hub => 3,
+            SettlementTier::Capital => 4,
+        }
+    }
+    /// The tier a colony of `population` falls into.
+    pub fn for_population(population: i64) -> Self {
+        match population {
+            p if p >= 8_000 => SettlementTier::Capital,
+            p if p >= 5_000 => SettlementTier::Hub,
+            p if p >= 1_000 => SettlementTier::Colony,
+            p if p >= 200 => SettlementTier::Station,
+            _ => SettlementTier::Outpost,
+        }
+    }
+}
+
 /// Raw extracted per tick from a body whose abundance (0..=~252) is `abundance`. 0 if the body
 /// has none of that good; otherwise a small deterministic integer rate. No RNG.
 fn mine_amount(abundance: i64) -> i64 {
@@ -77,10 +125,18 @@ impl Colony {
     pub fn get(&self, c: usize) -> i64 {
         self.store.get(c).copied().unwrap_or(0)
     }
+    /// The colony's size tier (from its population).
+    pub fn tier(&self) -> SettlementTier {
+        SettlementTier::for_population(self.population)
+    }
+    /// Food consumed per tick by the colony's population.
+    pub fn food_demand(&self) -> i64 {
+        self.tier().food_per_tick()
+    }
 }
 
 /// A non-growable **dedicated mining station** on an **uninhabitable** body — extracts its body's
-/// raw into a local `store` that haulers collect.
+/// raw into a local `store` that haulers collect. Its crew is a small **Outpost** that eats food.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MiningStation {
     pub owner: PlayerId,
@@ -104,6 +160,13 @@ impl MiningStation {
     }
     pub fn get(&self, c: usize) -> i64 {
         self.store.get(c).copied().unwrap_or(0)
+    }
+    /// A mining station is a crewed Outpost.
+    pub fn tier(&self) -> SettlementTier {
+        SettlementTier::Outpost
+    }
+    pub fn food_demand(&self) -> i64 {
+        self.tier().food_per_tick()
     }
 }
 
@@ -184,14 +247,15 @@ impl Sim {
         // Earth also runs a Hydroponics plant so Food has a producer and trades.
         self.facilities
             .push(Facility::new(1, earth, FacilityKind::Hydroponics));
-        chain(self, 1, "Hygiea", earth, 2); // Earth
-        chain(self, 2, "Juno", mars, 2); // Mars
+        chain(self, 1, "Hygiea", earth, 3); // Earth
+        chain(self, 2, "Juno", mars, 3); // Mars
+                                         // OPA holds the belt heartland: three stations + a colony need a real fleet to feed + sell.
         for name in ["Vesta", "Pallas", "Eros"] {
             if let Some(b) = belt(self, name) {
                 self.mining_stations.push(MiningStation::new(3, b));
             }
         }
-        for _ in 0..2 {
+        for _ in 0..6 {
             self.ships
                 .push(Ship::new(3, ShipClass::Hauler, "Hauler", ceres)); // OPA
         }
@@ -233,6 +297,8 @@ impl Sim {
         self.run_extraction();
         // 3. Production: facilities refine on-site input → on-site output (idle if starved).
         self.run_production();
+        // 3b. Food consumption: settlements (colonies + station crews) eat from their local store.
+        self.run_food_consumption();
         // 4. Advance in-flight ships; dock those that have arrived.
         self.advance_ships();
         // 5. Logistics: idle haulers pick + run jobs (mining→facility, output/raw→demand center).
@@ -288,6 +354,20 @@ impl Sim {
                 f.add_input(r.input, -need);
                 f.add_output(r.out, f.rate);
             }
+        }
+    }
+
+    /// Settlements consume Food from their local store each tick (population/crew demand). When the
+    /// store runs out the population simply goes hungry — a shortage the QA harness flags; haulers
+    /// restock from the markets (the Food-supply jobs in `find_job`). No RNG.
+    fn run_food_consumption(&mut self) {
+        for col in &mut self.colonies {
+            let d = col.food_demand();
+            col.add(commodity::FOOD, -d);
+        }
+        for st in &mut self.mining_stations {
+            let d = st.food_demand();
+            st.add(commodity::FOOD, -d);
         }
     }
 
@@ -645,6 +725,64 @@ impl Sim {
             }
         }
 
+        // (D) supply Food to a hungry same-owner settlement (colony or station crew) below its
+        //     food buffer — the consumer demand that closes the Food trade loop.
+        let food = commodity::FOOD;
+        let mut food_supply =
+            |s: &Self, have: i64, demand: i64, dest: SiteRef, dest_body: usize| {
+                let want = demand * FOOD_BUFFER_TICKS;
+                if demand <= 0 || have >= want {
+                    return;
+                }
+                if let Some(m) = s.best_buy_market(food, dest_body) {
+                    let qty = cap
+                        .min(s.markets[m].available_to_buy(food))
+                        .min(want - have);
+                    if qty < LOAD_MIN {
+                        return;
+                    }
+                    let cost = s.markets[m].price(food) * qty;
+                    let d = dist2(s.markets[m].body(), dest_body);
+                    let value = SUPPLY_BONUS - cost - fuel_est(d);
+                    cands.push((
+                        value,
+                        d,
+                        Job {
+                            good: food,
+                            from: SiteRef::Market {
+                                market: m,
+                                commodity: food,
+                            },
+                            to: dest,
+                            phase: JobPhase::ToPickup,
+                            qty,
+                        },
+                    ));
+                }
+            };
+        for (c, col) in self.colonies.iter().enumerate() {
+            if col.owner == owner {
+                food_supply(
+                    self,
+                    col.get(food),
+                    col.food_demand(),
+                    SiteRef::Colony(c),
+                    col.body,
+                );
+            }
+        }
+        for (k, st) in self.mining_stations.iter().enumerate() {
+            if st.owner == owner {
+                food_supply(
+                    self,
+                    st.get(food),
+                    st.food_demand(),
+                    SiteRef::Station(k),
+                    st.body,
+                );
+            }
+        }
+
         // Pick the best: value↓ → distance↑ → enumeration-index↑ (a full deterministic order).
         cands
             .iter()
@@ -980,6 +1118,35 @@ mod tests {
                 assert!(p.credits >= 0, "seed {seed}: {} insolvent", p.name);
             }
         }
+    }
+
+    #[test]
+    fn settlements_consume_food_and_are_restocked_by_haulers() {
+        use super::super::commodity::FOOD;
+        // A tiered demand exists, and over a run haulers keep most settlements fed from the markets
+        // (the Food trade loop closes: Hydroponics/markets → haulers → settlements).
+        let sim0 = Sim::new(0);
+        assert_eq!(
+            sim0.colonies()[0].tier(),
+            SettlementTier::Capital,
+            "Earth pop 8000 = Capital"
+        );
+        assert!(sim0.colonies()[0].food_demand() > sim0.mining_stations()[0].food_demand());
+        let mut sim = Sim::new(0);
+        for _ in 0..4_000 {
+            sim.step();
+        }
+        let settlements = sim.colonies().len() + sim.mining_stations().len();
+        let fed = sim.colonies().iter().filter(|c| c.get(FOOD) > 0).count()
+            + sim
+                .mining_stations()
+                .iter()
+                .filter(|s| s.get(FOOD) > 0)
+                .count();
+        assert!(
+            fed * 5 >= settlements * 4,
+            "haulers keep most settlements fed: {fed}/{settlements}"
+        );
     }
 
     #[test]
