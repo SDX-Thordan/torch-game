@@ -114,6 +114,32 @@ pub struct Section {
     pub subsystems: Vec<Subsystem>,
 }
 
+/// A logistics site a job picks up from / drops off at (indices into the world's `Vec`s, or a
+/// market sink). Pure data so it can live with `Ship` without a world dependency.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SiteRef {
+    Station(usize),
+    Facility(usize),
+    Colony(usize),
+    Sink { body: usize, commodity: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JobPhase {
+    ToPickup,
+    ToDropoff,
+}
+
+/// A committed hauling job: carry `good` from `from` to `to`. Persists across the multi-tick
+/// flight legs (anti-thrash — a hauler completes a job before re-deciding).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Job {
+    pub good: usize,
+    pub from: SiteRef,
+    pub to: SiteRef,
+    pub phase: JobPhase,
+}
+
 /// An owned ship: an `owner`, a class, a name, its sections + a fuel tank, a cargo hold, and a
 /// movement state. `body` is the dock when `dest is None`, and the **origin while in flight**.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +164,9 @@ pub struct Ship {
     /// Tick the current flight docks at `dest`.
     #[serde(default)]
     pub arrival: u64,
+    /// The committed hauling job (haulers only), if any.
+    #[serde(default)]
+    pub job: Option<Job>,
 }
 
 impl Ship {
@@ -153,6 +182,7 @@ impl Ship {
             dest: None,
             departed: 0,
             arrival: 0,
+            job: None,
         }
     }
 
