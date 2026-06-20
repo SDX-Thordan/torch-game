@@ -19,20 +19,76 @@ use serde::{Deserialize, Serialize};
 /// Stockpile a player keeps of any sinkable good before the infinite sink monetizes the
 /// surplus — enough working stock to build with, while bounding theoretically-infinite output.
 const SINK_RESERVE: i64 = 1_000;
+/// A mining station / colony local raw store cap (so it stops digging when a hauler isn't
+/// collecting — bounds the world even when logistics stalls).
+const STATION_STORE_CAP: i64 = 1_000;
 
-/// A growable settlement on an **inhabitable** body.
+/// Raw extracted per tick from a body whose abundance (0..=~252) is `abundance`. 0 if the body
+/// has none of that good; otherwise a small deterministic integer rate. No RNG.
+fn mine_amount(abundance: i64) -> i64 {
+    if abundance <= 0 {
+        0
+    } else {
+        (2 + abundance / 32).max(1)
+    }
+}
+
+/// A growable settlement on an **inhabitable** body — digs its body's raw (if abundant) and holds
+/// imported Food. Carries a local `store` (the locational inventory).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Colony {
     pub owner: PlayerId,
     pub body: usize,
     pub population: i64,
+    #[serde(default)]
+    pub store: Vec<i64>,
 }
 
-/// A non-growable **dedicated mining station** on an **uninhabitable** body.
+impl Colony {
+    pub fn new(owner: PlayerId, body: usize, population: i64) -> Self {
+        Self {
+            owner,
+            body,
+            population,
+            store: vec![0; commodity::commodity_count()],
+        }
+    }
+    pub fn add(&mut self, c: usize, qty: i64) {
+        if let Some(s) = self.store.get_mut(c) {
+            *s = (*s + qty).max(0);
+        }
+    }
+    pub fn get(&self, c: usize) -> i64 {
+        self.store.get(c).copied().unwrap_or(0)
+    }
+}
+
+/// A non-growable **dedicated mining station** on an **uninhabitable** body — extracts its body's
+/// raw into a local `store` that haulers collect.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MiningStation {
     pub owner: PlayerId,
     pub body: usize,
+    #[serde(default)]
+    pub store: Vec<i64>,
+}
+
+impl MiningStation {
+    pub fn new(owner: PlayerId, body: usize) -> Self {
+        Self {
+            owner,
+            body,
+            store: vec![0; commodity::commodity_count()],
+        }
+    }
+    pub fn add(&mut self, c: usize, qty: i64) {
+        if let Some(s) = self.store.get_mut(c) {
+            *s = (*s + qty).max(0);
+        }
+    }
+    pub fn get(&self, c: usize) -> i64 {
+        self.store.get(c).copied().unwrap_or(0)
+    }
 }
 
 /// The deterministic multi-player world.
@@ -87,29 +143,14 @@ impl Sim {
         self.ships
             .push(Ship::new(0, ShipClass::Miner, "Prospector", ceres));
         if let Some(psyche) = belt(self, "Psyche") {
-            self.mining_stations.push(MiningStation {
-                owner: 0,
-                body: psyche,
-            });
+            self.mining_stations.push(MiningStation::new(0, psyche));
         }
 
         // NPC nations: homeworld colonies + a facility each.
         // players: 1 Earth, 2 Mars, 3 OPA.
-        self.colonies.push(Colony {
-            owner: 1,
-            body: earth,
-            population: 8_000,
-        });
-        self.colonies.push(Colony {
-            owner: 2,
-            body: mars,
-            population: 5_000,
-        });
-        self.colonies.push(Colony {
-            owner: 3,
-            body: ceres,
-            population: 2_000,
-        });
+        self.colonies.push(Colony::new(1, earth, 8_000));
+        self.colonies.push(Colony::new(2, mars, 5_000));
+        self.colonies.push(Colony::new(3, ceres, 2_000));
         self.facilities
             .push(Facility::new(1, earth, FacilityKind::ElectronicsFab));
         self.facilities
@@ -131,8 +172,7 @@ impl Sim {
         // Belt mining stations for the OPA.
         for name in ["Vesta", "Pallas", "Eros"] {
             if let Some(b) = belt(self, name) {
-                self.mining_stations
-                    .push(MiningStation { owner: 3, body: b });
+                self.mining_stations.push(MiningStation::new(3, b));
             }
         }
     }
@@ -147,11 +187,13 @@ impl Sim {
         for m in &mut self.markets {
             m.step(&mut self.rng);
         }
-        // 2. Facility production: consume input → produce output from the owner's stockpile.
-        self.run_facilities();
-        // 3. Infinite-sink absorption: monetize surplus so production never dead-ends.
+        // 2. Extraction: mining stations + colonies dig their body's raw into a local store.
+        self.run_extraction();
+        // 3. Production: facilities refine on-site input → on-site output (idle if starved).
+        self.run_production();
+        // 4. Sink absorption (legacy global drain — replaced by hauler delivery in a later commit).
         self.run_sinks();
-        // 4. Per-player AI think (stubbed — no-op, stable id order).
+        // 5. Per-player AI think (stubbed — no-op).
         let view = ai::WorldView {
             tick: self.tick,
             body_count: self.bodies.len(),
@@ -160,19 +202,45 @@ impl Sim {
         for p in &mut self.players {
             ai::think(p, &view, &mut self.rng);
         }
-        // 5. Ship fuel top-up from owner Ice→Fusion stock (cheap upkeep).
+        // 6. Ship fuel top-up.
         self.run_ship_upkeep();
     }
 
-    fn run_facilities(&mut self) {
-        for f in &self.facilities {
+    /// Mining stations (and abundant colonies) extract their body's raw goods into a local store
+    /// each tick, scaled by the body's abundance and capped. No RNG — fully deterministic.
+    fn run_extraction(&mut self) {
+        let raw = commodity::raw_count();
+        for st in &mut self.mining_stations {
+            let goods = &self.bodies[st.body].goods;
+            for r in 0..raw {
+                let amt = mine_amount(goods.get(r).copied().unwrap_or(0));
+                if amt > 0 && st.get(r) < STATION_STORE_CAP {
+                    st.add(r, amt);
+                }
+            }
+        }
+        // Colonies on an abundant body dig at a lighter rate (they're not dedicated miners).
+        for col in &mut self.colonies {
+            let goods = &self.bodies[col.body].goods;
+            for r in 0..raw {
+                let amt = mine_amount(goods.get(r).copied().unwrap_or(0)) / 2;
+                if amt > 0 && col.get(r) < STATION_STORE_CAP {
+                    col.add(r, amt);
+                }
+            }
+        }
+    }
+
+    /// Facilities consume on-site input → produce on-site output; **idle if starved** (no on-site
+    /// input) or if the output buffer is full. Touches no owner stockpile and no RNG.
+    fn run_production(&mut self) {
+        use super::facility::FACILITY_OUTPUT_CAP;
+        for f in &mut self.facilities {
             let r = f.kind.recipe();
             let need = f.rate * r.ratio;
-            if let Some(p) = self.players.get_mut(f.owner as usize) {
-                if p.stock(r.input) >= need {
-                    p.add_stock(r.input, -need);
-                    p.add_stock(r.out, f.rate);
-                }
+            if f.input_of(r.input) >= need && f.output_of(r.out) < FACILITY_OUTPUT_CAP {
+                f.add_input(r.input, -need);
+                f.add_output(r.out, f.rate);
             }
         }
     }
@@ -422,6 +490,47 @@ mod tests {
         assert!(json.starts_with('{'));
         let c = Sim::load_bytes(json.as_bytes()).expect("json reloads");
         assert_eq!(a.to_save(), c.to_save());
+    }
+
+    #[test]
+    fn mining_stations_extract_their_bodys_raw_into_a_local_store() {
+        let mut sim = Sim::new(0);
+        // The human's belt mining station accrues raw over time.
+        let s0: i64 = sim.mining_stations[0].store.iter().sum();
+        assert_eq!(s0, 0, "starts empty");
+        for _ in 0..50 {
+            sim.step();
+        }
+        let s1: i64 = sim.mining_stations[0].store.iter().sum();
+        assert!(
+            s1 > 0,
+            "the station mined its body's raw into its store ({s1})"
+        );
+    }
+
+    #[test]
+    fn a_facility_produces_from_on_site_input_and_idles_when_starved() {
+        use super::super::commodity::{ALLOYS, ORE};
+        let mut sim = Sim::new(0);
+        // Find an AlloyPlant (Mars, owner 2) — it's starved (no on-site Ore) ⇒ no output.
+        let fi = sim
+            .facilities
+            .iter()
+            .position(|f| f.kind == FacilityKind::AlloyPlant)
+            .unwrap();
+        for _ in 0..20 {
+            sim.step();
+        }
+        assert_eq!(sim.facilities[fi].output_of(ALLOYS), 0, "starved ⇒ idle");
+        // Deliver Ore to its on-site input → it now produces Alloys.
+        sim.facilities[fi].add_input(ORE, 400);
+        for _ in 0..20 {
+            sim.step();
+        }
+        assert!(
+            sim.facilities[fi].output_of(ALLOYS) > 0,
+            "fed on-site input ⇒ produces output"
+        );
     }
 
     #[test]

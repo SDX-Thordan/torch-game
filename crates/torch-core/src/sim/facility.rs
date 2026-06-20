@@ -48,23 +48,54 @@ impl FacilityKind {
     }
 }
 
-/// A built facility: owner + body + kind + per-tick throughput.
+/// Input store a facility accepts before it stops taking hauler deliveries (a stop condition /
+/// anti-thrash) and output it holds before it stops producing.
+pub const FACILITY_INPUT_CAP: i64 = 400;
+pub const FACILITY_OUTPUT_CAP: i64 = 400;
+/// Below this on-site input, a facility is "starved" and dispatch will route raw to it.
+pub const FACILITY_LOW_WATER: i64 = 80;
+
+/// A built facility: owner + body + kind + per-tick throughput + **on-site input/output stores**
+/// (the locational inventory — it needs raw on site, or a hauler must bring it).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Facility {
     pub owner: PlayerId,
     pub body: usize,
     pub kind: FacilityKind,
     pub rate: i64,
+    #[serde(default)]
+    pub input: Vec<i64>,
+    #[serde(default)]
+    pub output: Vec<i64>,
 }
 
 impl Facility {
     pub fn new(owner: PlayerId, body: usize, kind: FacilityKind) -> Self {
+        let n = super::commodity::commodity_count();
         Self {
             owner,
             body,
             kind,
             rate: 4,
+            input: vec![0; n],
+            output: vec![0; n],
         }
+    }
+    pub fn add_input(&mut self, c: usize, qty: i64) {
+        if let Some(s) = self.input.get_mut(c) {
+            *s = (*s + qty).max(0);
+        }
+    }
+    pub fn input_of(&self, c: usize) -> i64 {
+        self.input.get(c).copied().unwrap_or(0)
+    }
+    pub fn add_output(&mut self, c: usize, qty: i64) {
+        if let Some(s) = self.output.get_mut(c) {
+            *s = (*s + qty).max(0);
+        }
+    }
+    pub fn output_of(&self, c: usize) -> i64 {
+        self.output.get(c).copied().unwrap_or(0)
     }
 }
 
