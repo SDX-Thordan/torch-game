@@ -3992,6 +3992,53 @@ func _refresh_object_panel() -> void:
 	_sys_object.visible = detail != ""
 
 
+func _refresh_context_verbs() -> void:
+	# Object-contextual verbs — the tapped body is the centre; only what it affords appears.
+	if _mine_btn == null:
+		return
+	var fb := _focus_body
+	var ci := _colony_index_for_body(fb)
+	var coni := _contested_index_for_body(fb)
+	var owned: bool = ci >= 0 and sim.colony_controlled(ci)
+	var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
+	var can_mine_here: bool = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
+	_mine_btn.visible = can_mine_here
+	_miner_tier_btn.visible = can_mine_here
+	if can_mine_here:
+		_miner_tier_btn.text = "◇ Class: %s" % String(sim.miner_class_name(miner_tier))
+		_mine_btn.text = "⛏ Send %s (%s)" % [
+			String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
+	_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
+	_convoy_btn.visible = fb > 0 and sim.can_form_convoy(fb)
+	_escort_btn.visible = fb > 0 and sim.can_escort_convoy(fb)
+	var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
+	var outpost_ready: bool = has_outpost and not outpost_building
+	_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
+	_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
+	# Facilities — only on an operational *outpost* (rank 0) that lacks each.
+	var is_plain_outpost: bool = outpost_ready and sim.outpost_rank(fb) == 0
+	_fac_mine_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 0)
+	_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
+	_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
+	# Collector hauler: offer it on any operational outpost with a Mine (drains the store);
+	# show Recall when one's assigned, Assign when a free hauler exists.
+	var has_collector: bool = outpost_ready and sim.outpost_has_collector(fb)
+	_collect_btn.visible = outpost_ready and sim.outpost_has_facility(fb, 0) and (has_collector or sim.can_assign_collector(fb))
+	if _collect_btn.visible:
+		_collect_btn.text = "⤴ Recall Collector" if has_collector else "⛟ Assign Collector"
+	_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
+	if _promote_btn.visible:
+		_promote_btn.text = "★ Promote to %s" % String(sim.outpost_next_rank_name(fb))
+	_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
+	_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
+	_court_btn.visible = coni >= 0 and not owned
+	_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
+	# Buy out an independent colony by clicking it (not a contested hub — those use Claim).
+	_acquire_ctx_btn.visible = ci >= 0 and coni < 0 and sim.colony_acquirable(ci)
+	_develop_btn.visible = owned and sim.colony_build_days(ci) == 0  # not mid-development
+	_send_btn.visible = fb > 0 and sim.fleet_size() > 0
+
+
 func _refresh_systems() -> void:
 	# The panel re-centres on whatever you tapped — the object is the subject, not just the
 	# market. Identity + a contextual detail block (yield / miner / influence / development).
@@ -4027,49 +4074,7 @@ func _refresh_systems() -> void:
 	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
 	if _defend_holdings_btn:
 		_defend_holdings_btn.visible = sim.coalition_strike_pending()
-	# Object-contextual verbs — the tapped body is the centre; only what it affords appears.
-	if _mine_btn:
-		var fb := _focus_body
-		var ci := _colony_index_for_body(fb)
-		var coni := _contested_index_for_body(fb)
-		var owned: bool = ci >= 0 and sim.colony_controlled(ci)
-		var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
-		var can_mine_here: bool = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
-		_mine_btn.visible = can_mine_here
-		_miner_tier_btn.visible = can_mine_here
-		if can_mine_here:
-			_miner_tier_btn.text = "◇ Class: %s" % String(sim.miner_class_name(miner_tier))
-			_mine_btn.text = "⛏ Send %s (%s)" % [
-				String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
-		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
-		_convoy_btn.visible = fb > 0 and sim.can_form_convoy(fb)
-		_escort_btn.visible = fb > 0 and sim.can_escort_convoy(fb)
-		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
-		var outpost_ready: bool = has_outpost and not outpost_building
-		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
-		_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
-		# Facilities — only on an operational *outpost* (rank 0) that lacks each.
-		var is_plain_outpost: bool = outpost_ready and sim.outpost_rank(fb) == 0
-		_fac_mine_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 0)
-		_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
-		_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
-		# Collector hauler: offer it on any operational outpost with a Mine (drains the store);
-		# show Recall when one's assigned, Assign when a free hauler exists.
-		var has_collector: bool = outpost_ready and sim.outpost_has_collector(fb)
-		_collect_btn.visible = outpost_ready and sim.outpost_has_facility(fb, 0) and (has_collector or sim.can_assign_collector(fb))
-		if _collect_btn.visible:
-			_collect_btn.text = "⤴ Recall Collector" if has_collector else "⛟ Assign Collector"
-		_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
-		if _promote_btn.visible:
-			_promote_btn.text = "★ Promote to %s" % String(sim.outpost_next_rank_name(fb))
-		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
-		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
-		_court_btn.visible = coni >= 0 and not owned
-		_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
-		# Buy out an independent colony by clicking it (not a contested hub — those use Claim).
-		_acquire_ctx_btn.visible = ci >= 0 and coni < 0 and sim.colony_acquirable(ci)
-		_develop_btn.visible = owned and sim.colony_build_days(ci) == 0  # not mid-development
-		_send_btn.visible = fb > 0 and sim.fleet_size() > 0
+	_refresh_context_verbs()
 	var mtxt := ""
 	if sim.miner_count() > 0:
 		mtxt = "   ·   ⛏ %d miner(s)" % sim.miner_count()
