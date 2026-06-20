@@ -161,8 +161,8 @@ func _build_topbar() -> void:
 	logo.custom_minimum_size = Vector2(120, 0)
 	row.add_child(logo)
 
-	# Center: resource / asset readouts (counts wired as the core rebuild exposes them).
-	for key in ["DATE", "CREDITS"]:
+	# Center: resource + asset readouts for the human player.
+	for key in ["DATE", "CREDITS", "HAULERS", "MINERS", "COMBAT", "COLONIES", "MINING"]:
 		var cell := _make_cell(key)
 		row.add_child(cell[0])
 		_topbar_labels[key] = cell[1]
@@ -207,6 +207,11 @@ func _make_cell(caption: String) -> Array:
 func _refresh_topbar() -> void:
 	(_topbar_labels["DATE"] as Label).text = _date_string()
 	(_topbar_labels["CREDITS"] as Label).text = _commas(sim.credits())
+	(_topbar_labels["HAULERS"] as Label).text = str(sim.count_haulers())
+	(_topbar_labels["MINERS"] as Label).text = str(sim.count_miners())
+	(_topbar_labels["COMBAT"] as Label).text = str(sim.count_combat())
+	(_topbar_labels["COLONIES"] as Label).text = str(sim.count_colonies())
+	(_topbar_labels["MINING"] as Label).text = str(sim.count_mining_stations())
 
 
 func _date_string() -> String:

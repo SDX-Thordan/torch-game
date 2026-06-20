@@ -25,11 +25,14 @@ pub enum BodyKind {
     /// A major named belt asteroid orbiting Sol (§17) — small and rocky, rendered
     /// without a full orbit ring so the Belt reads as a busy field, not a wheel.
     Asteroid,
-    /// The foreshadowed ring-gate beyond Pluto (§0.1) — a fixed landmark.
-    Gate,
-    /// A body on the **far side** of the gate (§17 endgame) — revealed only after
-    /// the player transits. Exists always (determinism), shown only post-transit.
-    FarSide,
+}
+
+impl BodyKind {
+    /// Whether this kind of body can host a **growable colony** (rocky worlds + dwarf
+    /// planets); the rest are uninhabitable and host **dedicated mining stations** only.
+    pub fn inhabitable(self) -> bool {
+        matches!(self, BodyKind::Planet | BodyKind::DwarfPlanet)
+    }
 }
 
 /// A celestial body on a fixed circular orbit about its parent.
@@ -45,6 +48,11 @@ pub struct Body {
     /// Angle at tick 0, in milli-degrees `[0, 360000)`.
     pub phase_mdeg: i64,
     pub kind: BodyKind,
+    /// Whether the body can host a growable colony (vs. a non-growable mining station).
+    pub inhabitable: bool,
+    /// Basic-good abundance, one entry per **raw** good (Ice, Ore, Rare Materials), sized by
+    /// `commodity::raw_count()` — extensible. Drives what a station here can mine.
+    pub goods: Vec<i64>,
 }
 
 impl Body {
@@ -82,6 +90,22 @@ pub fn position_of(bodies: &[Body], i: usize, tick: u64) -> (i64, i64) {
     (px + lx, py + ly)
 }
 
+// Deterministic basic-good abundance for a body (one entry per raw good) — a stable hash of
+// the name, so no RNG and the same body always has the same goods (§27).
+fn goods_for(name: &str) -> Vec<i64> {
+    let raw = super::commodity::raw_count();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in name.bytes() {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    (0..raw)
+        .map(|i| {
+            let v = (h >> (i * 7)) & 0x3f; // 0..=63
+            (v as i64) * 4 // 0..=252 abundance
+        })
+        .collect()
+}
+
 // A planet about Sol (parent 0).
 fn planet(name: &'static str, au_milli: i64, years_x100: u64, phase: i64, kind: BodyKind) -> Body {
     Body {
@@ -91,6 +115,8 @@ fn planet(name: &'static str, au_milli: i64, years_x100: u64, phase: i64, kind: 
         period_ticks: YEAR * years_x100 / 100,
         phase_mdeg: phase,
         kind,
+        inhabitable: kind.inhabitable(),
+        goods: goods_for(name),
     }
 }
 
@@ -109,6 +135,8 @@ fn moon(name: &'static str, parent: usize, radius: i64, period: u64, phase: i64)
         period_ticks: period,
         phase_mdeg: phase,
         kind: BodyKind::Moon,
+        inhabitable: BodyKind::Moon.inhabitable(),
+        goods: goods_for(name),
     }
 }
 
@@ -118,7 +146,7 @@ fn moon(name: &'static str, parent: usize, radius: i64, period: u64, phase: i64)
 /// moons. Radii are real AU for planets; periods are real years (1 tick ≈ 1 hour).
 pub fn default_system() -> Vec<Body> {
     use BodyKind::*;
-    let mut bodies = vec![
+    let bodies = vec![
         // 0: the star.
         Body {
             name: "Sol",
@@ -127,6 +155,8 @@ pub fn default_system() -> Vec<Body> {
             period_ticks: 0,
             phase_mdeg: 0,
             kind: Star,
+            inhabitable: false,
+            goods: goods_for("Sol"),
         },
         // 1–10: the planets (real AU radii, real periods).
         planet("Mercury", 387, 24, 30_000, Planet), // 1
@@ -139,16 +169,8 @@ pub fn default_system() -> Vec<Body> {
         planet("Uranus", 19191, 8401, 250_000, GasGiant), // 8
         planet("Neptune", 30069, 16479, 60_000, GasGiant), // 9
         planet("Pluto", 39482, 24796, 330_000, DwarfPlanet), // 10
-        // 11: the ring-gate, beyond Pluto, fixed (§0.1).
-        Body {
-            name: "Ring-Gate",
-            parent: 0,
-            orbit_radius: AU * 52,
-            period_ticks: 0,
-            phase_mdeg: 24_000,
-            kind: Gate,
-        },
-        // 12+: moons (exaggerated radii for legibility, each on its own orbit).
+        // 11+: moons (exaggerated radii for legibility, each on its own orbit). The ring-gate
+        // and the far-side bodies were removed in the multi-player rebuild.
         moon("Luna", 3, 220_000, 655, 0), // Earth
         moon("Phobos", 4, 100_000, 8, 0), // Mars
         moon("Deimos", 4, 150_000, 30, 180_000),
@@ -244,36 +266,6 @@ pub fn default_system() -> Vec<Body> {
         asteroid("Sylvia", 3490, 650, 20_000),
         asteroid("Hektor", 5203, 1186, 175_000),
     ];
-    // ---- The far side of the gate (§17 endgame) ----
-    // Appended last, so every existing index (planets/gate/moons, and the markets +
-    // colonies that reference them) is unmoved. These bodies exist always for
-    // determinism, but the shell only reveals them once the player has transited.
-    // A cold dead star beyond the ring, with two worlds in its dark.
-    let anchor = bodies.len();
-    bodies.push(Body {
-        name: "Erebus", // the lightless sun on the far side
-        parent: 0,
-        orbit_radius: AU * 66,
-        period_ticks: 0,
-        phase_mdeg: 205_000,
-        kind: FarSide,
-    });
-    bodies.push(Body {
-        name: "Threshold", // the bridgehead world
-        parent: anchor,
-        orbit_radius: AU * 2,
-        period_ticks: 52_000,
-        phase_mdeg: 0,
-        kind: FarSide,
-    });
-    bodies.push(Body {
-        name: "The Tally", // where the count is kept
-        parent: anchor,
-        orbit_radius: AU * 4,
-        period_ticks: 128_000,
-        phase_mdeg: 120_000,
-        kind: FarSide,
-    });
     bodies
 }
 
@@ -376,45 +368,34 @@ mod tests {
         assert_eq!(bodies[3].name, "Earth");
         assert_eq!(bodies[4].name, "Mars");
         assert_eq!(bodies[5].name, "Ceres");
-        assert_eq!(bodies[11].name, "Ring-Gate");
     }
 
     #[test]
-    fn the_gate_sits_beyond_pluto() {
-        let pluto = find("Pluto").orbit_radius;
-        let gate = find("Ring-Gate").orbit_radius;
-        assert!(gate > pluto, "the gate is the far frontier (§0.1)");
-    }
-
-    #[test]
-    fn the_far_side_lies_beyond_the_gate() {
-        // §17: the far-side cluster is appended after the gate (so inner indices are
-        // unmoved) and lies beyond the ring. Its worlds orbit a far-side anchor.
+    fn the_ring_and_far_side_are_gone() {
         let bodies = default_system();
-        let gate = find("Ring-Gate").orbit_radius;
-        let erebus = bodies.iter().position(|b| b.name == "Erebus").unwrap();
-        assert!(
-            erebus > 11,
-            "the far side is appended after the gate (index 11)"
-        );
-        assert_eq!(bodies[erebus].kind, BodyKind::FarSide);
-        assert!(
-            bodies[erebus].orbit_radius > gate,
-            "Erebus lies past the ring"
-        );
-        // Threshold + The Tally orbit the anchor and resolve to real positions.
-        for name in ["Threshold", "The Tally"] {
-            let i = bodies.iter().position(|b| b.name == name).unwrap();
+        assert!(!bodies.iter().any(|b| b.name == "Ring-Gate"));
+        assert!(!bodies.iter().any(|b| b.name == "Erebus"));
+    }
+
+    #[test]
+    fn bodies_carry_inhabitable_flag_and_basic_goods() {
+        let bodies = default_system();
+        let raw = super::super::commodity::raw_count();
+        for b in &bodies {
             assert_eq!(
-                bodies[i].parent, erebus,
-                "{name} orbits the far-side anchor"
+                b.goods.len(),
+                raw,
+                "{} goods vector sized to raw count",
+                b.name
             );
-            assert_ne!(position_of(&bodies, i, 5_000), (0, 0));
         }
-        // The inner system's load-bearing indices are unchanged.
-        assert_eq!(bodies[3].name, "Earth");
-        assert_eq!(bodies[5].name, "Ceres");
-        assert_eq!(bodies[11].name, "Ring-Gate");
+        // Earth/Mars are inhabitable; the belt asteroids are not.
+        assert!(bodies[3].inhabitable && bodies[4].inhabitable);
+        let psyche = bodies.iter().find(|b| b.name == "Psyche").unwrap();
+        assert!(
+            !psyche.inhabitable,
+            "an asteroid hosts a mining station, not a colony"
+        );
     }
 
     #[test]

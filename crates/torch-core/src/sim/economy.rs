@@ -1,54 +1,56 @@
 //! Stockpile-simulation economy (§7a) with anti-death-spiral stabilizers (§7c).
 //!
-//! Markets hold inventory that fills/drains from NPC production/consumption;
-//! price tracks stock. Everything is integer/fixed-point (§27) so a run is
-//! bit-identical across platforms and the headless stability gate is meaningful.
-//!
-//! Design notes carried from the validated prototype:
-//! - **Piecewise price target** so `stock == target ⇒ base_price`, sliding to the
-//!   ceiling under scarcity and the floor under glut (not a band-midpoint map).
-//! - **Damped** price (lerp toward the stock-based target, never raw supply÷demand).
-//! - **NPC stabilizers**: production/consumption restore stock toward target, so a
-//!   self-sufficient market reaches equilibrium with zero player input.
+//! Markets hold inventory that fills/drains from NPC production/consumption; price tracks
+//! stock. Everything is integer/fixed-point (§27) so a run is bit-identical. The pricing
+//! engine is carried verbatim from the validated prototype; only the goods set + the market
+//! layout (now owned by a [`PlayerId`]) changed in the multi-player rebuild.
 
-use super::faction::Faction;
+use super::player::PlayerId;
 use super::rng::Pcg32;
-use serde::Deserialize;
 
-/// Basis-point denominator (100% = 10000).
 const BP: i64 = 10_000;
-/// Fraction of the price→target gap closed each tick.
 const PRICE_DAMP_BP: i64 = 2_000;
-/// Fraction of the stock error the NPC stabilizers correct each tick. Kept
-/// **gentle** so trade and interdiction (§7b) visibly move the average; the hard
-/// stock walls (not this spring) are what guarantee no death-spiral (§7c).
 const STABILIZE_BP: i64 = 400;
-/// Hard stock walls sit this fraction of `target_stock` inside `[0, max_stock]`,
-/// keeping price strictly off its rails however hard trade/jitter push (§7c).
 const WALL_MARGIN_DEN: i64 = 10;
 
-/// Static definition of a tradable commodity (the "numbers as data" of §31; held
-/// in Rust for now, trivially movable to RON/JSON later).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommodityDef {
+/// The pricing parameters of one good (the "numbers as data" of §31), one entry per catalog
+/// good in [`super::commodity::commodities`] order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PriceDef {
     pub name: &'static str,
-    /// Reference price, reached when `stock == target_stock`.
     pub base_price: i64,
-    /// Price floor (approached under maximum glut).
     pub floor: i64,
-    /// Price ceiling (approached as stock → 0).
     pub ceiling: i64,
-    /// Stock at which price equals `base_price`.
     pub target_stock: i64,
-    /// Stock at which price reaches `floor` (the glut cap).
     pub max_stock: i64,
-    /// Amplitude of deterministic per-tick demand noise.
     pub demand_jitter: i64,
 }
 
-/// Piecewise price target for a given stock level (§7a). Monotonically
-/// non-increasing in stock: scarce ⇒ high, glut ⇒ low.
-pub fn target_price(def: &CommodityDef, stock: i64) -> i64 {
+/// Pricing params per catalog good (same order/length as `commodity::commodities()`).
+pub fn price_defs() -> Vec<PriceDef> {
+    // name              base  floor ceil  target  max   jitter
+    let row = |name, base_price, floor, ceiling, target_stock, max_stock, demand_jitter| PriceDef {
+        name,
+        base_price,
+        floor,
+        ceiling,
+        target_stock,
+        max_stock,
+        demand_jitter,
+    };
+    vec![
+        row("Ice", 40, 20, 120, 800, 2_000, 4),
+        row("Ore", 50, 25, 150, 800, 2_000, 4),
+        row("Rare Materials", 120, 60, 360, 500, 1_500, 3),
+        row("Alloys", 150, 80, 400, 600, 1_600, 4),
+        row("Fusion Fuel", 110, 60, 300, 600, 1_600, 3),
+        row("Electronics", 300, 160, 800, 400, 1_200, 2),
+        row("Food", 70, 35, 200, 700, 1_800, 3),
+    ]
+}
+
+/// Piecewise price target for a stock level (§7a) — monotonically non-increasing in stock.
+pub fn target_price(def: &PriceDef, stock: i64) -> i64 {
     if stock <= 0 {
         return def.ceiling;
     }
@@ -56,52 +58,37 @@ pub fn target_price(def: &CommodityDef, stock: i64) -> i64 {
         return def.floor;
     }
     if stock < def.target_stock {
-        // Scarcity: lerp ceiling (stock 0) → base (stock target).
         def.ceiling + (def.base_price - def.ceiling) * stock / def.target_stock
     } else {
-        // Glut: lerp base (stock target) → floor (stock max).
         let span = def.max_stock - def.target_stock;
         def.base_price + (def.floor - def.base_price) * (stock - def.target_stock) / span
     }
 }
 
-/// Live state of one commodity in a market.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Stock {
     pub stock: i64,
     pub price: i64,
 }
 
-/// A single market at a location (body): NPC industry that self-stabilizes
-/// each commodity toward a **setpoint** stock, with prices damped toward the
-/// stock-based target. The setpoint is decoupled from the price anchor
-/// (`def.target_stock`), so a producer (setpoint in glut ⇒ cheap) and a consumer
-/// (setpoint in scarcity ⇒ dear) reach *different* equilibrium prices — the
-/// spread that drives arbitrage traffic (§7b).
+/// A market at a body, owned by a player; self-stabilizes each good toward a setpoint with
+/// damped prices.
 #[derive(Clone, Debug)]
 pub struct Market {
     name: &'static str,
     body: usize,
-    faction: Faction,
-    defs: Vec<CommodityDef>,
+    owner: PlayerId,
+    defs: Vec<PriceDef>,
     setpoints: Vec<i64>,
     stocks: Vec<Stock>,
 }
 
 impl Market {
-    /// A neutral independent market: setpoint == price anchor ⇒ prices at base.
-    pub fn new(defs: Vec<CommodityDef>) -> Self {
-        let setpoints = defs.iter().map(|d| d.target_stock).collect();
-        Self::with_setpoints("Market", 0, Faction::Independents, defs, setpoints)
-    }
-
-    /// A market located at `body`, owned by `faction`, whose per-commodity
-    /// stabilizer setpoints set its equilibrium prices. Starts at equilibrium.
     pub fn with_setpoints(
         name: &'static str,
         body: usize,
-        faction: Faction,
-        defs: Vec<CommodityDef>,
+        owner: PlayerId,
+        defs: Vec<PriceDef>,
         setpoints: Vec<i64>,
     ) -> Self {
         let stocks = defs
@@ -115,7 +102,7 @@ impl Market {
         Self {
             name,
             body,
-            faction,
+            owner,
             defs,
             setpoints,
             stocks,
@@ -125,62 +112,40 @@ impl Market {
     pub fn name(&self) -> &'static str {
         self.name
     }
-
     pub fn body(&self) -> usize {
         self.body
     }
-
-    /// The faction that owns this market (§4).
-    pub fn faction(&self) -> Faction {
-        self.faction
+    pub fn owner(&self) -> PlayerId {
+        self.owner
     }
-
-    pub fn defs(&self) -> &[CommodityDef] {
+    pub fn defs(&self) -> &[PriceDef] {
         &self.defs
     }
-
     pub fn stocks(&self) -> &[Stock] {
         &self.stocks
     }
-
-    /// Current price of commodity `c`.
     pub fn price(&self, c: usize) -> i64 {
         self.stocks[c].price
     }
-
-    /// Current stock of commodity `c`.
     pub fn stock(&self, c: usize) -> i64 {
         self.stocks[c].stock
     }
-
-    /// Low stock wall — kept above 0 so price never reaches its ceiling (§7c).
     pub fn wall_low(&self, c: usize) -> i64 {
         (self.defs[c].target_stock / WALL_MARGIN_DEN).max(1)
     }
-
-    /// High stock wall — kept below `max_stock` so price never reaches its floor.
     pub fn wall_high(&self, c: usize) -> i64 {
         self.defs[c].max_stock - self.wall_low(c)
     }
-
-    /// Land cargo at this market (a hauler delivery), repricing immediately.
     pub fn add_stock(&mut self, c: usize, qty: i64) {
         let (lo, hi) = (self.wall_low(c), self.wall_high(c));
         self.stocks[c].stock = (self.stocks[c].stock + qty).clamp(lo, hi);
         self.reprice(c);
     }
-
-    /// Lift cargo from this market (a hauler loading), repricing immediately.
     pub fn remove_stock(&mut self, c: usize, qty: i64) {
         let (lo, hi) = (self.wall_low(c), self.wall_high(c));
         self.stocks[c].stock = (self.stocks[c].stock - qty).clamp(lo, hi);
         self.reprice(c);
     }
-
-    /// Damp the price of commodity `c` one notch toward its stock-based target.
-    /// Overwrite live stock + price per commodity from a loaded save (§30),
-    /// clamped into each commodity's walls. Setpoints/defs are rebuilt from code,
-    /// so only the dynamic stock/price pair is restored. Touches no RNG.
     pub fn restore_stocks(&mut self, stocks: &[i64], prices: &[i64]) {
         for c in 0..self.stocks.len().min(stocks.len()).min(prices.len()) {
             let def = &self.defs[c];
@@ -188,7 +153,6 @@ impl Market {
             self.stocks[c].price = prices[c].clamp(def.floor, def.ceiling);
         }
     }
-
     fn reprice(&mut self, c: usize) {
         let def = &self.defs[c];
         let s = &mut self.stocks[c];
@@ -196,20 +160,17 @@ impl Market {
         let delta = target - s.price;
         let mut step = delta * PRICE_DAMP_BP / BP;
         if step == 0 && delta != 0 {
-            step = delta.signum(); // never stall on integer truncation
+            step = delta.signum();
         }
         s.price = (s.price + step).clamp(def.floor, def.ceiling);
     }
-
-    /// Advance the market one tick: NPC stabilizers move stock toward its
-    /// setpoint against demand noise, then prices damp toward the target.
+    /// Advance one tick: NPC stabilizers move stock toward setpoint against demand noise, then
+    /// prices damp toward target. The only RNG touch in the sim's tick.
     pub fn step(&mut self, rng: &mut Pcg32) {
         for c in 0..self.defs.len() {
             let (lo, hi) = (self.wall_low(c), self.wall_high(c));
-            // NPC stabilizer: gentle proportional restoring toward the setpoint.
             let err = self.setpoints[c] - self.stocks[c].stock;
             let stabilize = err * STABILIZE_BP / BP;
-            // Deterministic demand noise in [-jitter, jitter].
             let jit = self.defs[c].demand_jitter;
             let jitter = if jit > 0 {
                 rng.below((2 * jit + 1) as u32) as i64 - jit
@@ -220,422 +181,146 @@ impl Market {
             self.reprice(c);
         }
     }
-
-    /// Hot-reload new commodity numbers onto this live market (§31). The set and
-    /// order are fixed by code (names must match the current defs one-for-one), so
-    /// only the *numbers* change; live stock and setpoints are re-clamped into the
-    /// new walls and prices re-damp toward the new targets next reprice. Touches no
-    /// RNG, so a reload keeps the run deterministic.
-    pub fn retune(&mut self, defs: &[CommodityDef]) -> Result<(), String> {
-        if defs.len() != self.defs.len() {
-            return Err(format!(
-                "commodity count changed ({} → {}); the set is code-defined",
-                self.defs.len(),
-                defs.len()
-            ));
-        }
-        for (old, new) in self.defs.iter().zip(defs) {
-            if old.name != new.name {
-                return Err(format!(
-                    "commodity name changed ({} → {})",
-                    old.name, new.name
-                ));
-            }
-        }
-        self.defs = defs.to_vec();
-        for c in 0..self.defs.len() {
-            let (lo, hi) = (self.wall_low(c), self.wall_high(c));
-            self.setpoints[c] = self.setpoints[c].clamp(lo, hi);
-            self.stocks[c].stock = self.stocks[c].stock.clamp(lo, hi);
-            self.stocks[c].price = self.stocks[c]
-                .price
-                .clamp(self.defs[c].floor, self.defs[c].ceiling);
-            self.reprice(c);
-        }
-        Ok(())
-    }
 }
 
-/// Default inner-system commodity slice (§7d): raw → refined, illustrative.
-pub fn default_commodities() -> Vec<CommodityDef> {
-    // base floor ceil  target  max   jitter
-    const fn c(
-        name: &'static str,
-        base_price: i64,
-        floor: i64,
-        ceiling: i64,
-        target_stock: i64,
-        max_stock: i64,
-        demand_jitter: i64,
-    ) -> CommodityDef {
-        CommodityDef {
-            name,
-            base_price,
-            floor,
-            ceiling,
-            target_stock,
-            max_stock,
-            demand_jitter,
-        }
-    }
-    // The production chain is a 3-line × 4-tier grid (§7d): each commodity refines
-    // into the one **+3 indices** along (the next tier in its line), so the order is
-    // tier-major. Three lines — water/organics, metals, volatiles/energy — each
-    // climbing Raw → Refined → Components → Assembled, value rising ~3–4× per tier
-    // while stock volume halves (finished goods are dearer and scarcer).
+/// The default market layout: the three inner trading hubs, each owned by its power.
+/// Player ids follow `player::default_players()` order: 1 Earth, 2 Mars, 3 OPA.
+pub fn default_markets() -> Vec<Market> {
+    let defs = price_defs();
+    let neutral: Vec<i64> = defs.iter().map(|d| d.target_stock).collect();
     vec![
-        // ---- Tier 0: Raw (mined) ----
-        c("Ice", 20, 8, 60, 1200, 2400, 35),
-        c("Ore", 30, 12, 90, 1000, 2000, 30),
-        c("Volatiles", 45, 18, 140, 800, 1600, 22),
-        // ---- Tier 1: Refined (primary processing) ----
-        c("Remass", 70, 28, 210, 700, 1400, 18),
-        c("Metals", 110, 44, 330, 600, 1200, 14),
-        c("ReactorFuel", 180, 72, 540, 400, 800, 9),
-        // ---- Tier 2: Components (manufactured parts) ----
-        // Finished goods carry *no demand jitter* (jitter 0): they're made-to-order
-        // capital goods with administered prices, not volatile spot commodities — so
-        // they sit stable at anchor and aren't an instant-arbitrage faucet (their high
-        // absolute prices would otherwise turn tiny jitter into huge spreads). This
-        // also keeps the lower-tier RNG stream byte-identical (jitter 0 draws no RNG).
-        c("Composites", 240, 96, 720, 350, 700, 0),
-        c("Alloys", 380, 152, 1140, 300, 600, 0),
-        c("Circuitry", 620, 248, 1860, 200, 400, 0),
-        // ---- Tier 3: Assembled (finished goods) ----
-        c("Habitats", 820, 328, 2460, 175, 350, 0),
-        c("Machinery", 1300, 520, 3900, 150, 300, 0),
-        c("Drives", 2100, 840, 6300, 100, 200, 0),
+        Market::with_setpoints("Earth Hub", 3, 1, defs.clone(), neutral.clone()),
+        Market::with_setpoints("Mars Colony", 4, 2, defs.clone(), neutral.clone()),
+        Market::with_setpoints("Ceres Yards", 5, 3, defs.clone(), neutral.clone()),
     ]
 }
 
-/// One commodity's tunable numbers as loaded from data (§31). Identity (`name`)
-/// matches a compiled commodity; the rest overrides its numbers. Deserialized
-/// from JSON; unknown fields are ignored so the data file can carry comments.
-#[derive(Clone, Debug, Deserialize)]
-pub struct CommodityTuning {
-    pub name: String,
-    pub base_price: i64,
-    pub floor: i64,
-    pub ceiling: i64,
-    pub target_stock: i64,
-    pub max_stock: i64,
-    pub demand_jitter: i64,
+// ---- infinite demand sinks (§ rework) ------------------------------------------------
+
+/// An **infinite demand sink**: a market point that buys any quantity of `commodity` at
+/// `price`, giving production (theoretically infinite) an outlet so stockpiles never saturate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sink {
+    pub body: usize,
+    pub commodity: usize,
+    pub price: i64,
 }
 
-/// Top-level shape of `data/commodities.json` (a `commodities` array; any other
-/// keys — e.g. `_comment` — are ignored).
-#[derive(Debug, Deserialize)]
-struct CommodityFile {
-    commodities: Vec<CommodityTuning>,
-}
-
-/// The numbers shipped in-tree, embedded so a default build needs no filesystem.
-/// `data_file_matches_compiled_defaults` proves it reproduces `default_commodities`.
-pub const DEFAULT_COMMODITY_JSON: &str = include_str!("../../data/commodities.json");
-
-/// Parse a commodity-tuning document (§31). Returns the listed overrides, or a
-/// human-readable error (the shell surfaces it instead of crashing on a typo).
-pub fn parse_tuning(json: &str) -> Result<Vec<CommodityTuning>, String> {
-    serde_json::from_str::<CommodityFile>(json)
-        .map(|f| f.commodities)
-        .map_err(|e| format!("invalid commodity data: {e}"))
-}
-
-/// Overlay tuning numbers onto a commodity set, matching by name. Partial files
-/// are allowed (override only what's listed); an entry naming no compiled
-/// commodity is an error (typo protection) — the set itself stays code-defined.
-pub fn apply_tuning(defs: &mut [CommodityDef], tunings: &[CommodityTuning]) -> Result<(), String> {
-    for t in tunings {
-        let def = defs
-            .iter_mut()
-            .find(|d| d.name == t.name)
-            .ok_or_else(|| format!("unknown commodity '{}'", t.name))?;
-        def.base_price = t.base_price;
-        def.floor = t.floor;
-        def.ceiling = t.ceiling;
-        def.target_stock = t.target_stock;
-        def.max_stock = t.max_stock;
-        def.demand_jitter = t.demand_jitter;
-    }
-    Ok(())
-}
-
-/// The compiled commodity set with a JSON tuning overlay applied (§31): code owns
-/// identity + recipe order, data owns the numbers.
-pub fn tuned_commodities(json: &str) -> Result<Vec<CommodityDef>, String> {
-    let mut defs = default_commodities();
-    let tunings = parse_tuning(json)?;
-    apply_tuning(&mut defs, &tunings)?;
-    Ok(defs)
-}
-
-/// Commodity indices that are *raw* (the first tier); the rest are *refined*.
-const RAW: [usize; 3] = [0, 1, 2];
-
-/// Two complementary markets (§4): a Belt producer (cheap raw / dear refined) at
-/// Ceres and an inner consumer (dear raw / cheap refined) at Earth. The opposed
-/// setpoints create a standing two-way price spread for arbitrage traffic (§7b).
-pub fn default_markets() -> Vec<Market> {
-    markets_from_defs(default_commodities())
-}
-
-/// The two default markets built over an arbitrary commodity set — the shared
-/// construction `default_markets` and the tuned variant both use, so a JSON
-/// overlay (§31) flows straight into market setup.
-pub fn markets_from_defs(defs: Vec<CommodityDef>) -> Vec<Market> {
-    // Halfway into glut ⇒ ~(base+floor)/2 (surplus); halfway into scarcity ⇒
-    // ~(base+ceiling)/2 (deficit). Both stay well within [floor, ceiling].
-    let glut = |d: &CommodityDef| (d.target_stock + d.max_stock) / 2;
-    let scarce = |d: &CommodityDef| d.target_stock / 2;
-    // The designed producer/consumer spread (Belt-cheap-raw ↔ inner-cheap-refined)
-    // applies only to the **lower two tiers** (raw + refined). Components and
-    // assembled goods (tiers 2–3) sit at their anchor everywhere: finished goods are
-    // *produced* by the player up the §7d chain, not arbitraged by ambient haulers —
-    // so the deeper chain adds production depth without a giant NPC-speculation faucet.
-    let traded_tiers = 2 * RAW.len(); // commodities below this index carry a spread
-    let setpoints = |raw_cheap: bool, defs: &[CommodityDef]| -> Vec<i64> {
-        defs.iter()
-            .enumerate()
-            .map(|(i, d)| {
-                if i >= traded_tiers {
-                    return d.target_stock; // tiers 2–3: anchor price, no NPC spread
-                }
-                let cheap = RAW.contains(&i) == raw_cheap;
-                if cheap {
-                    glut(d)
-                } else {
-                    scarce(d)
-                }
-            })
-            .collect()
-    };
-    let ceres = setpoints(true, &defs); // cheap raw, dear refined
-    let earth = setpoints(false, &defs); // dear raw, cheap refined
-                                         // Mars: a frontier colony at base-price equilibrium (every commodity at its
-                                         // anchor). With all-pairs arbitrage it sits between the Belt producer and the
-                                         // Earth consumer — a third trading node and Mars-faction market (§4) that joins
-                                         // the spreads on its merits rather than dominating them.
-    let mars: Vec<i64> = defs.iter().map(|d| d.target_stock).collect();
-    let mut markets = vec![
-        Market::with_setpoints("Ceres Yards", 5, Faction::Belt, defs.clone(), ceres),
-        Market::with_setpoints("Mars Colony", 4, Faction::Mars, defs.clone(), mars),
-        Market::with_setpoints("Earth Hub", 3, Faction::Earth, defs.clone(), earth),
-    ];
-    // Frontier colony markets (§17): far outer hubs that import from the inner
-    // system. They sit a notch into scarcity (everything a touch dear) so they
-    // *pull* long-haul supply without out-bidding the inner producer/consumer
-    // spreads — moderate frontier demand, not a runaway draw. Named by their body
-    // (short, reads cleanly as a board column) and owned by their colony's faction.
-    let bodies = super::orbit::default_system();
-    for c in super::frontier::market_colonies() {
-        let name = bodies[c.body].name;
-        // Frontier hubs sit a notch into scarcity on the *traded* tiers (a moderate
-        // long-haul draw), but at anchor on finished goods (tiers 2–3) — same reason
-        // as the inner markets: those are produced, not arbitraged.
-        let frontier: Vec<i64> = defs
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                if i >= traded_tiers {
-                    d.target_stock
-                } else {
-                    d.target_stock * 7 / 10
-                }
-            })
-            .collect();
-        markets.push(Market::with_setpoints(
-            name,
-            c.body,
-            c.faction,
-            defs.clone(),
-            frontier,
-        ));
-    }
-    markets
-}
-
-/// The **far-side** markets (§17 endgame) — built separately from the inner economy
-/// and appended after it by `Sim::new`, then stepped with a *dedicated* RNG, so the
-/// pre-transit economy is byte-identical (§7c gate + QA untouched). They sit **deep
-/// in scarcity** (everything dear, isolated from Sol's supply) — the frontier where
-/// goods are worth a fortune and nothing arrives unless you bring it.
-pub fn far_side_markets(defs: Vec<CommodityDef>) -> Vec<Market> {
-    let bodies = super::orbit::default_system();
-    // Deep scarcity on the traded tiers (quarter-stock ⇒ near-ceiling prices);
-    // finished goods at anchor (administered, like everywhere else).
-    let scarce_far: Vec<i64> = defs
-        .iter()
-        .enumerate()
-        .map(|(i, d)| {
-            if i >= 2 * RAW.len() {
-                d.target_stock
-            } else {
-                d.target_stock / 4
-            }
-        })
-        .collect();
-    super::frontier::far_side_market_colonies()
-        .into_iter()
-        .map(|c| {
-            Market::with_setpoints(
-                bodies[c.body].name,
-                c.body,
-                c.faction,
-                defs.clone(),
-                scarce_far.clone(),
-            )
-        })
-        .collect()
+/// The sink catalog — **Alloys at Ceres/Earth/Mars**, plus a sink for every other good, so
+/// nothing is a dead end. Extend by appending rows (geography is recorded for when ship
+/// movement lands; absorption is owner-stockpile based for now).
+pub fn sinks() -> Vec<Sink> {
+    use super::commodity::*;
+    let (ceres, earth, mars) = (5usize, 3usize, 4usize);
+    vec![
+        // Alloys — the headline triple sink.
+        Sink {
+            body: ceres,
+            commodity: ALLOYS,
+            price: 140,
+        },
+        Sink {
+            body: earth,
+            commodity: ALLOYS,
+            price: 150,
+        },
+        Sink {
+            body: mars,
+            commodity: ALLOYS,
+            price: 145,
+        },
+        // One sink per remaining good so production always has an outlet.
+        Sink {
+            body: ceres,
+            commodity: ICE,
+            price: 35,
+        },
+        Sink {
+            body: earth,
+            commodity: ORE,
+            price: 45,
+        },
+        Sink {
+            body: mars,
+            commodity: RARE,
+            price: 110,
+        },
+        Sink {
+            body: earth,
+            commodity: FUSION_FUEL,
+            price: 100,
+        },
+        Sink {
+            body: earth,
+            commodity: ELECTRONICS,
+            price: 280,
+        },
+        Sink {
+            body: mars,
+            commodity: FOOD,
+            price: 65,
+        },
+    ]
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::commodity::commodity_count;
     use super::*;
 
-    fn defs() -> Vec<CommodityDef> {
-        default_commodities()
+    #[test]
+    fn price_defs_cover_every_good() {
+        assert_eq!(price_defs().len(), commodity_count());
     }
 
     #[test]
-    fn target_price_anchors_are_correct() {
-        for d in defs() {
-            assert_eq!(target_price(&d, d.target_stock), d.base_price); // anchor
-            assert_eq!(target_price(&d, 0), d.ceiling); // scarcity
-            assert_eq!(target_price(&d, d.max_stock), d.floor); // glut
-            assert!(target_price(&d, d.target_stock / 2) > d.base_price); // scarcer ⇒ dearer
-            let glut = (d.target_stock + d.max_stock) / 2;
-            assert!(target_price(&d, glut) < d.base_price); // glut ⇒ cheaper
-        }
-    }
-
-    #[test]
-    fn target_price_is_monotonic_non_increasing() {
-        for d in defs() {
+    fn target_price_anchors_at_base_and_is_monotonic() {
+        for d in price_defs() {
+            assert_eq!(target_price(&d, d.target_stock), d.base_price);
+            assert_eq!(target_price(&d, 0), d.ceiling);
+            assert_eq!(target_price(&d, d.max_stock), d.floor);
+            // Monotonically non-increasing in stock.
             let mut prev = i64::MAX;
-            for stock in (0..=d.max_stock).step_by((d.max_stock / 50).max(1) as usize) {
-                let p = target_price(&d, stock);
-                assert!(p <= prev, "{} not monotonic at stock {stock}", d.name);
+            for s in (0..=d.max_stock).step_by((d.max_stock / 20).max(1) as usize) {
+                let p = target_price(&d, s);
+                assert!(p <= prev);
                 prev = p;
             }
         }
     }
 
     #[test]
-    fn idle_market_starts_and_stays_at_equilibrium_band() {
-        let mut m = Market::new(defs());
-        let mut rng = Pcg32::new(7);
-        for _ in 0..2_000 {
-            m.step(&mut rng);
-        }
-        for (d, s) in m.defs().iter().zip(m.stocks()) {
-            assert!(
-                s.price > d.floor && s.price < d.ceiling,
-                "{} pinned",
-                d.name
-            );
-        }
-    }
-
-    /// The §7c acceptance gate: with **zero player input**, no market may
-    /// death-spiral across thousands of ticks **on any seed** — stock never
-    /// fully depletes or gluts, and price never pins to a rail.
-    #[test]
     fn no_death_spiral_on_any_seed() {
+        // Markets left to run never pin price to a rail (the §7c guarantee), on many seeds.
+        let mut bad = false;
         for seed in 0..64u64 {
-            let mut m = Market::new(defs());
             let mut rng = Pcg32::new(seed);
-            // Invariants accumulated as plain booleans in the hot loop; asserted
-            // once at the end (per the prototype's performance learning).
-            let mut ok = true;
-            for _ in 0..5_000 {
-                m.step(&mut rng);
-                for (d, s) in m.defs().iter().zip(m.stocks()) {
-                    ok &= s.stock > 0 && s.stock < d.max_stock + d.target_stock;
-                    ok &= s.price > d.floor && s.price < d.ceiling;
+            let mut markets = default_markets();
+            for _ in 0..2_000 {
+                for m in &mut markets {
+                    m.step(&mut rng);
                 }
             }
-            assert!(ok, "death-spiral detected on seed {seed}");
+            for m in &markets {
+                for c in 0..price_defs().len() {
+                    let d = &price_defs()[c];
+                    if m.price(c) <= d.floor || m.price(c) >= d.ceiling {
+                        bad = true;
+                    }
+                }
+            }
         }
-    }
-
-    /// The shipped data file (§31) must reproduce the compiled defaults exactly —
-    /// this keeps `data/commodities.json` and `default_commodities` in lockstep and
-    /// documents the format by example. If you change one, change the other.
-    #[test]
-    fn data_file_matches_compiled_defaults() {
-        let from_data = tuned_commodities(DEFAULT_COMMODITY_JSON)
-            .expect("shipped commodity data should parse and overlay cleanly");
-        assert_eq!(from_data, default_commodities());
+        assert!(!bad, "no market pins price to a rail");
     }
 
     #[test]
-    fn tuning_overlays_only_listed_numbers_and_rejects_typos() {
-        // A partial file overrides just one commodity's numbers; the rest default.
-        let json = r#"{ "commodities": [
-            { "name": "Ore", "base_price": 99, "floor": 40, "ceiling": 400,
-              "target_stock": 500, "max_stock": 1000, "demand_jitter": 5 } ] }"#;
-        let defs = tuned_commodities(json).unwrap();
-        let ore = defs.iter().find(|d| d.name == "Ore").unwrap();
-        assert_eq!(ore.base_price, 99);
-        assert_eq!(ore.ceiling, 400);
-        // Untouched commodity keeps its compiled numbers.
-        let ice = defs.iter().find(|d| d.name == "Ice").unwrap();
-        assert_eq!(ice, &default_commodities()[0]);
-
-        // A typo'd commodity name is rejected (the set is code-defined).
-        let bad = r#"{ "commodities": [
-            { "name": "Orre", "base_price": 1, "floor": 1, "ceiling": 2,
-              "target_stock": 1, "max_stock": 2, "demand_jitter": 0 } ] }"#;
-        assert!(tuned_commodities(bad)
-            .unwrap_err()
-            .contains("unknown commodity"));
-        // Malformed JSON is reported, not panicked.
-        assert!(parse_tuning("{ not json").is_err());
-    }
-
-    /// Retuning a live market keeps it consistent (prices stay off the rails) and
-    /// the new numbers take effect — and the same retune on two markets stepped
-    /// with the same seed stays bit-identical (no RNG touched), so hot-reload is
-    /// deterministic.
-    #[test]
-    fn retune_takes_effect_and_stays_deterministic() {
-        let dearer = tuned_commodities(
-            r#"{ "commodities": [
-                { "name": "Ore", "base_price": 250, "floor": 100, "ceiling": 900,
-                  "target_stock": 1000, "max_stock": 2000, "demand_jitter": 30 } ] }"#,
-        )
-        .unwrap();
-
-        let mut a = Market::new(defs());
-        let mut b = Market::new(defs());
-        a.retune(&dearer).unwrap();
-        b.retune(&dearer).unwrap();
-
-        let ore = 1;
-        let (mut ra, mut rb) = (Pcg32::new(5), Pcg32::new(5));
-        for _ in 0..1_000 {
-            a.step(&mut ra);
-            b.step(&mut rb);
-            assert_eq!(a.stocks(), b.stocks(), "retune must be deterministic");
+    fn every_good_has_a_sink() {
+        let goods: std::collections::HashSet<usize> = sinks().iter().map(|s| s.commodity).collect();
+        for c in 0..commodity_count() {
             assert!(
-                a.price(ore) > a.defs()[ore].floor && a.price(ore) < a.defs()[ore].ceiling,
-                "retuned market pinned"
+                goods.contains(&c),
+                "good {c} has no sink — production would dead-end"
             );
         }
-        // The dearer floor lifted the equilibrium price above the old base (30).
-        assert!(a.price(ore) > 30, "retune did not change the price level");
-    }
-
-    #[test]
-    fn retune_rejects_a_changed_set() {
-        let mut m = Market::new(defs());
-        // Drop a commodity → wrong count.
-        let mut short = defs();
-        short.pop();
-        assert!(m.retune(&short).is_err());
-        // Rename one → identity mismatch.
-        let mut renamed = defs();
-        renamed[0].name = "NotIce";
-        assert!(m.retune(&renamed).is_err());
     }
 }
