@@ -17,6 +17,7 @@ extends Node3D
 const UiKit := preload("res://ui/ui_kit.gd")
 const MiniChartS := preload("res://ui/mini_chart.gd")
 const FlowGraphS := preload("res://ui/flow_graph.gd")
+const OrreryKit := preload("res://ui/orrery_kit.gd")
 
 const TICKS_PER_SECOND := 6.0           # sim ticks per real second at 1× (§28)
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]   # pause / 1× / 6× / 24× (§6)
@@ -405,15 +406,15 @@ func _build_world() -> void:
 	_orrery_root = Node3D.new()
 	add_child(_orrery_root)
 
-	_hauler_mat = _emissive_mat(HAULER_COL)
+	_hauler_mat = OrreryKit.emissive_mat(HAULER_COL)
 	# Faction-liveried hauler markers (§4/§24): NPC traffic reads by its owner's colour.
 	for fc in FACTION_COL:
-		_faction_haul_mats.append(_emissive_mat((fc as Color).lerp(HAULER_COL, 0.35)))
-	_ship_mat = _emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
-	_freighter_mat = _emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
-	_select_mat = _emissive_mat(SELECT_COL)
-	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
-	_miner_mat = _emissive_mat(Color(0.95, 0.6, 0.18))   # industrial amber
+		_faction_haul_mats.append(OrreryKit.emissive_mat((fc as Color).lerp(HAULER_COL, 0.35)))
+	_ship_mat = OrreryKit.emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
+	_freighter_mat = OrreryKit.emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
+	_select_mat = OrreryKit.emissive_mat(SELECT_COL)
+	_wreck_mat = OrreryKit.emissive_mat(Color(0.45, 0.85, 0.85))
+	_miner_mat = OrreryKit.emissive_mat(Color(0.95, 0.6, 0.18))   # industrial amber
 
 	_build_bodies()
 
@@ -486,14 +487,14 @@ func _build_bodies() -> void:
 			if parent == 0:
 				if not sim.body_is_far_side(b):
 					var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-					var pr := _ring(r, Color(0.24, 0.33, 0.48))
+					var pr := OrreryKit.ring(r, Color(0.24, 0.33, 0.48))
 					_orrery_root.add_child(pr)
 					_planet_orbit_rings.append({"tm": pr.mesh, "r": r})
 			else:
 				var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
 				# Moon orbit: a hair-thin, faintly glowing line around its planet.
-				var mrm := _emissive_mat(Color(0.3, 0.38, 0.5) * 2.0)
-				var mring := _ring_mat(mr, mrm, maxf(0.0022, mr * 0.006))
+				var mrm := OrreryKit.emissive_mat(Color(0.3, 0.38, 0.5) * 2.0)
+				var mring := OrreryKit.ring_mat(mr, mrm, maxf(0.0022, mr * 0.006))
 				_body_nodes[parent].add_child(mring)
 				_moon_orbit_rings.append({"mi": mring, "tm": mring.mesh, "r": mr})
 		var rad := _display_radius(name, kind)
@@ -511,8 +512,8 @@ func _build_bodies() -> void:
 
 	# The golden ring-gate visual is removed with the gate story (kept hidden, not drawn).
 	# The node stays so the per-frame zoom-scaler + glow refs don't dangle.
-	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
-	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
+	_gate_mat = OrreryKit.emissive_mat(Color(0.9, 0.78, 0.35))
+	_gate_ring = OrreryKit.ring_mat(gate_r, _gate_mat, 0.12)
 	_gate_ring.visible = false
 	_gate_tm = _gate_ring.mesh
 	_gate_r = gate_r
@@ -527,7 +528,7 @@ func _build_colony_markers() -> void:
 			continue
 		var fcol: Color = FACTION_COL[clampi(sim.colony_faction(ci), 0, 3)]
 		var crad := _display_radius(String(sim.body_name(cb)), sim.body_kind(cb))
-		var marker := _station_glyph(fcol)
+		var marker := OrreryKit.station_glyph(fcol)
 		marker.position = Vector3(crad + 0.03, 0.0, 0.0)
 		_body_nodes[cb].add_child(marker)
 		_station_markers.append(marker)
@@ -549,7 +550,7 @@ func _build_trade_lanes() -> void:
 	_lane_mesh = ImmediateMesh.new()
 	var lanes := MeshInstance3D.new()
 	lanes.mesh = _lane_mesh
-	var lane_mat := _emissive_mat(Color(0.85, 0.6, 0.35))
+	var lane_mat := OrreryKit.emissive_mat(Color(0.85, 0.6, 0.35))
 	lane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	lane_mat.albedo_color = Color(0.85, 0.6, 0.35, 0.4)
 	lanes.material_override = lane_mat
@@ -562,7 +563,7 @@ func _build_trade_lanes() -> void:
 func _spawn_body(b: int, name: String, kind: int) -> Node3D:
 	var container := Node3D.new()
 	var rad := _display_radius(name, kind)
-	var surf := _sphere(rad, _make_body_material(name, kind))
+	var surf := OrreryKit.sphere(rad, _make_body_material(name, kind))
 	# Lean the spin axis (axial tilt) — Uranus rolls on its side, Earth a gentle 23°.
 	surf.rotation_degrees = Vector3(0.0, 0.0, _axial_tilt(name))
 	# Tune sphere resolution to apparent size (cheap for tiny moons/rocks).
@@ -741,7 +742,7 @@ func _atmosphere_for(name: String, kind: int, rad: float) -> MeshInstance3D:
 				col = Color(0.72, 0.76, 0.86); inten = 0.7
 			else:
 				return null
-	var shell := _sphere(rad * (1.05 if kind == 2 else 1.07), PlanetShaders.atmosphere(col, inten))
+	var shell := OrreryKit.sphere(rad * (1.05 if kind == 2 else 1.07), PlanetShaders.atmosphere(col, inten))
 	var sm := shell.mesh as SphereMesh
 	sm.radial_segments = 28
 	sm.rings = 14
@@ -3084,7 +3085,7 @@ func _update_world(delta: float) -> void:
 		_lane_mesh.surface_end()
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
-		var wm := _sphere(0.03, _wreck_mat)
+		var wm := OrreryKit.sphere(0.03, _wreck_mat)
 		_orrery_root.add_child(wm)
 		_wreck_pool.append(wm)
 	for wi in _wreck_pool.size():
@@ -4876,25 +4877,6 @@ func _do_interdict() -> void:
 # 3D PRIMITIVES
 # ============================================================================
 
-func _emissive_mat(col: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.emission_enabled = true
-	m.emission = col
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	return m
-
-
-func _sphere(radius: float, mat: Material) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = radius
-	sm.height = radius * 2.0
-	mi.mesh = sm
-	mi.material_override = mat
-	return mi
-
-
 ## A small amber mining-rig glyph (a stubby drum) for the orrery.
 func _miner_marker() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -4922,46 +4904,3 @@ func _hull_marker(mat: StandardMaterial3D) -> MeshInstance3D:
 
 ## A tiny station glyph for a colony/holding on the orrery (A5) — a hab drum + cross
 ## arms, faction-tinted. Parented to a (static) body node, so a multi-part node is fine.
-func _station_glyph(fcol: Color) -> Node3D:
-	var root := Node3D.new()
-	var mat := _emissive_mat(fcol)
-	var drum := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.02
-	cm.bottom_radius = 0.02
-	cm.height = 0.05
-	cm.radial_segments = 8
-	drum.mesh = cm
-	drum.material_override = mat
-	root.add_child(drum)
-	for ang in [0.0, 90.0]:
-		var arm := MeshInstance3D.new()
-		var b := BoxMesh.new()
-		b.size = Vector3(0.08, 0.006, 0.006)
-		arm.mesh = b
-		arm.rotation_degrees = Vector3(0, ang, 0)
-		arm.material_override = mat
-		root.add_child(arm)
-	return root
-
-
-func _ring(radius: float, col: Color) -> MeshInstance3D:
-	# A thin orbit line with a faint glow — the emission tips just into the bloom pass.
-	return _ring_mat(radius, _emissive_mat(col * 2.4), 0.005)
-
-
-func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var tm := TorusMesh.new()
-	tm.inner_radius = maxf(0.01, radius - tube)
-	tm.outer_radius = radius + tube
-	# Plenty of segments around the ring so a large orbit reads as a smooth circle, not a
-	# stepped polygon; the tube itself needs only a few sides (it's a hairline). Scaled with
-	# radius and capped so the inner moons stay cheap and the wide planet orbits stay round.
-	tm.rings = clampi(int(radius * 48.0), 96, 384)
-	tm.ring_segments = 6
-	mi.mesh = tm
-	mi.material_override = mat
-	return mi
-
-
