@@ -2239,6 +2239,12 @@ func _build_build_view() -> void:
 	hb.add_theme_constant_override("separation", 12)
 	panel.add_child(hb)
 
+	_build_hull_list(hb)
+	_build_design_bench(hb)
+	_build_queue_panel(hb)
+
+
+func _build_hull_list(hb: HBoxContainer) -> void:
 	# Left: hull list.
 	var left := VBoxContainer.new()
 	left.custom_minimum_size = Vector2(220, 0)
@@ -2265,6 +2271,8 @@ func _build_build_view() -> void:
 		b.pressed.connect(func(): _pick_build(bi))
 		_build_list.add_child(b)
 
+
+func _build_design_bench(hb: HBoxContainer) -> void:
 	# Centre: wireframe blueprint viewport + caption + cost.
 	var centre := VBoxContainer.new()
 	centre.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2357,6 +2365,8 @@ func _build_build_view() -> void:
 	arm.pressed.connect(_arm_fleet)
 	centre.add_child(arm)
 
+
+func _build_queue_panel(hb: HBoxContainer) -> void:
 	# Right: construction queue.
 	var right := VBoxContainer.new()
 	right.custom_minimum_size = Vector2(230, 0)
