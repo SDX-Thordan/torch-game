@@ -132,6 +132,49 @@ impl TorchSim {
         self.sim.body_pos(index.max(0) as usize).1
     }
 
+    // ---- ships (for the orrery) ----
+
+    #[func]
+    fn ship_count(&self) -> i64 {
+        self.sim.ships().len() as i64
+    }
+    #[func]
+    fn ship_x(&self, i: i64) -> i64 {
+        self.sim.ship_pos(i.max(0) as usize).0
+    }
+    #[func]
+    fn ship_y(&self, i: i64) -> i64 {
+        self.sim.ship_pos(i.max(0) as usize).1
+    }
+    #[func]
+    fn ship_in_flight(&self, i: i64) -> bool {
+        self.sim
+            .ships()
+            .get(i.max(0) as usize)
+            .map(|s| s.in_flight())
+            .unwrap_or(false)
+    }
+    /// Owning player id of ship `i` (for colouring), or -1.
+    #[func]
+    fn ship_owner(&self, i: i64) -> i64 {
+        self.sim
+            .ships()
+            .get(i.max(0) as usize)
+            .map(|s| s.owner as i64)
+            .unwrap_or(-1)
+    }
+    /// Ship class of ship `i` (0 Hauler · 1 Miner · 2 Combat), or -1.
+    #[func]
+    fn ship_class(&self, i: i64) -> i64 {
+        use sim::ShipClass::*;
+        match self.sim.ships().get(i.max(0) as usize).map(|s| s.class) {
+            Some(Hauler) => 0,
+            Some(Miner) => 1,
+            Some(Combat) => 2,
+            None => -1,
+        }
+    }
+
     // ---- the top bar (human player) ----
 
     #[func]

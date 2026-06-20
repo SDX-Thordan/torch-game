@@ -23,6 +23,7 @@ var _accum := 0.0
 var _cam: Camera3D
 var _orrery_root: Node3D
 var _body_nodes: Array[Node3D] = []
+var _ship_nodes: Array[Node3D] = []
 
 # HUD
 var _layer: CanvasLayer
@@ -78,7 +79,34 @@ func _build_world() -> void:
 		var node := _spawn_body(b, kind)
 		_orrery_root.add_child(node)
 		_body_nodes.append(node)
+	_build_ships()
 	_update_world()
+
+
+# Player-entity marker colours (by owner id): Human, Earth, Mars, OPA, two companies,
+# private sector, pirates.
+const PLAYER_COL := [
+	Color(0.30, 0.84, 0.92), Color(0.40, 0.60, 0.95), Color(0.90, 0.35, 0.30),
+	Color(0.92, 0.78, 0.36), Color(0.45, 0.80, 0.50), Color(0.55, 0.85, 0.65),
+	Color(0.6, 0.62, 0.66), Color(0.7, 0.25, 0.30),
+]
+
+
+func _build_ships() -> void:
+	for i in sim.ship_count():
+		var m := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		var sz := 0.05 if sim.ship_class(i) == 2 else 0.035   # combat a touch bigger
+		box.size = Vector3(sz, sz * 0.5, sz)
+		m.mesh = box
+		var mat := StandardMaterial3D.new()
+		var owner: int = clampi(sim.ship_owner(i), 0, PLAYER_COL.size() - 1)
+		mat.emission_enabled = true
+		mat.emission = PLAYER_COL[owner]
+		mat.albedo_color = PLAYER_COL[owner]
+		m.material_override = mat
+		_orrery_root.add_child(m)
+		_ship_nodes.append(m)
 
 
 func _spawn_body(index: int, kind: int) -> Node3D:
@@ -137,6 +165,13 @@ func _update_world() -> void:
 		var x := float(sim.body_x(b)) * SCALE3D
 		var z := float(sim.body_y(b)) * SCALE3D
 		node.position = Vector3(x, 0.0, z)
+	# Ships (lerped along flight legs by the core); lift in-flight ones slightly off the ecliptic.
+	for i in _ship_nodes.size():
+		var sn: Node3D = _ship_nodes[i]
+		var sx := float(sim.ship_x(i)) * SCALE3D
+		var sz := float(sim.ship_y(i)) * SCALE3D
+		var y := 0.04 if sim.ship_in_flight(i) else 0.0
+		sn.position = Vector3(sx, y, sz)
 
 
 # ---- top bar -------------------------------------------------------------------
