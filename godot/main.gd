@@ -394,25 +394,7 @@ func _build_world() -> void:
 	# The Protomolecule typeface (The Expanse fan font) for the orrery labels (j).
 	if ResourceLoader.exists("res://assets/fonts/Protomolecule.ttf"):
 		_map_font = load("res://assets/fonts/Protomolecule.ttf")
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	# A procedural deep-space sky (stars + Milky Way + nebulae) at infinity (§21).
-	e.background_mode = Environment.BG_SKY
-	e.sky = PlanetShaders.space_sky()
-	# Bodies are lit in-shader from Sol at the origin (§17), so the scene needs no
-	# engine lights; a faint ambient just keeps the unlit far rims from going pure black.
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.18, 0.22, 0.32)
-	e.ambient_light_energy = 0.18
-	# Bloom so the sun, atmospheres and city lights glow (HDR ALBEDO > 1 → glow).
-	e.glow_enabled = true
-	e.glow_intensity = 0.55
-	e.glow_strength = 1.05
-	e.glow_bloom = 0.18
-	e.glow_hdr_threshold = 1.0
-	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	env.environment = e
-	add_child(env)
+	_build_sky_environment()
 
 	_cam = Camera3D.new()
 	_cam.current = true
@@ -433,6 +415,45 @@ func _build_world() -> void:
 	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
 	_miner_mat = _emissive_mat(Color(0.95, 0.6, 0.18))   # industrial amber
 
+	_build_bodies()
+
+	_build_colony_markers()
+
+	for b in sim.body_count():
+		if sim.body_name(b) == "Saturn":
+			_build_saturn_rings(_body_spin[b])   # parent to the tilted surface
+			break
+
+	_build_asteroid_belt()
+
+	_build_trade_lanes()
+
+
+func _build_sky_environment() -> void:
+	# Deep-space sky + ambient + bloom (§21).
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	# A procedural deep-space sky (stars + Milky Way + nebulae) at infinity (§21).
+	e.background_mode = Environment.BG_SKY
+	e.sky = PlanetShaders.space_sky()
+	# Bodies are lit in-shader from Sol at the origin (§17), so the scene needs no
+	# engine lights; a faint ambient just keeps the unlit far rims from going pure black.
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.18, 0.22, 0.32)
+	e.ambient_light_energy = 0.18
+	# Bloom so the sun, atmospheres and city lights glow (HDR ALBEDO > 1 → glow).
+	e.glow_enabled = true
+	e.glow_intensity = 0.55
+	e.glow_strength = 1.05
+	e.glow_bloom = 0.18
+	e.glow_hdr_threshold = 1.0
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env.environment = e
+	add_child(env)
+
+
+func _build_bodies() -> void:
+	# Spawn every celestial body with its orbit ring + label (§17).
 	var gate_r := 40.0
 	for b in sim.body_count():
 		var kind := sim.body_kind(b)
@@ -497,6 +518,9 @@ func _build_world() -> void:
 	_gate_r = gate_r
 	_orrery_root.add_child(_gate_ring)
 
+
+func _build_colony_markers() -> void:
+	# Faction-liveried station glyph + label per colony.
 	for ci in sim.colony_count():
 		var cb := sim.colony_body(ci)
 		if cb < 0 or cb >= _body_nodes.size():
@@ -519,13 +543,9 @@ func _build_world() -> void:
 		_body_nodes[cb].add_child(clbl)
 		_station_labels.append(clbl)
 
-	for b in sim.body_count():
-		if sim.body_name(b) == "Saturn":
-			_build_saturn_rings(_body_spin[b])   # parent to the tilted surface
-			break
 
-	_build_asteroid_belt()
-
+func _build_trade_lanes() -> void:
+	# The trade-lane mesh the frame loop draws into.
 	_lane_mesh = ImmediateMesh.new()
 	var lanes := MeshInstance3D.new()
 	lanes.mesh = _lane_mesh
