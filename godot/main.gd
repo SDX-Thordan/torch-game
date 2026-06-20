@@ -4661,7 +4661,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _dilemma_lock and event.keycode in [KEY_SPACE, KEY_1, KEY_2, KEY_3]:
 		status = "Decisions pending — resolve them all to resume."
 		return
-	match event.keycode:
+	_apply_key(event.keycode)
+
+
+## Dispatch a desktop keypress to its verb (the §18 keymap).
+func _apply_key(code: int) -> void:
+	match code:
 		KEY_SPACE:
 			speed_idx = 0 if speed_idx != 0 else 1
 		KEY_1:
