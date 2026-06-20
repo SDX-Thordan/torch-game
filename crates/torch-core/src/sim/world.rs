@@ -181,6 +181,9 @@ impl Sim {
             .push(Facility::new(2, mars, FacilityKind::AlloyPlant));
         self.facilities
             .push(Facility::new(3, ceres, FacilityKind::FusionRefinery));
+        // Earth also runs a Hydroponics plant so Food has a producer and trades.
+        self.facilities
+            .push(Facility::new(1, earth, FacilityKind::Hydroponics));
         chain(self, 1, "Hygiea", earth, 2); // Earth
         chain(self, 2, "Juno", mars, 2); // Mars
         for name in ["Vesta", "Pallas", "Eros"] {
@@ -200,11 +203,20 @@ impl Sim {
         self.ships
             .push(Ship::new(7, ShipClass::Combat, "Free Navy Pella", ceres));
 
-        // Companies / private sector / pirates: a station + a hauler each, so every player earns.
+        // Companies / pirates: a station + a hauler each, so every player earns.
         chain(self, 4, "Eunomia", earth, 1);
         chain(self, 5, "Davida", mars, 1);
-        chain(self, 6, "Interamnia", earth, 1);
         chain(self, 7, "Sylvia", ceres, 1);
+        // The Private Sector (player 6) is the **trade backbone**: a station + 10 haulers,
+        // docked across the three hubs for spatial spread. They mostly arbitrage the markets.
+        if let Some(b) = belt(self, "Interamnia") {
+            self.mining_stations.push(MiningStation::new(6, b));
+        }
+        let hubs = [earth, mars, ceres];
+        for n in 0..10 {
+            self.ships
+                .push(Ship::new(6, ShipClass::Hauler, "Trader", hubs[n % 3]));
+        }
     }
 
     // ---- the tick loop ----------------------------------------------------------------
