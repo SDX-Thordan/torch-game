@@ -250,15 +250,52 @@ impl Market {
     }
 }
 
-/// The default market layout: the three inner trading hubs, each owned by its power.
-/// Player ids follow `player::default_players()` order: 1 Earth, 2 Mars, 3 OPA.
+/// Per-good market role, setting the NPC-stabilizer setpoint (decoupled from the price anchor) so
+/// each hub rests at a deliberately cheap or dear price — the standing spreads arbitrage feeds on.
+#[derive(Clone, Copy)]
+enum Role {
+    /// Glut setpoint ⇒ stock deep above target ⇒ price near floor (cheap to buy here).
+    Producer,
+    /// Neutral setpoint ⇒ price at base.
+    Mid,
+    /// Scarcity setpoint (still strictly inside the low wall) ⇒ price near ceiling (dear).
+    Consumer,
+}
+
+fn setpoint_for(d: &PriceDef, role: Role) -> i64 {
+    match role {
+        Role::Producer => d.target_stock + (d.max_stock - d.target_stock) * 6 / 10,
+        Role::Mid => d.target_stock,
+        // Scarce, but kept above wall_low (= target/10) so the setpoint is reachable in-band.
+        Role::Consumer => (d.target_stock * 4 / 10).max(d.target_stock / 10 + 1),
+    }
+}
+
+/// The default market layout: the three inner trading hubs, each specialized so standing spreads
+/// exist for arbitrage (Ceres = raw/industrial producer, Earth = consumer, Mars = mixed). Player
+/// ids follow `player::default_players()`: 1 Earth, 2 Mars, 3 OPA.
 pub fn default_markets() -> Vec<Market> {
+    use super::commodity::*;
+    use Role::*;
     let defs = price_defs();
-    let neutral: Vec<i64> = defs.iter().map(|d| d.target_stock).collect();
+    // Build a setpoint vector from a per-good role table (index == commodity index).
+    let setpoints = |roles: [Role; 7]| -> Vec<i64> {
+        defs.iter()
+            .enumerate()
+            .map(|(c, d)| setpoint_for(d, roles[c]))
+            .collect()
+    };
+    // [Ice, Ore, Rare, Alloys, FusionFuel, Electronics, Food]
+    let _ = (ICE, ORE, RARE, ALLOYS, FUSION_FUEL, ELECTRONICS, FOOD);
+    let earth = setpoints([Mid, Consumer, Mid, Consumer, Mid, Consumer, Consumer]);
+    let mars = setpoints([Mid, Mid, Consumer, Producer, Mid, Mid, Consumer]);
+    let ceres = setpoints([
+        Producer, Producer, Producer, Producer, Producer, Consumer, Consumer,
+    ]);
     vec![
-        Market::with_setpoints("Earth Hub", 3, 1, defs.clone(), neutral.clone()),
-        Market::with_setpoints("Mars Colony", 4, 2, defs.clone(), neutral.clone()),
-        Market::with_setpoints("Ceres Yards", 5, 3, defs.clone(), neutral.clone()),
+        Market::with_setpoints("Earth Hub", 3, 1, defs.clone(), earth),
+        Market::with_setpoints("Mars Colony", 4, 2, defs.clone(), mars),
+        Market::with_setpoints("Ceres Yards", 5, 3, defs.clone(), ceres),
     ]
 }
 
@@ -338,6 +375,30 @@ mod tests {
     #[test]
     fn price_defs_cover_every_good() {
         assert_eq!(price_defs().len(), commodity_count());
+    }
+
+    #[test]
+    fn specialized_markets_open_with_standing_spreads() {
+        use super::super::commodity::ALLOYS;
+        let m = default_markets();
+        // m[0]=Earth (consumer), m[1]=Mars (Alloys producer), m[2]=Ceres (producer).
+        let (earth, ceres) = (m[0].price(ALLOYS), m[2].price(ALLOYS));
+        assert!(
+            earth > ceres,
+            "Alloys dear at Earth ({earth}) vs cheap at Ceres ({ceres}) — a standing spread"
+        );
+        // The spread persists when the markets run dry (stabilizers hold the setpoints).
+        let mut markets = default_markets();
+        let mut rng = Pcg32::new(5);
+        for _ in 0..2_000 {
+            for mk in &mut markets {
+                mk.step(&mut rng);
+            }
+        }
+        assert!(
+            markets[0].price(ALLOYS) > markets[2].price(ALLOYS),
+            "the spread survives the stabilizers"
+        );
     }
 
     #[test]
