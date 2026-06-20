@@ -398,3 +398,48 @@ pub fn render_engagement(out: &mut String, runs: &[Transcript]) {
     }
     let _ = writeln!(out);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp100_pins_to_the_unit_percentage_range() {
+        let cases = [(-50, 0u8), (0, 0), (37, 37), (100, 100), (250, 100)];
+        for (input, want) in cases {
+            assert_eq!(clamp100(input), want, "clamp100({input})");
+        }
+    }
+
+    #[test]
+    fn sweet_is_a_triangular_band_peaking_on_the_plateau() {
+        // rise [0,20] → hold [20,60] → fall to 0 by 100.
+        let (lo, hi, top) = (20, 60, 100);
+        let cases = [
+            (-5, 0),  // below the floor
+            (0, 0),   // at the floor
+            (10, 50), // mid-rise
+            (20, 100),
+            (40, 100), // on the plateau
+            (60, 100),
+            (80, 50), // mid-fall
+            (100, 0), // at the top
+            (150, 0), // past the top
+        ];
+        for (x, want) in cases {
+            assert_eq!(sweet(x, lo, hi, top), want, "sweet({x})");
+        }
+    }
+
+    #[test]
+    fn bar_renders_ten_blocks_rounding_up() {
+        assert_eq!(bar(0), "··········");
+        assert_eq!(bar(100), "██████████");
+        assert_eq!(
+            bar(1),
+            "█·········",
+            "any non-zero fills at least one block"
+        );
+        assert_eq!(bar(55), "██████····", "55% rounds up to six blocks");
+    }
+}
