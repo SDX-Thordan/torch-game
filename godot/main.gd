@@ -2559,7 +2559,7 @@ func _buy_freighter() -> void:
 func _arm_fleet() -> void:
 	var armed := 0
 	for i in sim.freighters():
-		var cls := sim.hauler_class(i)
+		var cls: int = sim.hauler_class(i)
 		if String(sim.arm_hauler(i, sim.hauler_class_pdc_mounts(cls), sim.hauler_class_torpedo_mounts(cls))) != "":
 			armed += 1
 	if armed > 0:
@@ -3600,7 +3600,7 @@ func _ledger_rows(t: int) -> Array:
 			for i in sim.miner_count():
 				var mb := sim.miner_body(i)
 				var boosted: bool = sim.outpost_level_at(mb) > 0
-				var cls := sim.miner_class(i)
+				var cls: int = sim.miner_class(i)
 				var base: int = 2 * sim.miner_class_yield(cls)   # MINER_OUTPUT_PER_TICK × tier
 				var outp: int = base + (base / 2 if boosted else 0)
 				rows.append([String(sim.miner_name(i)), String(sim.miner_class_name(cls)),
@@ -3895,7 +3895,7 @@ func _refresh_object_panel() -> void:
 				detail += "\n[color=#f0a030]⛏ miner here gets +50% (hauls to the outpost)[/color]"
 	elif sim.can_mine_body(fb):
 		if sim.miner_at(fb):
-			var mcls := sim.miner_class_at(fb)
+			var mcls: int = sim.miner_class_at(fb)
 			detail = "[color=#f0a030]⛏ %s[/color] working here — extracting [color=#cfd8e0]%s[/color] (×%d yield)" % [
 				String(sim.miner_class_name(mcls)), String(sim.body_mineral_name(fb)), sim.miner_class_yield(mcls)]
 			if sim.miner_has_convoy_synergy(fb):
