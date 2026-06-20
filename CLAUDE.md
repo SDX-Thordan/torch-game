@@ -392,6 +392,23 @@ Status: [x] done, [~] in progress, [ ] todo.
   `_process` hook (`get_viewport().get_texture().get_image().save_png(path)` then quit; revert
   the hook). `pip install Pillow` to crop/zoom dense panels. Software GL is too slow to route
   ships across the system in-frame — rely on unit tests for those paths.
+- **The cloud/web env CAN run Godot — install it; don't assume "no runtime."** The container
+  ships no `godot` binary, but egress to the GitHub releases CDN works: download
+  `Godot_v4.6.3-stable_linux.x86_64.zip` (match the 4.6.3 pin), unzip, symlink onto PATH. With
+  that, the full GDScript loop is a *real gate*, not advisory: `cargo build` (debug cdylib the
+  extension loads) → `godot --headless --path godot --import` (registers gdext + `class_name`s;
+  a fresh checkout has none) → GUT (`-gexit` fails non-zero) → the §7.5 xvfb render-verify. To
+  shoot a non-default view, instantiate `main.tscn` under a `SceneTree` script and call
+  `inst._select_view(idx)` a few frames before the capture. Confirm a `main.gd` refactor didn't
+  move the QA UI facet by diffing the **distinct `sim.X(` name set** (was 292) — unchanged ⇒ the
+  QA review regenerates byte-identical.
+- **GUT integration tests silently rot when nobody runs Godot.** They drive the real gdext
+  binding, so a *sim* behaviour change (warships now go through a timed shipyard build queue —
+  `commission_ship` lays a hull down, it stands up `commission_build_ticks` later, not
+  instantly) breaks the GUT assertions while `cargo test` stays green. Fix by stepping the sim
+  through the build via the exposed `pending_ship_count()` binding (the `finish_pending_ships()`
+  test helper is `pub(crate)`, not a `#[func]`) — which also makes the test exercise
+  `run_shipyard_builds` end-to-end. **Run GUT after any binding/sim change**, not just parse.
 
 ### 7.6 Build / CI / tooling
 
