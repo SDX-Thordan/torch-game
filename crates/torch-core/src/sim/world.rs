@@ -360,6 +360,25 @@ impl Sim {
             self.ships
                 .push(Ship::new(6, ShipClass::Hauler, "Trader", hubs[n % 3]));
         }
+
+        // Zero-G stations (player-unobtainable; fixed set). One shipyard per power orbiting its
+        // capital, plus the independent private sector's yard + a couple of deep-space habitats.
+        let yard = |s: &mut Self, owner: u16, name: &str| {
+            if let Some(b) = belt(s, name) {
+                s.zero_g_stations
+                    .push(ZeroGStation::new(owner, b, name, ZeroGKind::Shipyard));
+            }
+        };
+        yard(self, 1, "Bush Naval Yard"); // Earth
+        yard(self, 2, "Kirino Station"); // Mars
+        yard(self, 3, "Miller Construction Yard"); // OPA
+        yard(self, 6, "Tycho Shipyards"); // independent → private sector
+        for name in ["Toth Station", "Medina Drift"] {
+            if let Some(b) = belt(self, name) {
+                self.zero_g_stations
+                    .push(ZeroGStation::new(6, b, name, ZeroGKind::Habitat));
+            }
+        }
     }
 
     // ---- the tick loop ----------------------------------------------------------------
@@ -1206,6 +1225,59 @@ mod tests {
                 assert!(p.credits >= 0, "seed {seed}: {} insolvent", p.name);
             }
         }
+    }
+
+    #[test]
+    fn the_named_zero_g_stations_are_seeded_on_station_bodies() {
+        let sim = Sim::new(0);
+        // The four named shipyards + a couple of habitats exist; the human owns none.
+        for name in [
+            "Bush Naval Yard",
+            "Kirino Station",
+            "Miller Construction Yard",
+            "Tycho Shipyards",
+            "Toth Station",
+        ] {
+            let z = sim
+                .zero_g_stations()
+                .iter()
+                .find(|z| z.name == name)
+                .unwrap_or_else(|| panic!("{name} seeded"));
+            assert_eq!(
+                sim.bodies()[z.body].kind,
+                super::super::orbit::BodyKind::Station
+            );
+            assert_ne!(z.owner, sim.human(), "{name} not human-owned");
+        }
+        // A shipyard orbits its capital (its body's parent is the capital), a habitat is deep space.
+        let bush = sim
+            .zero_g_stations()
+            .iter()
+            .find(|z| z.name == "Bush Naval Yard")
+            .unwrap();
+        assert_eq!(
+            sim.bodies()[bush.body].parent,
+            3,
+            "Bush Naval Yard orbits Earth"
+        );
+        let toth = sim
+            .zero_g_stations()
+            .iter()
+            .find(|z| z.name == "Toth Station")
+            .unwrap();
+        assert_eq!(
+            sim.bodies()[toth.body].parent,
+            0,
+            "Toth Station is deep space (heliocentric)"
+        );
+        // Determinism holds with the new bodies/stations.
+        let mut a = Sim::new(3);
+        let mut b = Sim::new(3);
+        for _ in 0..500 {
+            a.step();
+            b.step();
+        }
+        assert_eq!(a.to_save(), b.to_save());
     }
 
     #[test]

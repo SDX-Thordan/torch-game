@@ -162,13 +162,28 @@ fn moon(name: &'static str, parent: usize, radius: i64, period: u64, phase: i64)
     }
 }
 
+// A zero-G station body — a shipyard orbiting `parent`, or a deep-space habitat (parent 0 = Sol on
+// its own slow orbit). Never inhabitable; carries no raw abundance (it's not a mining target).
+fn station(name: &'static str, parent: usize, radius: i64, period: u64, phase: i64) -> Body {
+    Body {
+        name,
+        parent,
+        orbit_radius: radius,
+        period_ticks: period,
+        phase_mdeg: phase,
+        kind: BodyKind::Station,
+        inhabitable: false,
+        goods: vec![0; super::commodity::raw_count()],
+    }
+}
+
 /// The full solar system out to Pluto, the ring-gate beyond, and moon systems on
 /// the gas giants (§17). Body **indices are load-bearing** — markets reference
 /// them (Earth = 3, Mars = 4, Ceres = 5); keep planets first, then the gate, then
 /// moons. Radii are real AU for planets; periods are real years (1 tick ≈ 1 hour).
 pub fn default_system() -> Vec<Body> {
     use BodyKind::*;
-    let bodies = vec![
+    let mut bodies = vec![
         // 0: the star.
         Body {
             name: "Sol",
@@ -288,6 +303,28 @@ pub fn default_system() -> Vec<Body> {
         asteroid("Sylvia", 3490, 650, 20_000),
         asteroid("Hektor", 5203, 1186, 175_000),
     ];
+    // Zero-G station bodies (appended last so all existing indices stay stable). Shipyards orbit
+    // their capital (a close, fast station orbit); deep-space habitats ride their own slow
+    // heliocentric orbit out in the belt region. AU=1_000_000, so e.g. 3_400_000 ≈ 3.4 AU.
+    let tycho = bodies.iter().position(|b| b.name == "Tycho").unwrap_or(0);
+    bodies.push(station("Bush Naval Yard", 3, 180_000, 20, 0)); // ⟳ Earth
+    bodies.push(station("Kirino Station", 4, 120_000, 16, 120_000)); // ⟳ Mars
+    bodies.push(station("Miller Construction Yard", 5, 150_000, 24, 240_000)); // ⟳ Ceres (OPA)
+    bodies.push(station("Tycho Shipyards", tycho, 90_000, 18, 60_000)); // ⟳ Tycho
+    bodies.push(station(
+        "Toth Station",
+        0,
+        AU * 3400 / 1000,
+        YEAR * 600 / 100,
+        200_000,
+    )); // deep space
+    bodies.push(station(
+        "Medina Drift",
+        0,
+        AU * 4100 / 1000,
+        YEAR * 790 / 100,
+        40_000,
+    )); // deep space
     bodies
 }
 
