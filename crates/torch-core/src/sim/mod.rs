@@ -22,7 +22,7 @@ pub use orbit::{Body, BodyKind};
 pub use persist::{SaveState, SAVE_VERSION};
 pub use player::{Agenda, Player, PlayerId, PlayerKind};
 pub use ship::{Section, SectionKind, Ship, ShipClass, SlotKind, Subsystem};
-pub use world::{Colony, MiningStation, Sim};
+pub use world::{Colony, MiningStation, Sim, ZeroGKind, ZeroGStation};
 
 use rng::Pcg32;
 

@@ -109,6 +109,7 @@ impl TorchSim {
             Some(DwarfPlanet) => 3,
             Some(Moon) => 4,
             Some(Asteroid) => 7,
+            Some(Station) => 8,
             None => -1,
         }
     }

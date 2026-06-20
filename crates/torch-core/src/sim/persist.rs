@@ -35,6 +35,8 @@ pub struct SaveState {
     pub facilities: Vec<Facility>,
     pub colonies: Vec<Colony>,
     pub mining_stations: Vec<MiningStation>,
+    #[serde(default)]
+    pub zero_g_stations: Vec<super::world::ZeroGStation>,
     pub markets: Vec<MarketSave>,
 }
 

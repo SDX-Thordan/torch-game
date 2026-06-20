@@ -25,6 +25,9 @@ pub enum BodyKind {
     /// A major named belt asteroid orbiting Sol (§17) — small and rocky, rendered
     /// without a full orbit ring so the Belt reads as a busy field, not a wheel.
     Asteroid,
+    /// A zero-G station body — a shipyard orbiting its capital, or a deep-space habitat. Never
+    /// inhabitable (so the planetary-only mining/colony siting rule is never violated).
+    Station,
 }
 
 impl BodyKind {

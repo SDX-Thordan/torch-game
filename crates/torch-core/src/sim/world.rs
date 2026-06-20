@@ -179,6 +179,74 @@ impl MiningStation {
     }
 }
 
+/// Which kind of zero-G orbital structure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ZeroGKind {
+    /// A deep-space population habitat (big Food demand).
+    Habitat,
+    /// A shipyard orbiting a capital — consumes Alloys + Electronics (continuous demand sink) and
+    /// holds the (disabled) ship-procurement framework.
+    Shipyard,
+}
+
+/// A **zero-G station** — a deep-space habitat or a shipyard orbiting its capital. Expensive,
+/// player-unobtainable structures (no build verb); the set is fixed at world creation. Holds a
+/// local `store` (food larder, fuel depot, and — for shipyards — the Alloys/Electronics it consumes).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZeroGStation {
+    pub owner: PlayerId,
+    pub body: usize,
+    pub name: String,
+    pub kind: ZeroGKind,
+    #[serde(default)]
+    pub store: Vec<i64>,
+    /// The ship the yard is building toward (procurement framework — `None`/disabled for now).
+    #[serde(default)]
+    pub order: Option<ShipClass>,
+    /// Materials value accumulated toward `order`.
+    #[serde(default)]
+    pub progress: i64,
+}
+
+impl ZeroGStation {
+    pub fn new(owner: PlayerId, body: usize, name: &str, kind: ZeroGKind) -> Self {
+        let mut s = Self {
+            owner,
+            body,
+            name: name.to_string(),
+            kind,
+            store: vec![0; commodity::commodity_count()],
+            order: None,
+            progress: 0,
+        };
+        // Start with a full food larder for the crew/population.
+        let food = s.food_demand() * FOOD_BUFFER_TICKS;
+        s.add(commodity::FOOD, food);
+        s
+    }
+    pub fn add(&mut self, c: usize, qty: i64) {
+        if let Some(s) = self.store.get_mut(c) {
+            *s = (*s + qty).max(0);
+        }
+    }
+    pub fn get(&self, c: usize) -> i64 {
+        self.store.get(c).copied().unwrap_or(0)
+    }
+    pub fn is_shipyard(&self) -> bool {
+        self.kind == ZeroGKind::Shipyard
+    }
+    /// A habitat is a Capital-scale population; a shipyard is a Station-scale crew.
+    pub fn tier(&self) -> SettlementTier {
+        match self.kind {
+            ZeroGKind::Habitat => SettlementTier::Capital,
+            ZeroGKind::Shipyard => SettlementTier::Station,
+        }
+    }
+    pub fn food_demand(&self) -> i64 {
+        self.tier().food_per_tick()
+    }
+}
+
 /// The deterministic multi-player world.
 #[derive(Clone, Debug)]
 pub struct Sim {
@@ -193,6 +261,7 @@ pub struct Sim {
     facilities: Vec<Facility>,
     colonies: Vec<Colony>,
     mining_stations: Vec<MiningStation>,
+    zero_g_stations: Vec<ZeroGStation>,
 }
 
 impl Sim {
@@ -213,6 +282,7 @@ impl Sim {
             facilities: Vec::new(),
             colonies: Vec::new(),
             mining_stations: Vec::new(),
+            zero_g_stations: Vec::new(),
         };
         sim.seed_starting_assets();
         sim
@@ -477,6 +547,7 @@ impl Sim {
             SiteRef::Station(k) => self.mining_stations[k].body,
             SiteRef::Facility(j) => self.facilities[j].body,
             SiteRef::Colony(c) => self.colonies[c].body,
+            SiteRef::ZeroG(z) => self.zero_g_stations[z].body,
             SiteRef::Market { market, .. } => self.markets[market].body(),
         }
     }
@@ -567,6 +638,7 @@ impl Sim {
             SiteRef::Station(k) => self.mining_stations[k].get(good),
             SiteRef::Facility(j) => self.facilities[j].output_of(good),
             SiteRef::Colony(c) => self.colonies[c].get(good),
+            SiteRef::ZeroG(z) => self.zero_g_stations[z].get(good),
             // Buying from a market is added in the greedy-arbitrage commit; not a source yet.
             SiteRef::Market { .. } => 0,
         }
@@ -577,6 +649,7 @@ impl Sim {
             SiteRef::Station(k) => self.mining_stations[k].add(good, -qty),
             SiteRef::Facility(j) => self.facilities[j].add_output(good, -qty),
             SiteRef::Colony(c) => self.colonies[c].add(good, -qty),
+            SiteRef::ZeroG(z) => self.zero_g_stations[z].add(good, -qty),
             SiteRef::Market { .. } => {}
         }
     }
@@ -588,6 +661,7 @@ impl Sim {
             SiteRef::Facility(j) => self.facilities[j].add_input(good, qty),
             SiteRef::Colony(c) => self.colonies[c].add(good, qty),
             SiteRef::Station(k) => self.mining_stations[k].add(good, qty),
+            SiteRef::ZeroG(z) => self.zero_g_stations[z].add(good, qty),
             SiteRef::Market { market, commodity } => {
                 let revenue = self.markets[market].execute_sell(commodity, qty);
                 if let Some(p) = self.players.get_mut(owner as usize) {
@@ -936,6 +1010,9 @@ impl Sim {
     pub fn mining_stations(&self) -> &[MiningStation] {
         &self.mining_stations
     }
+    pub fn zero_g_stations(&self) -> &[ZeroGStation] {
+        &self.zero_g_stations
+    }
     pub fn markets(&self) -> &[Market] {
         &self.markets
     }
@@ -987,6 +1064,7 @@ impl Sim {
             facilities: self.facilities.clone(),
             colonies: self.colonies.clone(),
             mining_stations: self.mining_stations.clone(),
+            zero_g_stations: self.zero_g_stations.clone(),
             markets: self
                 .markets
                 .iter()
@@ -1009,6 +1087,7 @@ impl Sim {
         sim.facilities = s.facilities;
         sim.colonies = s.colonies;
         sim.mining_stations = s.mining_stations;
+        sim.zero_g_stations = s.zero_g_stations;
         for (m, ms) in sim.markets.iter_mut().zip(&s.markets) {
             m.restore_stocks(&ms.stocks, &ms.prices);
         }
@@ -1127,6 +1206,24 @@ mod tests {
                 assert!(p.credits >= 0, "seed {seed}: {} insolvent", p.name);
             }
         }
+    }
+
+    #[test]
+    fn zero_g_stations_model_habitats_and_shipyards() {
+        use super::super::commodity::FOOD;
+        let hab = ZeroGStation::new(6, 5, "Toth Station", ZeroGKind::Habitat);
+        let yard = ZeroGStation::new(1, 3, "Bush Naval Yard", ZeroGKind::Shipyard);
+        // A habitat is a Capital-scale population; a shipyard a Station-scale crew.
+        assert!(hab.food_demand() > yard.food_demand());
+        assert!(yard.is_shipyard() && !hab.is_shipyard());
+        // Both boot with a food larder and an idle (disabled) procurement order.
+        assert!(hab.get(FOOD) > 0 && yard.get(FOOD) > 0);
+        assert_eq!(yard.order, None);
+        // Round-trips through a save (the new field is carried).
+        let mut sim = Sim::new(0);
+        sim.zero_g_stations.push(yard.clone());
+        let b = Sim::load_bytes(&sim.save_bytes()).unwrap();
+        assert_eq!(b.zero_g_stations(), sim.zero_g_stations());
     }
 
     #[test]

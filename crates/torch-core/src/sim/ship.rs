@@ -121,6 +121,8 @@ pub enum SiteRef {
     Station(usize),
     Facility(usize),
     Colony(usize),
+    /// A zero-G structure (habitat / shipyard) — index into `Sim.zero_g_stations`.
+    ZeroG(usize),
     /// A market (index into `Sim.markets`) trading `commodity` — a pickup here is a buy, a
     /// dropoff a sell.
     Market {
