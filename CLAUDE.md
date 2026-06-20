@@ -381,6 +381,18 @@ Status: [x] done, [~] in progress, [ ] todo.
   coloured nebulosity to the **Milky-Way `bandmask`** (so it's galactic dust, not floating balls),
   darken the base (`~0.005`), and tighten the band (`smoothstep(0.55,1.0,…)^2.2`, intensity ~0.6).
   Let the multi-scale star layers carry the look.
+- **Composition idiom = stateless utilities, not host-ref components.** The shell's reusable
+  units (`UiKit`, `PlanetShaders`, `MiniChartS`, `FlowGraphS`, `OrreryKit`) are all
+  `class_name` scripts of pure `static func` factories the host *calls* — preloaded as a const
+  (`const OrreryKit := preload("res://ui/orrery_kit.gd")`), intra-class siblings called bare
+  (`ring` calls `emissive_mat(...)`). Extract a `main.gd` method **only when it's pure** (args +
+  consts in, node out, no `_member`/`sim` access): those lift cleanly into a Kit and the call
+  sites become `Kit.foo(`. The *host-coupled* code (3D build/refresh over `_body_nodes`/`_cam`,
+  the gesture/picking controller, per-view builders that assign panel members) is **not** a
+  clean component — wrapping it in a host-ref object just relocates the coupling and risks the
+  §7.4 picking/gesture traps. Leave it as well-named SRP methods in `main.gd`; only split when a
+  second consumer actually appears. Verify a Kit extraction by diffing the distinct `sim.X(` set
+  (unchanged ⇒ QA byte-identical) + an `--import` (fail-fast on any missed rename) + render.
 
 ### 7.5 Render-verify workflow
 

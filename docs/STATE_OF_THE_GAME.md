@@ -238,7 +238,14 @@ Recorded so they stop resurfacing as "unfinished":
   extracted the keymap; broke every `main.gd` monster method (`_build_systems_view` 209,
   `_refresh_empire` 172, `_build_build_view` 164, `_build_world` 148, `_refresh_systems` 141)
   into SRP sub-builders — longest func now 117, each render-verified, binding-set unchanged.
-  **Open:** the further split of `main.gd` into `*.gd` component scripts (Stage 6).
+  Stage 6 (composition): extracted the **stateless orrery factory** `ui/orrery_kit.gd`
+  (geometry + body-appearance: emissive/sphere/ring/glyph + make_body_material/tilt/spin/
+  atmosphere) mirroring `UiKit` — ~140 lines out of `main.gd` (now 4.8k). **Open / deferred:**
+  the *stateful* renderer/input/per-view extraction. The codebase's composition idiom is
+  **stateless utilities** (UiKit/PlanetShaders/MiniChartS/OrreryKit); the remaining 3D
+  build-refresh, gesture controller (the §7.4 content-scale picking path) and view-builders are
+  deeply host-coupled, so forcing them into host-ref components is high-risk, low-reward — they
+  already read as well-named SRP methods after Stage 5. Revisit only if a second consumer appears.
 - **The determinism discipline is the asset** — seed-reproducible reviews, byte-identical gating,
   the §7c gate, content-in-code persistence. It's *why* big layers land fast and safe. Hold the bar.
 - **The 3-lens QA harness** catches feel-regressions a unit test can't; regenerate
