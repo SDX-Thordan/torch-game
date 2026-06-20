@@ -17,9 +17,9 @@ GDD build order (steps 1–15) and the empire re-aim (Part VI) are **built and g
 three review-driven depth phases (Agency, Combat purpose, Colony development) and the
 early-game focus pass.
 
-**Scale:** ~31 sim modules of deterministic Rust + ~4k LOC GDScript shell; **201 core +
-10 QA + 17 GUT tests**, all green; 282 sim bindings; a 7-persona / 3-lens automated QA
-harness (works? / engaging? / reachable?).
+**Scale:** ~31 sim modules of deterministic Rust + ~4k LOC GDScript shell; **220 core +
+14 QA + 17 GUT tests**, all green (GUT verified under Godot 4.6.3 headless); 282 sim
+bindings; a 7-persona / 3-lens automated QA harness (works? / engaging? / reachable?).
 
 ### Built & shipped (the complete arcs — archives in parentheses)
 
@@ -227,6 +227,25 @@ Recorded so they stop resurfacing as "unfinished":
 
 ## 4. Health check (what to protect)
 
+- **Code-standards pass (2026-06-20, `claude/code-review-standards-wd7tcl`)** — plan↔code
+  verified aligned (no deviations). Refactors, all byte-identical against the QA review:
+  `Sim::step` split into named phases; the 8.7k-line `world.rs` carved into `world/` themed
+  child modules + co-located `tests.rs`; combat duels parametrized + cryptic test args named +
+  a null-qty case; QA `engagement` helpers covered. Shell (GDScript), now **verified under a
+  real Godot 4.6.3 headless runtime** (the env *can* run Godot — install + `--import` + GUT +
+  xvfb render-verify): fixed 3 **stale GUT tests** that assumed the old instant commission
+  (warships go through the timed shipyard build queue now); DRY'd the body→index lookups +
+  extracted the keymap; broke every `main.gd` monster method (`_build_systems_view` 209,
+  `_refresh_empire` 172, `_build_build_view` 164, `_build_world` 148, `_refresh_systems` 141)
+  into SRP sub-builders — longest func now 117, each render-verified, binding-set unchanged.
+  Stage 6 (composition): extracted the **stateless orrery factory** `ui/orrery_kit.gd`
+  (geometry + body-appearance: emissive/sphere/ring/glyph + make_body_material/tilt/spin/
+  atmosphere) mirroring `UiKit` — ~140 lines out of `main.gd` (now 4.8k). **Open / deferred:**
+  the *stateful* renderer/input/per-view extraction. The codebase's composition idiom is
+  **stateless utilities** (UiKit/PlanetShaders/MiniChartS/OrreryKit); the remaining 3D
+  build-refresh, gesture controller (the §7.4 content-scale picking path) and view-builders are
+  deeply host-coupled, so forcing them into host-ref components is high-risk, low-reward — they
+  already read as well-named SRP methods after Stage 5. Revisit only if a second consumer appears.
 - **The determinism discipline is the asset** — seed-reproducible reviews, byte-identical gating,
   the §7c gate, content-in-code persistence. It's *why* big layers land fast and safe. Hold the bar.
 - **The 3-lens QA harness** catches feel-regressions a unit test can't; regenerate

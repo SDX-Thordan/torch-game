@@ -229,6 +229,15 @@ Status: [x] done, [~] in progress, [ ] todo.
 - **Regenerating `SAMPLE_GAMEPLAY_REVIEW.md`:** restore its hand-added do-not-edit header
   line; regenerate **after** the shell edits (its UI-wiring facet scans `main.gd` for
   `sim.X()` calls vs the binding list, so any binding-call change shifts it).
+- **Splitting a monolithic file is a byte-identical *move*, not a rewrite** — verify with the
+  empty QA diff. A giant `impl Sim` carves into `world/<theme>.rs` child modules (each a fresh
+  `impl Sim` block + `use super::*`): a **child sees the parent's private fields, consts, and
+  even private `use` bindings**, so the move needs no API changes — only cross-module-called
+  private helpers widen to `pub(crate)`. Watch the **name clash**: a `mod combat;` collides
+  with `use super::combat::{self,…}` (the `self` binds `combat`) — name the child `defence`.
+  The shell's UI facet counts **distinct** `sim.X(` names, so dropping one `sim.foo()` call (e.g.
+  to a bare `sim.foo` Callable for a DRY helper) is byte-identical as long as `foo` is still
+  called with parens elsewhere.
 
 ### 7.2 Persistence (§30)
 
@@ -372,6 +381,18 @@ Status: [x] done, [~] in progress, [ ] todo.
   coloured nebulosity to the **Milky-Way `bandmask`** (so it's galactic dust, not floating balls),
   darken the base (`~0.005`), and tighten the band (`smoothstep(0.55,1.0,…)^2.2`, intensity ~0.6).
   Let the multi-scale star layers carry the look.
+- **Composition idiom = stateless utilities, not host-ref components.** The shell's reusable
+  units (`UiKit`, `PlanetShaders`, `MiniChartS`, `FlowGraphS`, `OrreryKit`) are all
+  `class_name` scripts of pure `static func` factories the host *calls* — preloaded as a const
+  (`const OrreryKit := preload("res://ui/orrery_kit.gd")`), intra-class siblings called bare
+  (`ring` calls `emissive_mat(...)`). Extract a `main.gd` method **only when it's pure** (args +
+  consts in, node out, no `_member`/`sim` access): those lift cleanly into a Kit and the call
+  sites become `Kit.foo(`. The *host-coupled* code (3D build/refresh over `_body_nodes`/`_cam`,
+  the gesture/picking controller, per-view builders that assign panel members) is **not** a
+  clean component — wrapping it in a host-ref object just relocates the coupling and risks the
+  §7.4 picking/gesture traps. Leave it as well-named SRP methods in `main.gd`; only split when a
+  second consumer actually appears. Verify a Kit extraction by diffing the distinct `sim.X(` set
+  (unchanged ⇒ QA byte-identical) + an `--import` (fail-fast on any missed rename) + render.
 
 ### 7.5 Render-verify workflow
 
@@ -383,6 +404,23 @@ Status: [x] done, [~] in progress, [ ] todo.
   `_process` hook (`get_viewport().get_texture().get_image().save_png(path)` then quit; revert
   the hook). `pip install Pillow` to crop/zoom dense panels. Software GL is too slow to route
   ships across the system in-frame — rely on unit tests for those paths.
+- **The cloud/web env CAN run Godot — install it; don't assume "no runtime."** The container
+  ships no `godot` binary, but egress to the GitHub releases CDN works: download
+  `Godot_v4.6.3-stable_linux.x86_64.zip` (match the 4.6.3 pin), unzip, symlink onto PATH. With
+  that, the full GDScript loop is a *real gate*, not advisory: `cargo build` (debug cdylib the
+  extension loads) → `godot --headless --path godot --import` (registers gdext + `class_name`s;
+  a fresh checkout has none) → GUT (`-gexit` fails non-zero) → the §7.5 xvfb render-verify. To
+  shoot a non-default view, instantiate `main.tscn` under a `SceneTree` script and call
+  `inst._select_view(idx)` a few frames before the capture. Confirm a `main.gd` refactor didn't
+  move the QA UI facet by diffing the **distinct `sim.X(` name set** (was 292) — unchanged ⇒ the
+  QA review regenerates byte-identical.
+- **GUT integration tests silently rot when nobody runs Godot.** They drive the real gdext
+  binding, so a *sim* behaviour change (warships now go through a timed shipyard build queue —
+  `commission_ship` lays a hull down, it stands up `commission_build_ticks` later, not
+  instantly) breaks the GUT assertions while `cargo test` stays green. Fix by stepping the sim
+  through the build via the exposed `pending_ship_count()` binding (the `finish_pending_ships()`
+  test helper is `pub(crate)`, not a `#[func]`) — which also makes the test exercise
+  `run_shipyard_builds` end-to-end. **Run GUT after any binding/sim change**, not just parse.
 
 ### 7.6 Build / CI / tooling
 

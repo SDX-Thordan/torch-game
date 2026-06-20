@@ -17,6 +17,7 @@ extends Node3D
 const UiKit := preload("res://ui/ui_kit.gd")
 const MiniChartS := preload("res://ui/mini_chart.gd")
 const FlowGraphS := preload("res://ui/flow_graph.gd")
+const OrreryKit := preload("res://ui/orrery_kit.gd")
 
 const TICKS_PER_SECOND := 6.0           # sim ticks per real second at 1× (§28)
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]   # pause / 1× / 6× / 24× (§6)
@@ -394,6 +395,43 @@ func _build_world() -> void:
 	# The Protomolecule typeface (The Expanse fan font) for the orrery labels (j).
 	if ResourceLoader.exists("res://assets/fonts/Protomolecule.ttf"):
 		_map_font = load("res://assets/fonts/Protomolecule.ttf")
+	_build_sky_environment()
+
+	_cam = Camera3D.new()
+	_cam.current = true
+	_cam.far = 6000.0
+	add_child(_cam)
+	_update_camera()
+
+	_orrery_root = Node3D.new()
+	add_child(_orrery_root)
+
+	_hauler_mat = OrreryKit.emissive_mat(HAULER_COL)
+	# Faction-liveried hauler markers (§4/§24): NPC traffic reads by its owner's colour.
+	for fc in FACTION_COL:
+		_faction_haul_mats.append(OrreryKit.emissive_mat((fc as Color).lerp(HAULER_COL, 0.35)))
+	_ship_mat = OrreryKit.emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
+	_freighter_mat = OrreryKit.emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
+	_select_mat = OrreryKit.emissive_mat(SELECT_COL)
+	_wreck_mat = OrreryKit.emissive_mat(Color(0.45, 0.85, 0.85))
+	_miner_mat = OrreryKit.emissive_mat(Color(0.95, 0.6, 0.18))   # industrial amber
+
+	_build_bodies()
+
+	_build_colony_markers()
+
+	for b in sim.body_count():
+		if sim.body_name(b) == "Saturn":
+			_build_saturn_rings(_body_spin[b])   # parent to the tilted surface
+			break
+
+	_build_asteroid_belt()
+
+	_build_trade_lanes()
+
+
+func _build_sky_environment() -> void:
+	# Deep-space sky + ambient + bloom (§21).
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	# A procedural deep-space sky (stars + Milky Way + nebulae) at infinity (§21).
@@ -414,25 +452,9 @@ func _build_world() -> void:
 	env.environment = e
 	add_child(env)
 
-	_cam = Camera3D.new()
-	_cam.current = true
-	_cam.far = 6000.0
-	add_child(_cam)
-	_update_camera()
 
-	_orrery_root = Node3D.new()
-	add_child(_orrery_root)
-
-	_hauler_mat = _emissive_mat(HAULER_COL)
-	# Faction-liveried hauler markers (§4/§24): NPC traffic reads by its owner's colour.
-	for fc in FACTION_COL:
-		_faction_haul_mats.append(_emissive_mat((fc as Color).lerp(HAULER_COL, 0.35)))
-	_ship_mat = _emissive_mat(sim.corp_livery_color())   # player warships fly the livery (§14)
-	_freighter_mat = _emissive_mat(FREIGHTER_COL)        # player freighters on the lanes (§6)
-	_select_mat = _emissive_mat(SELECT_COL)
-	_wreck_mat = _emissive_mat(Color(0.45, 0.85, 0.85))
-	_miner_mat = _emissive_mat(Color(0.95, 0.6, 0.18))   # industrial amber
-
+func _build_bodies() -> void:
+	# Spawn every celestial body with its orbit ring + label (§17).
 	var gate_r := 40.0
 	for b in sim.body_count():
 		var kind := sim.body_kind(b)
@@ -465,14 +487,14 @@ func _build_world() -> void:
 			if parent == 0:
 				if not sim.body_is_far_side(b):
 					var r := _world3d(sim.body_x(b), sim.body_y(b)).length()
-					var pr := _ring(r, Color(0.24, 0.33, 0.48))
+					var pr := OrreryKit.ring(r, Color(0.24, 0.33, 0.48))
 					_orrery_root.add_child(pr)
 					_planet_orbit_rings.append({"tm": pr.mesh, "r": r})
 			else:
 				var mr: float = float(sim.body_orbit_radius(b)) * SCALE3D
 				# Moon orbit: a hair-thin, faintly glowing line around its planet.
-				var mrm := _emissive_mat(Color(0.3, 0.38, 0.5) * 2.0)
-				var mring := _ring_mat(mr, mrm, maxf(0.0022, mr * 0.006))
+				var mrm := OrreryKit.emissive_mat(Color(0.3, 0.38, 0.5) * 2.0)
+				var mring := OrreryKit.ring_mat(mr, mrm, maxf(0.0022, mr * 0.006))
 				_body_nodes[parent].add_child(mring)
 				_moon_orbit_rings.append({"mi": mring, "tm": mring.mesh, "r": mr})
 		var rad := _display_radius(name, kind)
@@ -490,20 +512,23 @@ func _build_world() -> void:
 
 	# The golden ring-gate visual is removed with the gate story (kept hidden, not drawn).
 	# The node stays so the per-frame zoom-scaler + glow refs don't dangle.
-	_gate_mat = _emissive_mat(Color(0.9, 0.78, 0.35))
-	_gate_ring = _ring_mat(gate_r, _gate_mat, 0.12)
+	_gate_mat = OrreryKit.emissive_mat(Color(0.9, 0.78, 0.35))
+	_gate_ring = OrreryKit.ring_mat(gate_r, _gate_mat, 0.12)
 	_gate_ring.visible = false
 	_gate_tm = _gate_ring.mesh
 	_gate_r = gate_r
 	_orrery_root.add_child(_gate_ring)
 
+
+func _build_colony_markers() -> void:
+	# Faction-liveried station glyph + label per colony.
 	for ci in sim.colony_count():
 		var cb := sim.colony_body(ci)
 		if cb < 0 or cb >= _body_nodes.size():
 			continue
 		var fcol: Color = FACTION_COL[clampi(sim.colony_faction(ci), 0, 3)]
 		var crad := _display_radius(String(sim.body_name(cb)), sim.body_kind(cb))
-		var marker := _station_glyph(fcol)
+		var marker := OrreryKit.station_glyph(fcol)
 		marker.position = Vector3(crad + 0.03, 0.0, 0.0)
 		_body_nodes[cb].add_child(marker)
 		_station_markers.append(marker)
@@ -519,17 +544,13 @@ func _build_world() -> void:
 		_body_nodes[cb].add_child(clbl)
 		_station_labels.append(clbl)
 
-	for b in sim.body_count():
-		if sim.body_name(b) == "Saturn":
-			_build_saturn_rings(_body_spin[b])   # parent to the tilted surface
-			break
 
-	_build_asteroid_belt()
-
+func _build_trade_lanes() -> void:
+	# The trade-lane mesh the frame loop draws into.
 	_lane_mesh = ImmediateMesh.new()
 	var lanes := MeshInstance3D.new()
 	lanes.mesh = _lane_mesh
-	var lane_mat := _emissive_mat(Color(0.85, 0.6, 0.35))
+	var lane_mat := OrreryKit.emissive_mat(Color(0.85, 0.6, 0.35))
 	lane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	lane_mat.albedo_color = Color(0.85, 0.6, 0.35, 0.4)
 	lanes.material_override = lane_mat
@@ -542,9 +563,9 @@ func _build_world() -> void:
 func _spawn_body(b: int, name: String, kind: int) -> Node3D:
 	var container := Node3D.new()
 	var rad := _display_radius(name, kind)
-	var surf := _sphere(rad, _make_body_material(name, kind))
+	var surf := OrreryKit.sphere(rad, OrreryKit.make_body_material(name, kind))
 	# Lean the spin axis (axial tilt) — Uranus rolls on its side, Earth a gentle 23°.
-	surf.rotation_degrees = Vector3(0.0, 0.0, _axial_tilt(name))
+	surf.rotation_degrees = Vector3(0.0, 0.0, OrreryKit.axial_tilt(name))
 	# Tune sphere resolution to apparent size (cheap for tiny moons/rocks).
 	var sm := surf.mesh as SphereMesh
 	var segs := 12
@@ -555,8 +576,8 @@ func _spawn_body(b: int, name: String, kind: int) -> Node3D:
 	sm.rings = maxi(6, segs / 2)
 	container.add_child(surf)
 	_body_spin.append(surf)
-	_body_spin_rate.append(_spin_rate(name, kind))
-	var atmo := _atmosphere_for(name, kind, rad)
+	_body_spin_rate.append(OrreryKit.spin_rate(name, kind))
+	var atmo := OrreryKit.atmosphere_for(name, kind, rad)
 	if atmo != null:
 		container.add_child(atmo)
 	return container
@@ -610,9 +631,6 @@ const _RADII := {
 	"Rhea": 0.014, "Iapetus": 0.014, "Vesta": 0.014, "Pallas": 0.013,
 }
 # Icy/bright moons (and Pluto-likes) — share the rocky shader tuned pale and ice-rich.
-const _ICY := ["Europa", "Enceladus", "Tethys", "Dione", "Mimas", "Rhea", "Iapetus",
-	"Ganymede", "Callisto", "Triton", "Charon", "Miranda", "Ariel", "Umbriel",
-	"Titania", "Oberon", "Hydra", "Nix"]
 
 
 func _display_radius(name: String, kind: int) -> float:
@@ -629,105 +647,7 @@ func _display_radius(name: String, kind: int) -> float:
 	return 0.03
 
 
-func _make_body_material(name: String, kind: int) -> ShaderMaterial:
-	match name:
-		"Sol":
-			return PlanetShaders.sun()
-		"Earth":
-			return PlanetShaders.earth()
-		"Venus":
-			return PlanetShaders.venus()
-		"Jupiter":
-			return PlanetShaders.gas_giant(Color(0.74, 0.58, 0.4), Color(0.92, 0.84, 0.68),
-				Color(0.58, 0.4, 0.28), Color(0.72, 0.66, 0.56), 1.0, Color(0.8, 0.32, 0.22))
-		"Saturn":
-			return PlanetShaders.gas_giant(Color(0.84, 0.74, 0.52), Color(0.94, 0.88, 0.68),
-				Color(0.76, 0.64, 0.44), Color(0.82, 0.76, 0.6), 0.0, Color.WHITE)
-		"Uranus":
-			return PlanetShaders.gas_giant(Color(0.52, 0.82, 0.83), Color(0.72, 0.92, 0.92),
-				Color(0.42, 0.7, 0.76), Color(0.6, 0.82, 0.84), 0.0, Color.WHITE)
-		"Neptune":
-			return PlanetShaders.gas_giant(Color(0.18, 0.34, 0.78), Color(0.34, 0.52, 0.92),
-				Color(0.13, 0.26, 0.6), Color(0.28, 0.44, 0.8), 1.0, Color(0.16, 0.28, 0.66))
-		"Mars":
-			return PlanetShaders.rocky(Color(0.74, 0.36, 0.18), Color(0.44, 0.2, 0.12), 0.5, 0.11, Color(0.93, 0.94, 0.96))
-		"Mercury":
-			return PlanetShaders.rocky(Color(0.55, 0.5, 0.46), Color(0.3, 0.28, 0.26), 0.95, 0.0, Color.WHITE)
-		"Luna":
-			return PlanetShaders.rocky(Color(0.62, 0.62, 0.63), Color(0.3, 0.3, 0.32), 0.9, 0.0, Color.WHITE)
-		"Titan":
-			return PlanetShaders.rocky(Color(0.82, 0.56, 0.2), Color(0.52, 0.34, 0.12), 0.15, 0.0, Color.WHITE)
-		"Pluto":
-			return PlanetShaders.rocky(Color(0.72, 0.62, 0.52), Color(0.45, 0.38, 0.32), 0.45, 0.28, Color(0.86, 0.83, 0.78))
-		"Ceres":
-			return PlanetShaders.rocky(Color(0.5, 0.48, 0.46), Color(0.29, 0.28, 0.27), 0.75, 0.06, Color(0.72, 0.74, 0.76))
-	if _ICY.has(name):
-		return PlanetShaders.rocky(Color(0.82, 0.86, 0.92), Color(0.5, 0.58, 0.68), 0.55, 0.0, Color.WHITE)
-	match kind:
-		2:
-			return PlanetShaders.gas_giant(Color(0.7, 0.62, 0.5), Color(0.86, 0.8, 0.66),
-				Color(0.55, 0.46, 0.36), Color(0.7, 0.66, 0.58), 0.0, Color.WHITE)
-		3:
-			return PlanetShaders.rocky(Color(0.66, 0.6, 0.54), Color(0.4, 0.36, 0.32), 0.6, 0.15, Color(0.82, 0.82, 0.8))
-		6:
-			return PlanetShaders.rocky(Color(0.5, 0.4, 0.62), Color(0.24, 0.18, 0.34), 0.7, 0.0, Color.WHITE)
-		7:
-			return PlanetShaders.rocky(Color(0.46, 0.4, 0.34), Color(0.22, 0.19, 0.16), 0.95, 0.0, Color.WHITE)
-	return PlanetShaders.rocky(Color(0.6, 0.58, 0.55), Color(0.34, 0.33, 0.31), 0.7, 0.0, Color.WHITE)
-
-
-func _axial_tilt(name: String) -> float:
-	match name:
-		"Earth": return 23.0
-		"Mars": return 25.0
-		"Saturn": return 27.0
-		"Neptune": return 28.0
-		"Jupiter": return 3.0
-		"Uranus": return 92.0   # rolls on its side
-		"Pluto": return 57.0
-		"Mercury": return 2.0
-		"Venus": return 3.0
-	return 8.0
-
-
-func _spin_rate(name: String, kind: int) -> float:
-	match kind:
-		0: return 0.0     # the sun's surface is animated in-shader
-		2: return 0.5     # gas giants whirl
-		1: return 0.13
-		3: return 0.10
-		4: return 0.08
-		7: return 0.35    # rubble-pile asteroids tumble
-		6: return 0.10
-	return 0.10
-
-
 ## A thin additive atmospheric-glow shell around bodies with an atmosphere, or null.
-func _atmosphere_for(name: String, kind: int, rad: float) -> MeshInstance3D:
-	var col := Color.BLACK
-	var inten := 0.0
-	match name:
-		"Earth": col = Color(0.35, 0.6, 1.0); inten = 1.5
-		"Venus": col = Color(0.96, 0.86, 0.56); inten = 1.7
-		"Mars": col = Color(0.86, 0.55, 0.4); inten = 0.5
-		"Titan": col = Color(0.86, 0.56, 0.2); inten = 1.3
-		"Jupiter": col = Color(0.86, 0.72, 0.56); inten = 0.9
-		"Saturn": col = Color(0.92, 0.84, 0.62); inten = 0.8
-		"Uranus": col = Color(0.6, 0.86, 0.9); inten = 0.9
-		"Neptune": col = Color(0.32, 0.52, 0.96); inten = 1.0
-		"Pluto": col = Color(0.72, 0.76, 0.86); inten = 0.35
-		_:
-			if kind == 2:
-				col = Color(0.72, 0.76, 0.86); inten = 0.7
-			else:
-				return null
-	var shell := _sphere(rad * (1.05 if kind == 2 else 1.07), PlanetShaders.atmosphere(col, inten))
-	var sm := shell.mesh as SphereMesh
-	sm.radial_segments = 28
-	sm.rings = 14
-	return shell
-
-
 func _build_saturn_rings(saturn: Node3D) -> void:
 	# Ring extent scales with Saturn's display size (~1.2–2.35 planet radii).
 	var R := _display_radius("Saturn", 2)
@@ -958,6 +878,14 @@ func _build_systems_view() -> void:
 	_content.add_child(root)
 	_views.append(root)
 
+	_build_context_panel(root)
+	_build_objective_panel(root)
+	_build_outliner(root)
+	_build_feed_panel(root)
+	_build_context_actions(root)
+
+
+func _build_context_panel(root: Control) -> void:
 	# Right context panel (station detail), pinned to the right of the content.
 	var ctx := UiKit.make_panel()
 	ctx.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1002,6 +930,8 @@ func _build_systems_view() -> void:
 	_add_toggle(col, "Ironman (autosave, no reloads)", _toggle_ironman)
 	_make_draggable(ctx, col)
 
+
+func _build_objective_panel(root: Control) -> void:
 	# Bottom-left overlay panel: NOW goal + the active mission + the gate mystery +
 	# the always-visible gate progress (§0.1 — the authored destination pull, §16).
 	var goal := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
@@ -1031,8 +961,8 @@ func _build_systems_view() -> void:
 	gv.add_child(_sys_now)
 	_make_draggable(goal, gv)
 
-	_build_outliner(root)
 
+func _build_feed_panel(root: Control) -> void:
 	# Alert feed panel, bottom-centre over the orrery.
 	var feedp := UiKit.make_panel(UiKit.BG_PANEL, UiKit.LINE, 8)
 	feedp.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1062,6 +992,8 @@ func _build_systems_view() -> void:
 	fv.add_child(_chatter_lbl)
 	_make_draggable(feedp, fv)
 
+
+func _build_context_actions(root: Control) -> void:
 	# Contextual actions — no persistent button grid; only the verbs relevant to what you
 	# tapped appear here (and the conditional endgame verbs), bottom-right over the orrery.
 	# Map zoom/rotate is fingers-only now (pinch / drag / twist); save is autosave (Ironman).
@@ -1434,24 +1366,30 @@ func _develop_focused_colony() -> void:
 	status = msg if msg != "" else "Can't develop %s — it's maxed, or you're short on credits." % String(sim.colony_name(ci))
 
 
-## The colony index sitting on `body`, or -1 (object→index lookup for contextual actions).
-func _colony_index_for_body(body: int) -> int:
+## Index of the entity sitting on `body` (or -1), found by walking a count/accessor
+## pair — the shared object→index lookup behind the contextual actions.
+func _find_index_at_body(body: int, count: Callable, body_at: Callable) -> int:
 	if body <= 0:
 		return -1
-	for i in sim.colony_count():
-		if sim.colony_body(i) == body:
+	for i in int(count.call()):
+		if int(body_at.call(i)) == body:
 			return i
 	return -1
+
+
+## The colony index sitting on `body`, or -1.
+func _colony_index_for_body(body: int) -> int:
+	return _find_index_at_body(body, sim.colony_count, sim.colony_body)
 
 
 ## The contested-hub index sitting on `body`, or -1.
 func _contested_index_for_body(body: int) -> int:
-	if body <= 0:
-		return -1
-	for i in sim.contested_count():
-		if sim.contested_body(i) == body:
-			return i
-	return -1
+	return _find_index_at_body(body, sim.contested_count, sim.contested_body)
+
+
+## Centre the camera on the colony at index `idx` (a holding just changed hands).
+func _focus_holding(idx: int) -> void:
+	_focus_body = sim.colony_body(idx)
 
 
 ## Send every docked warship on a committed trajectory to the focused world (§6).
@@ -1647,7 +1585,7 @@ func _acquire_colony() -> void:
 		0:
 			ascend_flash = 1.0
 			status = "⊕ %s joins the company — the inners are watching." % name
-			_focus_body = sim.colony_body(best)
+			_focus_holding(best)
 		3:
 			status = "Not enough credits to acquire %s (needs %d cr)." % [name, best_cost]
 		_:
@@ -1675,7 +1613,7 @@ func _annex_colony() -> void:
 		0:
 			ascend_flash = 1.0
 			status = "⊕ %s joins us by treaty — cleaner than coin." % name
-			_focus_body = sim.colony_body(target)
+			_focus_holding(target)
 		3:
 			status = "The Independents don't trust us enough to annex %s yet." % name
 		4:
@@ -1705,7 +1643,7 @@ func _seize_colony() -> void:
 		1:
 			ascend_flash = 1.0
 			status = "⚔ %s taken by force — the owner will not forget this." % name
-			_focus_body = sim.colony_body(target)
+			_focus_holding(target)
 			_open_diorama()
 		0:
 			flash = 1.0
@@ -2221,6 +2159,12 @@ func _build_build_view() -> void:
 	hb.add_theme_constant_override("separation", 12)
 	panel.add_child(hb)
 
+	_build_hull_list(hb)
+	_build_design_bench(hb)
+	_build_queue_panel(hb)
+
+
+func _build_hull_list(hb: HBoxContainer) -> void:
 	# Left: hull list.
 	var left := VBoxContainer.new()
 	left.custom_minimum_size = Vector2(220, 0)
@@ -2247,6 +2191,8 @@ func _build_build_view() -> void:
 		b.pressed.connect(func(): _pick_build(bi))
 		_build_list.add_child(b)
 
+
+func _build_design_bench(hb: HBoxContainer) -> void:
 	# Centre: wireframe blueprint viewport + caption + cost.
 	var centre := VBoxContainer.new()
 	centre.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2339,6 +2285,8 @@ func _build_build_view() -> void:
 	arm.pressed.connect(_arm_fleet)
 	centre.add_child(arm)
 
+
+func _build_queue_panel(hb: HBoxContainer) -> void:
 	# Right: construction queue.
 	var right := VBoxContainer.new()
 	right.custom_minimum_size = Vector2(230, 0)
@@ -3036,7 +2984,7 @@ func _update_world(delta: float) -> void:
 		_lane_mesh.surface_end()
 	var wn := sim.wreck_count()
 	while _wreck_pool.size() < wn:
-		var wm := _sphere(0.03, _wreck_mat)
+		var wm := OrreryKit.sphere(0.03, _wreck_mat)
 		_orrery_root.add_child(wm)
 		_wreck_pool.append(wm)
 	for wi in _wreck_pool.size():
@@ -3158,12 +3106,17 @@ func _build_empire_view() -> void:
 
 
 func _refresh_empire() -> void:
+	_refresh_empire_strip()
+	_refresh_empire_economy()
+	_refresh_empire_fleet()
+	_refresh_empire_admin()
+	_refresh_empire_table()
+
+
+func _refresh_empire_strip() -> void:
+	# Stat strip (rebuilt each refresh).
 	var holdings: int = sim.holding_count()
 	var cap: int = sim.admin_capacity()
-	var rank := String(sim.empire_rank())
-	var next_name := String(sim.next_empire_rank_name())
-
-	# ---- Stat strip (rebuilt each refresh) ----
 	for c in _emp_strip.get_children():
 		c.queue_free()
 	var fsz: int = sim.fleet_size()
@@ -3180,7 +3133,10 @@ func _refresh_empire() -> void:
 	_emp_strip.add_child(UiKit.stat_card("INFLUENCE", str(sim.influence()),
 		"+" if sim.influence() > 0 else ""))
 
-	# ---- Economy summary ----
+
+func _refresh_empire_economy() -> void:
+	# Economy summary.
+	var holdings: int = sim.holding_count()
 	for c in _emp_economy.get_children():
 		c.queue_free()
 	# Daily credit rate comes from _rate_snap comparison (already computed in _refresh_chrome).
@@ -3200,7 +3156,11 @@ func _refresh_empire() -> void:
 		UiKit.TEXT_DIM,
 		UiKit.GOOD if sim.admin_strain() == 0 else UiKit.BAD))
 
-	# ---- Fleet summary (right sidebar) ----
+
+func _refresh_empire_fleet() -> void:
+	# Fleet summary (right sidebar).
+	var fsz: int = sim.fleet_size()
+	var frt: int = sim.freighters()
 	var flag_name := String(sim.flagship_name()) if fsz > 0 else "—"
 	var on_st: int = sim.warships_on_station()
 	var flt_lines := PackedStringArray()
@@ -3213,7 +3173,13 @@ func _refresh_empire() -> void:
 			flt_lines.append("Capt. %s · %s" % [String(sim.ship_captain(fi)), String(sim.ship_trait(fi))])
 	_emp_fleet_sum.text = "\n".join(flt_lines)
 
-	# ---- Admin status (right sidebar) ----
+
+func _refresh_empire_admin() -> void:
+	# Admin status (right sidebar).
+	var holdings: int = sim.holding_count()
+	var cap: int = sim.admin_capacity()
+	var rank := String(sim.empire_rank())
+	var next_name := String(sim.next_empire_rank_name())
 	var head := "%s" % rank
 	if holdings > 0:
 		head += "   ·   tallest L%d" % sim.peak_dev()
@@ -3249,7 +3215,9 @@ func _refresh_empire() -> void:
 		meters += "\n— STRIKE INBOUND, DEFEND"
 	_emp_meters.text = meters
 
-	# ---- Holdings & targets table (unchanged logic, same bbcode) ----
+
+func _refresh_empire_table() -> void:
+	# Holdings & targets table (unchanged logic, same bbcode).
 	var t := ""
 	if sim.contested_count() > 0:
 		t += "[color=#9fb0c0]── CONTESTED HUBS  (the powers fight over these) ──[/color]\n"
@@ -3944,6 +3912,53 @@ func _refresh_object_panel() -> void:
 	_sys_object.visible = detail != ""
 
 
+func _refresh_context_verbs() -> void:
+	# Object-contextual verbs — the tapped body is the centre; only what it affords appears.
+	if _mine_btn == null:
+		return
+	var fb := _focus_body
+	var ci := _colony_index_for_body(fb)
+	var coni := _contested_index_for_body(fb)
+	var owned: bool = ci >= 0 and sim.colony_controlled(ci)
+	var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
+	var can_mine_here: bool = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
+	_mine_btn.visible = can_mine_here
+	_miner_tier_btn.visible = can_mine_here
+	if can_mine_here:
+		_miner_tier_btn.text = "◇ Class: %s" % String(sim.miner_class_name(miner_tier))
+		_mine_btn.text = "⛏ Send %s (%s)" % [
+			String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
+	_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
+	_convoy_btn.visible = fb > 0 and sim.can_form_convoy(fb)
+	_escort_btn.visible = fb > 0 and sim.can_escort_convoy(fb)
+	var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
+	var outpost_ready: bool = has_outpost and not outpost_building
+	_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
+	_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
+	# Facilities — only on an operational *outpost* (rank 0) that lacks each.
+	var is_plain_outpost: bool = outpost_ready and sim.outpost_rank(fb) == 0
+	_fac_mine_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 0)
+	_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
+	_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
+	# Collector hauler: offer it on any operational outpost with a Mine (drains the store);
+	# show Recall when one's assigned, Assign when a free hauler exists.
+	var has_collector: bool = outpost_ready and sim.outpost_has_collector(fb)
+	_collect_btn.visible = outpost_ready and sim.outpost_has_facility(fb, 0) and (has_collector or sim.can_assign_collector(fb))
+	if _collect_btn.visible:
+		_collect_btn.text = "⤴ Recall Collector" if has_collector else "⛟ Assign Collector"
+	_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
+	if _promote_btn.visible:
+		_promote_btn.text = "★ Promote to %s" % String(sim.outpost_next_rank_name(fb))
+	_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
+	_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
+	_court_btn.visible = coni >= 0 and not owned
+	_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
+	# Buy out an independent colony by clicking it (not a contested hub — those use Claim).
+	_acquire_ctx_btn.visible = ci >= 0 and coni < 0 and sim.colony_acquirable(ci)
+	_develop_btn.visible = owned and sim.colony_build_days(ci) == 0  # not mid-development
+	_send_btn.visible = fb > 0 and sim.fleet_size() > 0
+
+
 func _refresh_systems() -> void:
 	# The panel re-centres on whatever you tapped — the object is the subject, not just the
 	# market. Identity + a contextual detail block (yield / miner / influence / development).
@@ -3979,49 +3994,7 @@ func _refresh_systems() -> void:
 	# The DEFEND HOLDINGS verb lights only while a coalition strike presses (E3).
 	if _defend_holdings_btn:
 		_defend_holdings_btn.visible = sim.coalition_strike_pending()
-	# Object-contextual verbs — the tapped body is the centre; only what it affords appears.
-	if _mine_btn:
-		var fb := _focus_body
-		var ci := _colony_index_for_body(fb)
-		var coni := _contested_index_for_body(fb)
-		var owned: bool = ci >= 0 and sim.colony_controlled(ci)
-		var has_outpost: bool = fb > 0 and sim.outpost_level_at(fb) > 0
-		var can_mine_here: bool = fb > 0 and sim.can_mine_body(fb) and not sim.miner_at(fb)
-		_mine_btn.visible = can_mine_here
-		_miner_tier_btn.visible = can_mine_here
-		if can_mine_here:
-			_miner_tier_btn.text = "◇ Class: %s" % String(sim.miner_class_name(miner_tier))
-			_mine_btn.text = "⛏ Send %s (%s)" % [
-				String(sim.miner_class_name(miner_tier)), _commas(sim.miner_class_cost(miner_tier))]
-		_withdraw_btn.visible = fb > 0 and sim.miner_at(fb)
-		_convoy_btn.visible = fb > 0 and sim.can_form_convoy(fb)
-		_escort_btn.visible = fb > 0 and sim.can_escort_convoy(fb)
-		var outpost_building: bool = has_outpost and sim.outpost_build_days(fb) >= 0
-		var outpost_ready: bool = has_outpost and not outpost_building
-		_outpost_btn.visible = fb > 0 and ci < 0 and sim.can_found_outpost(fb)
-		_dev_outpost_btn.visible = has_outpost and not outpost_building  # can't develop mid-build
-		# Facilities — only on an operational *outpost* (rank 0) that lacks each.
-		var is_plain_outpost: bool = outpost_ready and sim.outpost_rank(fb) == 0
-		_fac_mine_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 0)
-		_fac_storage_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 1)
-		_fac_hangar_btn.visible = is_plain_outpost and not sim.outpost_has_facility(fb, 2)
-		# Collector hauler: offer it on any operational outpost with a Mine (drains the store);
-		# show Recall when one's assigned, Assign when a free hauler exists.
-		var has_collector: bool = outpost_ready and sim.outpost_has_collector(fb)
-		_collect_btn.visible = outpost_ready and sim.outpost_has_facility(fb, 0) and (has_collector or sim.can_assign_collector(fb))
-		if _collect_btn.visible:
-			_collect_btn.text = "⤴ Recall Collector" if has_collector else "⛟ Assign Collector"
-		_promote_btn.visible = outpost_ready and sim.can_promote_outpost(fb)
-		if _promote_btn.visible:
-			_promote_btn.text = "★ Promote to %s" % String(sim.outpost_next_rank_name(fb))
-		_build_btn.visible = fb > 0 and ci < 0 and not has_outpost and sim.can_found_shipyard_at(fb)
-		_expand_btn.visible = sim.shipyard_tier() > 0 and fb == sim.shipyard_body()
-		_court_btn.visible = coni >= 0 and not owned
-		_claim_btn.visible = coni >= 0 and not owned and sim.contested_claimable(coni)
-		# Buy out an independent colony by clicking it (not a contested hub — those use Claim).
-		_acquire_ctx_btn.visible = ci >= 0 and coni < 0 and sim.colony_acquirable(ci)
-		_develop_btn.visible = owned and sim.colony_build_days(ci) == 0  # not mid-development
-		_send_btn.visible = fb > 0 and sim.fleet_size() > 0
+	_refresh_context_verbs()
 	var mtxt := ""
 	if sim.miner_count() > 0:
 		mtxt = "   ·   ⛏ %d miner(s)" % sim.miner_count()
@@ -4655,7 +4628,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _dilemma_lock and event.keycode in [KEY_SPACE, KEY_1, KEY_2, KEY_3]:
 		status = "Decisions pending — resolve them all to resume."
 		return
-	match event.keycode:
+	_apply_key(event.keycode)
+
+
+## Dispatch a desktop keypress to its verb (the §18 keymap).
+func _apply_key(code: int) -> void:
+	match code:
 		KEY_SPACE:
 			speed_idx = 0 if speed_idx != 0 else 1
 		KEY_1:
@@ -4798,25 +4776,6 @@ func _do_interdict() -> void:
 # 3D PRIMITIVES
 # ============================================================================
 
-func _emissive_mat(col: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.emission_enabled = true
-	m.emission = col
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	return m
-
-
-func _sphere(radius: float, mat: Material) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = radius
-	sm.height = radius * 2.0
-	mi.mesh = sm
-	mi.material_override = mat
-	return mi
-
-
 ## A small amber mining-rig glyph (a stubby drum) for the orrery.
 func _miner_marker() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -4844,46 +4803,3 @@ func _hull_marker(mat: StandardMaterial3D) -> MeshInstance3D:
 
 ## A tiny station glyph for a colony/holding on the orrery (A5) — a hab drum + cross
 ## arms, faction-tinted. Parented to a (static) body node, so a multi-part node is fine.
-func _station_glyph(fcol: Color) -> Node3D:
-	var root := Node3D.new()
-	var mat := _emissive_mat(fcol)
-	var drum := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.02
-	cm.bottom_radius = 0.02
-	cm.height = 0.05
-	cm.radial_segments = 8
-	drum.mesh = cm
-	drum.material_override = mat
-	root.add_child(drum)
-	for ang in [0.0, 90.0]:
-		var arm := MeshInstance3D.new()
-		var b := BoxMesh.new()
-		b.size = Vector3(0.08, 0.006, 0.006)
-		arm.mesh = b
-		arm.rotation_degrees = Vector3(0, ang, 0)
-		arm.material_override = mat
-		root.add_child(arm)
-	return root
-
-
-func _ring(radius: float, col: Color) -> MeshInstance3D:
-	# A thin orbit line with a faint glow — the emission tips just into the bloom pass.
-	return _ring_mat(radius, _emissive_mat(col * 2.4), 0.005)
-
-
-func _ring_mat(radius: float, mat: StandardMaterial3D, tube: float) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var tm := TorusMesh.new()
-	tm.inner_radius = maxf(0.01, radius - tube)
-	tm.outer_radius = radius + tube
-	# Plenty of segments around the ring so a large orbit reads as a smooth circle, not a
-	# stepped polygon; the tube itself needs only a few sides (it's a hairline). Scaled with
-	# radius and capped so the inner moons stay cheap and the wide planet orbits stay round.
-	tm.rings = clampi(int(radius * 48.0), 96, 384)
-	tm.ring_segments = 6
-	mi.mesh = tm
-	mi.material_override = mat
-	return mi
-
-

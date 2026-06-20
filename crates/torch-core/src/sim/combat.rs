@@ -644,28 +644,54 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_lone_frigate_is_annihilated_by_a_battleship() {
-        for seed in 0..16 {
-            let out = duel(1, Band::Close, seed);
-            assert_eq!(out.winner, Some(1), "battleship should win seed {seed}");
-            assert_eq!(out.survivors[0], 0, "lethal: the loser is wiped out");
-        }
+    /// Seeds swept per scenario — enough to prove an outcome is decisive, not a
+    /// lucky roll, while staying fast.
+    const DUEL_SEEDS: u64 = 16;
+
+    /// A frigate-wing-vs-battleship matchup and the outcome it must yield on every
+    /// seed: which side wins, and whether the loser is wiped out.
+    struct DuelCase {
+        wing: usize,
+        band: Band,
+        winner: usize,
+        loser_wiped: bool,
+        why: &'static str,
     }
 
     #[test]
-    fn massed_torpedoes_saturate_the_screen_up_close() {
-        // Eight frigates overwhelm the PDC screen at close range — the equalizer.
-        for seed in 0..16 {
-            assert_eq!(duel(8, Band::Close, seed).winner, Some(0), "seed {seed}");
-        }
-    }
-
-    #[test]
-    fn the_battleship_holds_the_line_at_long_range() {
-        // The same wing loses at long range: full screen + railgun reach.
-        for seed in 0..16 {
-            assert_eq!(duel(8, Band::Long, seed).winner, Some(1), "seed {seed}");
+    fn range_band_decides_the_frigate_wing_vs_battleship_duel() {
+        let cases = [
+            DuelCase {
+                wing: 1,
+                band: Band::Close,
+                winner: 1,
+                loser_wiped: true,
+                why: "a lone frigate is annihilated by a battleship",
+            },
+            DuelCase {
+                wing: 8,
+                band: Band::Close,
+                winner: 0,
+                loser_wiped: false,
+                why: "massed torpedoes saturate the PDC screen up close",
+            },
+            DuelCase {
+                wing: 8,
+                band: Band::Long,
+                winner: 1,
+                loser_wiped: false,
+                why: "the battleship holds the line at long range (full screen + reach)",
+            },
+        ];
+        for c in cases {
+            for seed in 0..DUEL_SEEDS {
+                let out = duel(c.wing, c.band, seed);
+                assert_eq!(out.winner, Some(c.winner), "{} (seed {seed})", c.why);
+                if c.loser_wiped {
+                    let loser = 1 - c.winner;
+                    assert_eq!(out.survivors[loser], 0, "lethal: loser wiped (seed {seed})");
+                }
+            }
         }
     }
 
