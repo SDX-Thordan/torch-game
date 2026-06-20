@@ -72,7 +72,10 @@ pub struct Stock {
 }
 
 /// A market at a body, owned by a player; self-stabilizes each good toward a setpoint with
-/// damped prices.
+/// damped prices. Carries a **reservation layer** so concurrent haulers don't oversubscribe a
+/// trade: `reserved_out` is stock promised to outbound buyers, `reserved_in` is high-wall headroom
+/// promised to inbound sellers. Reservations are a derived cache (rebuilt from in-flight jobs on
+/// load), never serialized.
 #[derive(Clone, Debug)]
 pub struct Market {
     name: &'static str,
@@ -81,6 +84,8 @@ pub struct Market {
     defs: Vec<PriceDef>,
     setpoints: Vec<i64>,
     stocks: Vec<Stock>,
+    reserved_out: Vec<i64>,
+    reserved_in: Vec<i64>,
 }
 
 impl Market {
@@ -99,6 +104,7 @@ impl Market {
                 price: target_price(d, sp).clamp(d.floor, d.ceiling),
             })
             .collect();
+        let n = defs.len();
         Self {
             name,
             body,
@@ -106,6 +112,8 @@ impl Market {
             defs,
             setpoints,
             stocks,
+            reserved_out: vec![0; n],
+            reserved_in: vec![0; n],
         }
     }
 
@@ -152,7 +160,66 @@ impl Market {
             self.stocks[c].stock = stocks[c].clamp(0, def.max_stock);
             self.stocks[c].price = prices[c].clamp(def.floor, def.ceiling);
         }
+        // Reservations are a derived cache; a restored market starts with none (the caller
+        // rebuilds them from in-flight jobs).
+        for r in &mut self.reserved_out {
+            *r = 0;
+        }
+        for r in &mut self.reserved_in {
+            *r = 0;
+        }
     }
+
+    // ---- the reservation layer + trade API (§ iteration 3) ----------------------------
+
+    /// Stock a buying hauler may still claim — above the low wall (the market keeps a floor
+    /// inventory) and after outstanding reservations.
+    pub fn available_to_buy(&self, c: usize) -> i64 {
+        (self.stocks[c].stock - self.wall_low(c) - self.reserved_out[c]).max(0)
+    }
+    /// High-wall headroom a selling hauler may still claim (after inbound reservations), so a
+    /// producer-hauler doesn't haul goods that would be clamped away on arrival.
+    pub fn headroom_to_sell(&self, c: usize) -> i64 {
+        (self.wall_high(c) - self.stocks[c].stock - self.reserved_in[c]).max(0)
+    }
+    pub fn reserved_out(&self, c: usize) -> i64 {
+        self.reserved_out[c]
+    }
+    pub fn reserved_in(&self, c: usize) -> i64 {
+        self.reserved_in[c]
+    }
+    pub fn reserve_buy(&mut self, c: usize, qty: i64) {
+        self.reserved_out[c] += qty.max(0);
+    }
+    pub fn release_buy(&mut self, c: usize, qty: i64) {
+        self.reserved_out[c] = (self.reserved_out[c] - qty.max(0)).max(0);
+    }
+    pub fn reserve_sell(&mut self, c: usize, qty: i64) {
+        self.reserved_in[c] += qty.max(0);
+    }
+    pub fn release_sell(&mut self, c: usize, qty: i64) {
+        self.reserved_in[c] = (self.reserved_in[c] - qty.max(0)).max(0);
+    }
+
+    /// A hauler lifts `qty` of `c` out of the market: returns the cost (price sampled on the
+    /// pre-trade stock), removes the stock (reprices), and releases the full buy reservation.
+    pub fn execute_buy(&mut self, c: usize, qty: i64) -> i64 {
+        let q = qty.max(0).min(self.stocks[c].stock);
+        let cost = q * self.stocks[c].price;
+        self.remove_stock(c, q);
+        self.release_buy(c, qty);
+        cost
+    }
+    /// A hauler dumps `qty` of `c` into the market: returns the revenue (pre-trade price), adds
+    /// the stock (reprices), and releases the sell reservation.
+    pub fn execute_sell(&mut self, c: usize, qty: i64) -> i64 {
+        let q = qty.max(0);
+        let revenue = q * self.stocks[c].price;
+        self.add_stock(c, q);
+        self.release_sell(c, qty);
+        revenue
+    }
+
     fn reprice(&mut self, c: usize) {
         let def = &self.defs[c];
         let s = &mut self.stocks[c];
@@ -271,6 +338,44 @@ mod tests {
     #[test]
     fn price_defs_cover_every_good() {
         assert_eq!(price_defs().len(), commodity_count());
+    }
+
+    #[test]
+    fn reservations_reduce_availability_and_execute_moves_stock() {
+        let defs = price_defs();
+        let sp: Vec<i64> = defs.iter().map(|d| d.target_stock).collect();
+        let mut m = Market::with_setpoints("T", 0, 0, defs, sp);
+        let c = 1; // Ore
+        let stock0 = m.stock(c);
+        let avail0 = m.available_to_buy(c);
+        assert_eq!(
+            avail0,
+            stock0 - m.wall_low(c),
+            "available is above the low wall"
+        );
+        // Reserve 100 to buy: availability drops, stock untouched.
+        m.reserve_buy(c, 100);
+        assert_eq!(m.available_to_buy(c), avail0 - 100);
+        assert_eq!(m.stock(c), stock0);
+        assert!(
+            m.reserved_out(c) <= m.stock(c),
+            "invariant: reserved ≤ stock"
+        );
+        // Execute the buy: stock drops, reservation released, cost = pre-trade price × qty.
+        let price = m.price(c);
+        let cost = m.execute_buy(c, 100);
+        assert_eq!(cost, 100 * price);
+        assert_eq!(m.reserved_out(c), 0, "reservation released on execute");
+        assert!(m.stock(c) < stock0, "buy removed stock");
+        assert_eq!(m.available_to_buy(c), m.stock(c) - m.wall_low(c));
+        // Sell side: reserve_sell reduces headroom; execute_sell adds stock + revenue.
+        let head0 = m.headroom_to_sell(c);
+        m.reserve_sell(c, 50);
+        assert_eq!(m.headroom_to_sell(c), head0 - 50);
+        let s_before = m.stock(c);
+        let rev = m.execute_sell(c, 50);
+        assert!(rev > 0 && m.stock(c) > s_before);
+        assert_eq!(m.reserved_in(c), 0);
     }
 
     #[test]
