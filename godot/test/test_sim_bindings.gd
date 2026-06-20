@@ -29,9 +29,14 @@ func test_commission_grows_the_fleet_and_spends_credits() -> void:
 	sim.dev_grant_shipyard()
 	var credits0: int = sim.credits()
 	var fleet0: int = sim.fleet_size()
-	assert_true(sim.commission_ship(0), "with a yard, a frigate builds")
-	assert_eq(sim.fleet_size(), fleet0 + 1, "the hull joined the fleet")
-	assert_lt(sim.credits(), credits0, "commissioning spent credits")
+	assert_true(sim.commission_ship(0), "with a yard, a frigate lays down")
+	assert_lt(sim.credits(), credits0, "the build cost is charged up front")
+	# The hull goes through a timed shipyard build (§5/§8c) — step until it stands up.
+	for _i in 400:
+		if sim.pending_ship_count() == 0:
+			break
+		sim.step()
+	assert_eq(sim.fleet_size(), fleet0 + 1, "the built hull joined the fleet")
 
 
 func test_engage_reports_no_warships_when_fleet_empty() -> void:

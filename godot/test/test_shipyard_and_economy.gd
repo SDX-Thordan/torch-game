@@ -44,6 +44,11 @@ func test_engage_produces_a_battle_log_for_the_diorama() -> void:
 	sim.dev_grant_shipyard()   # warships need a yard now (Phase B+)
 	sim.commission_ship(0)
 	sim.commission_ship(0)
+	# Hulls go through a timed build (§5/§8c) — let the shipyard stand them up.
+	for _i in 400:
+		if sim.pending_ship_count() == 0:
+			break
+		sim.step()
 	var result: int = sim.engage(0)  # Close band
 	assert_ne(result, -1, "an on-station fleet engages")
 	assert_gt(sim.battle_log_count(), 0, "the engagement produced a BattleLog")
@@ -53,7 +58,12 @@ func test_engage_produces_a_battle_log_for_the_diorama() -> void:
 func test_warships_must_be_on_station_to_engage() -> void:
 	sim.dev_grant_shipyard()   # warships need a yard now (Phase B+)
 	sim.commission_ship(0)
-	assert_eq(sim.warships_on_station(), 1, "a fresh hull docks at the core")
+	# Let the timed build (§5/§8c) stand the hull up before it can take station.
+	for _i in 400:
+		if sim.pending_ship_count() == 0:
+			break
+		sim.step()
+	assert_eq(sim.warships_on_station(), 1, "a built hull docks at the core")
 	# Fly it away (body 3 = Earth); now the core is undefended.
 	sim.move_ship(0, 3, false)
 	assert_eq(sim.warships_on_station(), 0, "a departed hull is off station")
