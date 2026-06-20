@@ -775,23 +775,39 @@ mod tests {
     }
 
     #[test]
-    fn a_run_round_trips_through_a_save() {
+    fn a_run_round_trips_through_a_save_with_in_flight_ships() {
+        // Run until the world is busy — ships in flight (cargo/dest/arrival set), facility buffers
+        // and station stores non-empty — so the round-trip exercises every new locational field.
         let mut a = Sim::new(9);
-        a.players[2].add_stock(super::super::commodity::ORE, 5_000);
-        for _ in 0..400 {
+        for _ in 0..600 {
             a.step();
         }
+        assert!(
+            a.ships().iter().any(|s| s.in_flight()),
+            "some ship is mid-flight"
+        );
+        assert!(a
+            .mining_stations()
+            .iter()
+            .any(|s| s.store.iter().sum::<i64>() > 0));
         // Binary round-trip.
         let bytes = a.save_bytes();
         let b = Sim::load_bytes(&bytes).expect("a save reloads");
         assert_eq!(a.to_save(), b.to_save());
         assert_eq!(a.tick(), b.tick());
-        assert_eq!(a.human_credits(), b.human_credits());
-        // JSON round-trip + version gate.
+        // A reloaded in-flight ship keeps its arrival + cargo.
+        let fi = a.ships().iter().position(|s| s.in_flight()).unwrap();
+        assert_eq!(a.ships()[fi].arrival, b.ships()[fi].arrival);
+        assert_eq!(a.ships()[fi].cargo, b.ships()[fi].cargo);
+        // JSON round-trip.
         let json = a.save_json();
         assert!(json.starts_with('{'));
         let c = Sim::load_bytes(json.as_bytes()).expect("json reloads");
         assert_eq!(a.to_save(), c.to_save());
+        // The v2 gate rejects an old version.
+        let mut old = a.to_save();
+        old.version = 2;
+        assert!(super::super::persist::SaveState::from_bincode(&old.to_bincode()).is_err());
     }
 
     #[test]

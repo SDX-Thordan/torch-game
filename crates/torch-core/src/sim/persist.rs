@@ -11,9 +11,10 @@ use super::ship::Ship;
 use super::world::{Colony, MiningStation};
 use serde::{Deserialize, Serialize};
 
-/// Bumped whenever the on-disk shape changes; load refuses mismatches. v2 = the multi-player
-/// rebuild (old single-player v1 saves are intentionally incompatible).
-pub const SAVE_VERSION: u32 = 2;
+/// Bumped whenever the on-disk shape changes; load refuses mismatches. v3 = the locational
+/// logistics rebuild — entities now carry stores/cargo/movement state (prior dev saves are
+/// intentionally incompatible).
+pub const SAVE_VERSION: u32 = 3;
 
 /// One market's dynamic state — the stock/price pair per good (price-defs rebuilt from code).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
