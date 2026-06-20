@@ -90,6 +90,25 @@ pub fn position_of(bodies: &[Body], i: usize, tick: u64) -> (i64, i64) {
     (px + lx, py + ly)
 }
 
+/// Integer straight-line distance (distance units) between bodies `a` and `b` at `tick`. Uses
+/// `i64::isqrt` on the squared Euclidean distance — fully deterministic, no floats.
+pub fn distance(bodies: &[Body], a: usize, b: usize, tick: u64) -> i64 {
+    let (ax, ay) = position_of(bodies, a, tick);
+    let (bx, by) = position_of(bodies, b, tick);
+    let (dx, dy) = (ax - bx, ay - by);
+    (dx * dx + dy * dy).isqrt()
+}
+
+/// Linear interpolation between bodies `a` and `b` at fraction `num/den` (for in-flight render
+/// positions). Endpoints evaluated at the current `tick`.
+pub fn lerp_pos(bodies: &[Body], a: usize, b: usize, tick: u64, num: i64, den: i64) -> (i64, i64) {
+    let (ax, ay) = position_of(bodies, a, tick);
+    let (bx, by) = position_of(bodies, b, tick);
+    let d = den.max(1);
+    let t = num.clamp(0, d);
+    (ax + (bx - ax) * t / d, ay + (by - ay) * t / d)
+}
+
 // Deterministic basic-good abundance for a body (one entry per raw good) — a stable hash of
 // the name, so no RNG and the same body always has the same goods (§27).
 fn goods_for(name: &str) -> Vec<i64> {

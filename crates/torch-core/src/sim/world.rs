@@ -22,6 +22,11 @@ const SINK_RESERVE: i64 = 1_000;
 /// A mining station / colony local raw store cap (so it stops digging when a hauler isn't
 /// collecting — bounds the world even when logistics stalls).
 const STATION_STORE_CAP: i64 = 1_000;
+/// Distance units a ship of speed 1 covers per tick — scales the AU-scale `position_of` coords
+/// (1 AU = 1_000_000) to sane travel times against the small `ship_stats.speed` numbers.
+const SPEED_UNIT: i64 = 1_000;
+/// Distance units burned per unit of Fusion Fuel on a flight (lump-sum at departure).
+const FUEL_PER_DISTANCE: i64 = 50_000;
 
 /// Raw extracted per tick from a body whose abundance (0..=~252) is `abundance`. 0 if the body
 /// has none of that good; otherwise a small deterministic integer rate. No RNG.
@@ -191,9 +196,11 @@ impl Sim {
         self.run_extraction();
         // 3. Production: facilities refine on-site input → on-site output (idle if starved).
         self.run_production();
-        // 4. Sink absorption (legacy global drain — replaced by hauler delivery in a later commit).
+        // 4. Advance in-flight ships; dock those that have arrived.
+        self.advance_ships();
+        // 5. Sink absorption (legacy global drain — replaced by hauler delivery in a later commit).
         self.run_sinks();
-        // 5. Per-player AI think (stubbed — no-op).
+        // 6. Per-player AI think (stubbed — no-op).
         let view = ai::WorldView {
             tick: self.tick,
             body_count: self.bodies.len(),
@@ -279,6 +286,61 @@ impl Sim {
                     }
                 }
             }
+        }
+    }
+
+    // ---- ship movement ----------------------------------------------------------------
+
+    /// Launch ship `i` toward body `dest`: lock the ETA from the departure-tick distance and the
+    /// ship's derived speed, and burn the lump-sum fuel. Returns false (and does not launch) if
+    /// the ship is already in flight, already there, or lacks the fuel.
+    pub fn launch_ship(&mut self, i: usize, dest: usize) -> bool {
+        let Some(sh) = self.ships.get(i) else {
+            return false;
+        };
+        if sh.in_flight() || sh.body == dest || dest >= self.bodies.len() {
+            return false;
+        }
+        let dist = orbit::distance(&self.bodies, sh.body, dest, self.tick);
+        let speed = super::ship::ship_stats(sh).speed;
+        let travel = (dist / (speed * SPEED_UNIT)).max(1) as u64;
+        let fuel_cost = (dist / FUEL_PER_DISTANCE).max(1);
+        if sh.fuel < fuel_cost {
+            return false;
+        }
+        let sh = &mut self.ships[i];
+        sh.fuel -= fuel_cost;
+        sh.dest = Some(dest);
+        sh.departed = self.tick;
+        sh.arrival = self.tick + travel;
+        true
+    }
+
+    /// Dock any ship whose flight has completed (`tick >= arrival`): `body = dest`, `dest = None`.
+    fn advance_ships(&mut self) {
+        let tick = self.tick;
+        for sh in &mut self.ships {
+            if let Some(d) = sh.dest {
+                if tick >= sh.arrival {
+                    sh.body = d;
+                    sh.dest = None;
+                }
+            }
+        }
+    }
+
+    /// A ship's render position: its docked body, or the lerp along its flight leg.
+    pub fn ship_pos(&self, i: usize) -> (i64, i64) {
+        let Some(sh) = self.ships.get(i) else {
+            return (0, 0);
+        };
+        match sh.dest {
+            Some(d) => {
+                let span = sh.arrival.saturating_sub(sh.departed).max(1) as i64;
+                let num = self.tick.saturating_sub(sh.departed) as i64;
+                orbit::lerp_pos(&self.bodies, sh.body, d, self.tick, num, span)
+            }
+            None => orbit::position_of(&self.bodies, sh.body, self.tick),
         }
     }
 
@@ -490,6 +552,36 @@ mod tests {
         assert!(json.starts_with('{'));
         let c = Sim::load_bytes(json.as_bytes()).expect("json reloads");
         assert_eq!(a.to_save(), c.to_save());
+    }
+
+    #[test]
+    fn a_launched_ship_arrives_on_schedule_and_burns_fuel() {
+        let mut sim = Sim::new(0);
+        // The human's hauler (ship 0) is docked at Ceres (5). Launch it to Earth (3).
+        let i = 0;
+        let dest = 3;
+        assert!(!sim.ships[i].in_flight());
+        let fuel0 = sim.ships[i].fuel;
+        let dist = super::super::orbit::distance(&sim.bodies, sim.ships[i].body, dest, sim.tick());
+        let speed = super::super::ship::ship_stats(&sim.ships[i]).speed;
+        let want_travel = (dist / (speed * SPEED_UNIT)).max(1) as u64;
+        assert!(sim.launch_ship(i, dest));
+        assert!(sim.ships[i].in_flight());
+        assert!(sim.ships[i].fuel < fuel0, "fuel burned at departure");
+        let departed = sim.ships[i].departed;
+        let arrival = sim.ships[i].arrival;
+        assert_eq!(arrival - departed, want_travel, "ETA == distance/speed");
+        // Run until just before arrival — still in flight; then it docks at dest.
+        while sim.tick() < arrival {
+            sim.step();
+            if sim.tick() < arrival {
+                assert!(sim.ships[i].in_flight(), "in flight until arrival");
+            }
+        }
+        assert!(!sim.ships[i].in_flight(), "docked at arrival");
+        assert_eq!(sim.ships[i].body, dest, "arrived at the destination body");
+        // Can't launch while already there.
+        assert!(!sim.launch_ship(i, dest));
     }
 
     #[test]
