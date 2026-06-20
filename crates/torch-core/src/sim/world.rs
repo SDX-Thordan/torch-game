@@ -30,9 +30,6 @@ const EST_FUEL_CREDIT: i64 = 60;
 /// A mining station / colony local raw store cap (so it stops digging when a hauler isn't
 /// collecting — bounds the world even when logistics stalls).
 const STATION_STORE_CAP: i64 = 1_000;
-/// Distance units a ship of speed 1 covers per tick — scales the AU-scale `position_of` coords
-/// (1 AU = 1_000_000) to sane travel times against the small `ship_stats.speed` numbers.
-const SPEED_UNIT: i64 = 1_000;
 /// Distance units burned per unit of Fusion Fuel on a flight (lump-sum at departure).
 const FUEL_PER_DISTANCE: i64 = 50_000;
 
@@ -308,8 +305,9 @@ impl Sim {
             }
         };
 
-        // Human (0): a station at Psyche + a hauler + a Miner (cosmetic) → hauls raw to a sink.
-        chain(self, 0, "Psyche", ceres, 1);
+        // Human (0): a station at Psyche + two haulers (one keeps the station fed, one earns under
+        // the slower Hohmann travel) + a Miner (cosmetic).
+        chain(self, 0, "Psyche", ceres, 2);
         self.ships
             .push(Ship::new(0, ShipClass::Miner, "Prospector", ceres));
 
@@ -346,10 +344,11 @@ impl Sim {
         self.ships
             .push(Ship::new(7, ShipClass::Combat, "Free Navy Pella", ceres));
 
-        // Companies / pirates: a station + a hauler each, so every player earns.
-        chain(self, 4, "Eunomia", earth, 1);
-        chain(self, 5, "Davida", mars, 1);
-        chain(self, 7, "Sylvia", ceres, 1);
+        // Companies / pirates: a station + two haulers each (margin for food + income under the
+        // slower Hohmann travel), so every player earns.
+        chain(self, 4, "Eunomia", earth, 2);
+        chain(self, 5, "Davida", mars, 2);
+        chain(self, 7, "Sylvia", ceres, 2);
         // The Private Sector (player 6) is the **trade backbone**: a station + 10 haulers,
         // docked across the three hubs for spatial spread. They mostly arbitrage the markets.
         if let Some(b) = belt(self, "Interamnia") {
@@ -947,9 +946,10 @@ impl Sim {
 
     // ---- ship movement ----------------------------------------------------------------
 
-    /// Launch ship `i` toward body `dest`: lock the ETA from the departure-tick distance and the
-    /// ship's derived speed, and burn the lump-sum fuel. Returns false (and does not launch) if
-    /// the ship is already in flight, already there, or lacks the fuel.
+    /// Launch ship `i` toward body `dest` on a **light Hohmann transfer**: the ETA is the
+    /// radii-derived transfer time (so it can be fixed before the moving target is led), and fuel is
+    /// burned lump-sum. Returns false (and does not launch) if already in flight / already there /
+    /// out of fuel.
     pub fn launch_ship(&mut self, i: usize, dest: usize) -> bool {
         let Some(sh) = self.ships.get(i) else {
             return false;
@@ -959,7 +959,7 @@ impl Sim {
         }
         let dist = orbit::distance(&self.bodies, sh.body, dest, self.tick);
         let speed = super::ship::ship_stats(sh).speed;
-        let travel = (dist / (speed * SPEED_UNIT)).max(1) as u64;
+        let travel = orbit::hohmann_ticks(&self.bodies, sh.body, dest, speed);
         let fuel_cost = (dist / FUEL_PER_DISTANCE).max(1);
         if sh.fuel < fuel_cost {
             return false;
@@ -985,7 +985,8 @@ impl Sim {
         }
     }
 
-    /// A ship's render position: its docked body, or the lerp along its flight leg.
+    /// A ship's render position: its docked body, or a **curved transfer arc** from where it
+    /// departed to where the destination *will be* on arrival (leading the moving target).
     pub fn ship_pos(&self, i: usize) -> (i64, i64) {
         let Some(sh) = self.ships.get(i) else {
             return (0, 0);
@@ -994,7 +995,9 @@ impl Sim {
             Some(d) => {
                 let span = sh.arrival.saturating_sub(sh.departed).max(1) as i64;
                 let num = self.tick.saturating_sub(sh.departed) as i64;
-                orbit::lerp_pos(&self.bodies, sh.body, d, self.tick, num, span)
+                let from = orbit::position_of(&self.bodies, sh.body, sh.departed);
+                let to = orbit::position_of(&self.bodies, d, sh.arrival); // the led arrival point
+                orbit::transfer_arc(from, to, num, span)
             }
             None => orbit::position_of(&self.bodies, sh.body, self.tick),
         }
@@ -1452,24 +1455,28 @@ mod tests {
     }
 
     #[test]
-    fn a_launched_ship_arrives_on_schedule_and_burns_fuel() {
+    fn a_launched_ship_rides_a_hohmann_transfer_to_the_moving_target() {
         let mut sim = Sim::new(0);
-        // The human's Miner (ship 1) is docked at Ceres (5); Miners aren't auto-dispatched, so
-        // it stays put under our manual control. Launch it to Earth (3).
-        let i = 1;
+        // The human's Miner isn't auto-dispatched, so it stays under our manual control. Launch it
+        // to Earth (3).
+        let i = sim
+            .ships
+            .iter()
+            .position(|s| s.owner == 0 && s.class == ShipClass::Miner)
+            .unwrap();
         let dest = 3;
         assert!(!sim.ships[i].in_flight());
         let fuel0 = sim.ships[i].fuel;
-        let dist = super::super::orbit::distance(&sim.bodies, sim.ships[i].body, dest, sim.tick());
         let speed = super::super::ship::ship_stats(&sim.ships[i]).speed;
-        let want_travel = (dist / (speed * SPEED_UNIT)).max(1) as u64;
+        let want = super::super::orbit::hohmann_ticks(&sim.bodies, sim.ships[i].body, dest, speed);
         assert!(sim.launch_ship(i, dest));
-        assert!(sim.ships[i].in_flight());
-        assert!(sim.ships[i].fuel < fuel0, "fuel burned at departure");
-        let departed = sim.ships[i].departed;
-        let arrival = sim.ships[i].arrival;
-        assert_eq!(arrival - departed, want_travel, "ETA == distance/speed");
-        // Run until just before arrival — still in flight; then it docks at dest.
+        assert!(sim.ships[i].in_flight() && sim.ships[i].fuel < fuel0);
+        let (departed, arrival) = (sim.ships[i].departed, sim.ships[i].arrival);
+        assert_eq!(
+            arrival - departed,
+            want,
+            "ETA == radii-derived Hohmann time"
+        );
         while sim.tick() < arrival {
             sim.step();
             if sim.tick() < arrival {
@@ -1477,9 +1484,25 @@ mod tests {
             }
         }
         assert!(!sim.ships[i].in_flight(), "docked at arrival");
-        assert_eq!(sim.ships[i].body, dest, "arrived at the destination body");
-        // Can't launch while already there.
+        assert_eq!(
+            sim.ships[i].body, dest,
+            "docked at the (moving) destination body"
+        );
         assert!(!sim.launch_ship(i, dest));
+    }
+
+    #[test]
+    fn hohmann_transfers_scale_with_orbital_distance() {
+        // An outer-system transfer takes longer than an inner one (radii-derived).
+        let sim = Sim::new(0);
+        let h = |a: usize, b: usize| super::super::orbit::hohmann_ticks(&sim.bodies, a, b, 180);
+        let earth_mars = h(3, 4);
+        let earth_jupiter = h(3, 6);
+        assert!(
+            earth_jupiter > earth_mars,
+            "Jupiter transfer ({earth_jupiter}) > Mars ({earth_mars})"
+        );
+        assert!(earth_mars >= 1);
     }
 
     #[test]

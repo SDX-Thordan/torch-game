@@ -112,6 +112,63 @@ pub fn lerp_pos(bodies: &[Body], a: usize, b: usize, tick: u64, num: i64, den: i
     (ax + (bx - ax) * t / d, ay + (by - ay) * t / d)
 }
 
+/// A body's **heliocentric orbital radius** — its distance-from-Sol scale. A planet returns its own
+/// `orbit_radius`; a moon/station inherits its planet/capital's (so a shipyard orbiting Earth reads
+/// as ~1 AU). Used for the Hohmann transfer time.
+pub fn heliocentric_radius(bodies: &[Body], i: usize) -> i64 {
+    let b = &bodies[i];
+    if b.parent == i {
+        0 // Sol
+    } else if b.parent == 0 {
+        b.orbit_radius // orbits Sol directly
+    } else {
+        heliocentric_radius(bodies, b.parent) // a moon/station: its primary's radius
+    }
+}
+
+/// Tuning for the (rescaled) Hohmann transfer time. `HOHMANN_HALF` is the playable analogue of half
+/// a transfer-ellipse period at 1 AU; `1000^1.5 ≈ 31623` normalizes the milli-AU `^1.5`.
+const HOHMANN_HALF: i64 = 8;
+const NORM_15: i64 = 31_623;
+
+/// **Light Hohmann transfer time** (ticks) between bodies `a` and `b`, derived from their
+/// heliocentric radii (not their current angle — so the time can be computed *before* leading the
+/// moving target). `t ∝ ((r1+r2)/2 / AU)^1.5` (Kepler), rescaled to the game's pace and divided by
+/// the ship's `speed`. Outer-system transfers take longer than inner ones; co-orbital hops are cheap.
+pub fn hohmann_ticks(bodies: &[Body], a: usize, b: usize, speed: i64) -> u64 {
+    let r1 = heliocentric_radius(bodies, a);
+    let r2 = heliocentric_radius(bodies, b);
+    let semi = ((r1 + r2) / 2).max(1);
+    let milli = (semi * 1000 / AU).max(1); // milli-AU; Earth ≈ 1000
+    let pow15 = milli * milli.isqrt(); // milli^1.5
+    let base = HOHMANN_HALF * pow15 / NORM_15; // (semi/AU)^1.5 × HOHMANN_HALF
+    (base * SPEED_REF / speed.max(1)).max(1) as u64
+}
+
+/// Reference ship speed (a default civilian hull) the Hohmann time is normalized to.
+const SPEED_REF: i64 = 180;
+
+/// A point on the **curved transfer arc** (quadratic Bézier) from `p0` (departure) to `p2` (the led
+/// arrival point), at fraction `num/den` — bulged off the chord so the path reads as a transfer
+/// ellipse rather than a straight line.
+pub fn transfer_arc(p0: (i64, i64), p2: (i64, i64), num: i64, den: i64) -> (i64, i64) {
+    let d = den.max(1);
+    let t = num.clamp(0, d);
+    let u = d - t;
+    let chord = (p2.0 - p0.0, p2.1 - p0.1);
+    // Control point: the chord midpoint pushed perpendicular by ~1/4 of the chord length.
+    let perp = (-chord.1, chord.0);
+    let plen = (perp.0 * perp.0 + perp.1 * perp.1).isqrt().max(1);
+    let bulge = (chord.0 * chord.0 + chord.1 * chord.1).isqrt() / 4;
+    let cx = (p0.0 + p2.0) / 2 + perp.0 * bulge / plen;
+    let cy = (p0.1 + p2.1) / 2 + perp.1 * bulge / plen;
+    // Quadratic Bézier: B = u²P0 + 2utC + t²P2, all over den².
+    let den2 = d * d;
+    let x = (u * u * p0.0 + 2 * u * t * cx + t * t * p2.0) / den2;
+    let y = (u * u * p0.1 + 2 * u * t * cy + t * t * p2.1) / den2;
+    (x, y)
+}
+
 // Deterministic basic-good abundance for a body (one entry per raw good) — a stable hash of
 // the name, so no RNG and the same body always has the same goods (§27).
 fn goods_for(name: &str) -> Vec<i64> {
