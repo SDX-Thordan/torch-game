@@ -12,6 +12,27 @@ fn yard(sim: &mut Sim) {
     sim.shipyard_body = 1;
 }
 
+/// Commission a custom frigate varying only the two dials a design test cares about —
+/// torpedo count and remass fill (basis points) — with weapon models left at their
+/// catalog defaults. Keeps `commission_designed`'s positional args out of the tests.
+fn design_frigate(sim: &mut Sim, torpedoes: u32, remass_bp: i64) -> Result<(), CommissionError> {
+    const PDC_MODEL: usize = 0;
+    const PDC_COUNT: u32 = 2;
+    const TORPEDO_MODEL: usize = 8;
+    const RAILGUN_MODEL: usize = 13;
+    const NO_RAILGUNS: u32 = 0;
+    sim.commission_designed(
+        ShipClass::Frigate,
+        PDC_MODEL,
+        PDC_COUNT,
+        TORPEDO_MODEL,
+        torpedoes,
+        RAILGUN_MODEL,
+        NO_RAILGUNS,
+        remass_bp,
+    )
+}
+
 #[test]
 fn a_custom_design_commissions_a_lighter_faster_hull_when_stripped() {
     // A2: commissioning a stripped design (no torpedoes/railgun, less remass) builds
@@ -20,18 +41,12 @@ fn a_custom_design_commissions_a_lighter_faster_hull_when_stripped() {
     yard(&mut sim);
     sim.corp_mut().credit(2_000_000);
     // A lean frigate: PDC only, no torpedoes, half tanks (the 60-crew pool affords it).
-    assert_eq!(
-        sim.commission_designed(ShipClass::Frigate, 0, 2, 8, 0, 13, 0, 50),
-        Ok(())
-    );
+    assert_eq!(design_frigate(&mut sim, 0, 50), Ok(()));
     sim.finish_pending_ships();
     assert_eq!(sim.corp().fleet().len(), 1);
     let lean = sim.corp().fleet()[0].loadout.stats();
-    // A fully-armed frigate (torpedoes added).
-    assert_eq!(
-        sim.commission_designed(ShipClass::Frigate, 0, 2, 8, 2, 13, 0, 100),
-        Ok(())
-    );
+    // A fully-armed frigate: torpedoes added, full tanks.
+    assert_eq!(design_frigate(&mut sim, 2, 100), Ok(()));
     sim.finish_pending_ships();
     let armed = sim.corp().fleet()[1].loadout.stats();
     assert!(
@@ -648,6 +663,17 @@ fn trades_are_guarded() {
     assert_eq!(sim.buy(0, 0, 1_000_000), Err(TradeError::InsufficientStock));
     // Affordable stock-wise, but beyond the treasury (200 dear ReactorFuel).
     assert_eq!(sim.buy(0, 5, 200), Err(TradeError::InsufficientCredits));
+}
+
+#[test]
+fn a_zero_or_negative_quantity_trade_is_a_no_op() {
+    let mut sim = Sim::new(0);
+    let before = sim.corp().credits();
+    for qty in [0, -5] {
+        assert_eq!(sim.buy(0, 0, qty), Ok(0), "buying {qty} spends nothing");
+        assert_eq!(sim.sell(0, 0, qty), Ok(0), "selling {qty} earns nothing");
+    }
+    assert_eq!(sim.corp().credits(), before, "treasury untouched");
 }
 
 #[test]
