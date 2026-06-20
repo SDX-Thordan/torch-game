@@ -3176,12 +3176,17 @@ func _build_empire_view() -> void:
 
 
 func _refresh_empire() -> void:
+	_refresh_empire_strip()
+	_refresh_empire_economy()
+	_refresh_empire_fleet()
+	_refresh_empire_admin()
+	_refresh_empire_table()
+
+
+func _refresh_empire_strip() -> void:
+	# Stat strip (rebuilt each refresh).
 	var holdings: int = sim.holding_count()
 	var cap: int = sim.admin_capacity()
-	var rank := String(sim.empire_rank())
-	var next_name := String(sim.next_empire_rank_name())
-
-	# ---- Stat strip (rebuilt each refresh) ----
 	for c in _emp_strip.get_children():
 		c.queue_free()
 	var fsz: int = sim.fleet_size()
@@ -3198,7 +3203,10 @@ func _refresh_empire() -> void:
 	_emp_strip.add_child(UiKit.stat_card("INFLUENCE", str(sim.influence()),
 		"+" if sim.influence() > 0 else ""))
 
-	# ---- Economy summary ----
+
+func _refresh_empire_economy() -> void:
+	# Economy summary.
+	var holdings: int = sim.holding_count()
 	for c in _emp_economy.get_children():
 		c.queue_free()
 	# Daily credit rate comes from _rate_snap comparison (already computed in _refresh_chrome).
@@ -3218,7 +3226,11 @@ func _refresh_empire() -> void:
 		UiKit.TEXT_DIM,
 		UiKit.GOOD if sim.admin_strain() == 0 else UiKit.BAD))
 
-	# ---- Fleet summary (right sidebar) ----
+
+func _refresh_empire_fleet() -> void:
+	# Fleet summary (right sidebar).
+	var fsz: int = sim.fleet_size()
+	var frt: int = sim.freighters()
 	var flag_name := String(sim.flagship_name()) if fsz > 0 else "—"
 	var on_st: int = sim.warships_on_station()
 	var flt_lines := PackedStringArray()
@@ -3231,7 +3243,13 @@ func _refresh_empire() -> void:
 			flt_lines.append("Capt. %s · %s" % [String(sim.ship_captain(fi)), String(sim.ship_trait(fi))])
 	_emp_fleet_sum.text = "\n".join(flt_lines)
 
-	# ---- Admin status (right sidebar) ----
+
+func _refresh_empire_admin() -> void:
+	# Admin status (right sidebar).
+	var holdings: int = sim.holding_count()
+	var cap: int = sim.admin_capacity()
+	var rank := String(sim.empire_rank())
+	var next_name := String(sim.next_empire_rank_name())
 	var head := "%s" % rank
 	if holdings > 0:
 		head += "   ·   tallest L%d" % sim.peak_dev()
@@ -3267,7 +3285,9 @@ func _refresh_empire() -> void:
 		meters += "\n— STRIKE INBOUND, DEFEND"
 	_emp_meters.text = meters
 
-	# ---- Holdings & targets table (unchanged logic, same bbcode) ----
+
+func _refresh_empire_table() -> void:
+	# Holdings & targets table (unchanged logic, same bbcode).
 	var t := ""
 	if sim.contested_count() > 0:
 		t += "[color=#9fb0c0]── CONTESTED HUBS  (the powers fight over these) ──[/color]\n"
