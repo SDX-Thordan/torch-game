@@ -133,6 +133,27 @@ impl TorchSim {
         self.sim.body_pos(index.max(0) as usize).1
     }
 
+    /// The index of the body this one orbits (its own index for the root star).
+    #[func]
+    fn body_parent(&self, index: i64) -> i64 {
+        self.sim
+            .bodies()
+            .get(index.max(0) as usize)
+            .map(|b| b.parent as i64)
+            .unwrap_or(-1)
+    }
+
+    /// Orbital radius about the parent (distance units); `0` for the star. Lets the
+    /// shell ring a moon around its planet without re-deriving it from positions.
+    #[func]
+    fn body_orbit_radius(&self, index: i64) -> i64 {
+        self.sim
+            .bodies()
+            .get(index.max(0) as usize)
+            .map(|b| b.orbit_radius)
+            .unwrap_or(0)
+    }
+
     // ---- ships (for the orrery) ----
 
     #[func]
