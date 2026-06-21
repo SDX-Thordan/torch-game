@@ -56,6 +56,22 @@ static func vgrad(top: Color, bottom: Color) -> GradientTexture2D:
 	return tex
 
 
+## A symmetric three-stop vertical gradient (edge → mid → edge). Used to make a thin
+## separator line glow: transparent at the rim, brightest on the line itself.
+static func vgrad3(edge: Color, mid: Color) -> GradientTexture2D:
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	g.colors = PackedColorArray([edge, mid, edge])
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_LINEAR
+	tex.fill_from = Vector2(0.0, 0.0)
+	tex.fill_to = Vector2(0.0, 1.0)
+	tex.width = 8
+	tex.height = 64
+	return tex
+
+
 ## The top-bar fill: a subtle vertical gradient (lighter navy top → darker bottom) rather than a
 ## flat slab. The crisp bottom hairline + faint glow are drawn by the caller (StyleBoxTexture can't).
 static func bar_box(top: Color, bottom: Color) -> StyleBoxTexture:

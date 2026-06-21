@@ -17,7 +17,8 @@ const SCALE3D := 1.0 / 1_000_000.0
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]          # pause · 1× · 6× · 24×
 const SPEED_LABELS := ["❚❚", "▶", "▶▶", "▶▶▶"]
 const TICKS_PER_SECOND := 4.0                   # real-time-with-pause base rate
-const BAR_H := 30                               # top-bar height (px)
+const BAR_H := 35                               # top-bar height (px)
+const VIEW_LERP := 9.0                          # orrery marker position smoothing rate (§28)
 
 # Camera rig (orbit / pan / zoom around a focus point).
 const ZOOM_MIN := 0.05                           # zoom right down onto a single body / its moons
@@ -156,7 +157,7 @@ func _build_world() -> void:
 			break
 	_build_asteroid_belt()
 	_build_ships()
-	_update_world(0.0)
+	_update_world(1.0)   # snap markers onto their true positions for the first frame
 
 
 # Player-entity marker colours (by owner id): Human, Earth, Mars, OPA, two companies,
@@ -477,7 +478,14 @@ func _update_world(delta: float) -> void:
 		var node: Node3D = _body_nodes[b]
 		if node == null:
 			continue
-		node.position = _world3d(sim.body_x(b), sim.body_y(b))
+		# Glide toward the latest per-tick sim position (§28 interpolation) instead of
+		# snapping each tick — fast inner moons step a big angle per tick, which reads as
+		# jumping. Snap on a big jump (build / load / a large time-compression step).
+		var target := _world3d(sim.body_x(b), sim.body_y(b))
+		if node.position.distance_to(target) > 8.0:
+			node.position = target
+		else:
+			node.position = node.position.lerp(target, clampf(delta * VIEW_LERP, 0.0, 1.0))
 		# Spin the body on its (tilted) axis — purely cosmetic, so it turns even while
 		# the sim is paused.
 		if b < _body_spin.size() and _body_spin[b] != null and _body_spin_rate[b] != 0.0:
@@ -489,10 +497,13 @@ func _update_world(delta: float) -> void:
 	# Ships (lerped along flight legs by the core); lift in-flight ones off the ecliptic.
 	for i in _ship_nodes.size():
 		var sn: Node3D = _ship_nodes[i]
-		var p := _world3d(sim.ship_x(i), sim.ship_y(i))
+		var tp := _world3d(sim.ship_x(i), sim.ship_y(i))
 		if sim.ship_in_flight(i):
-			p.y = 0.04
-		sn.position = p
+			tp.y = 0.04
+		if sn.position.distance_to(tp) > 8.0:
+			sn.position = tp
+		else:
+			sn.position = sn.position.lerp(tp, clampf(delta * VIEW_LERP, 0.0, 1.0))
 	_update_orrery_lod()
 
 
@@ -552,33 +563,36 @@ func _build_topbar() -> void:
 	bar.custom_minimum_size = Vector2(0, BAR_H)
 	_layer.add_child(bar)
 
-	# A faint accent top-highlight + crisp bottom hairline + a very faint bloom below the bar.
+	# A faint accent top-highlight + a thin separator line that glows (no wide bloom).
 	var hi := ColorRect.new()
 	hi.color = Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.22)
 	hi.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	hi.offset_bottom = 1.0
 	hi.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layer.add_child(hi)
+	# A tight additive glow hugging the separator line (brightest on the line, fading to
+	# nothing a few px either side) — replaces the old wide bloom below the bar.
+	var line_glow := TextureRect.new()
+	line_glow.texture = UiKit.vgrad3(
+		Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.0),
+		Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.32))
+	line_glow.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	line_glow.offset_top = float(BAR_H) - 3.0
+	line_glow.offset_bottom = float(BAR_H) + 4.0
+	line_glow.stretch_mode = TextureRect.STRETCH_SCALE
+	line_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gm := CanvasItemMaterial.new()
+	gm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	line_glow.material = gm
+	_layer.add_child(line_glow)
+	# The hairline itself — thin and subtle; the glow above gives it presence.
 	var hair := ColorRect.new()
-	hair.color = UiKit.LINE_HI
+	hair.color = Color(UiKit.LINE_HI.r, UiKit.LINE_HI.g, UiKit.LINE_HI.b, 0.7)
 	hair.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	hair.offset_top = float(BAR_H)
 	hair.offset_bottom = float(BAR_H) + 1.0
 	hair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layer.add_child(hair)
-	var glow := TextureRect.new()
-	glow.texture = UiKit.vgrad(
-		Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.10),
-		Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.0))
-	glow.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	glow.offset_top = float(BAR_H) + 1.0
-	glow.offset_bottom = float(BAR_H) + 13.0
-	glow.stretch_mode = TextureRect.STRETCH_SCALE
-	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var gm := CanvasItemMaterial.new()
-	gm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	glow.material = gm
-	_layer.add_child(glow)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -586,7 +600,9 @@ func _build_topbar() -> void:
 	bar.add_child(row)
 
 	# Left: hexagonal badge — placeholder frame for the player's logo.
-	row.add_child(UiKit.hex_badge(float(BAR_H) - 8.0))
+	var badge := UiKit.hex_badge(float(BAR_H) - 12.0)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(badge)
 
 	# Center: resource + asset readouts for the human player.
 	for key in ["DATE", "CREDITS", "HAULERS", "MINERS", "COMBAT", "COLONIES", "MINING"]:
@@ -604,15 +620,17 @@ func _build_topbar() -> void:
 		var si := i
 		var b := UiKit.speed_button(SPEED_LABELS[i])
 		b.custom_minimum_size = Vector2(26, 22)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		b.pressed.connect(func() -> void:
 			speed_idx = si
 			_sync_speed_buttons())
 		row.add_child(b)
 		_speed_buttons.append(b)
-	var esc := Button.new()
-	esc.text = "☰"
+	# The menu button matches the speed buttons' look, but is a momentary action (no toggle).
+	var esc := UiKit.speed_button("☰")
+	esc.toggle_mode = false
 	esc.custom_minimum_size = Vector2(26, 22)
-	esc.focus_mode = Control.FOCUS_NONE
+	esc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	esc.pressed.connect(_toggle_escape_menu)
 	row.add_child(esc)
 
@@ -627,6 +645,7 @@ func _build_topbar() -> void:
 func _make_cell(caption: String) -> Array:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER   # centre in the taller bar
 	v.add_child(UiKit.kicker(caption))
 	var val := UiKit.label("—", 11, UiKit.TEXT_HI)
 	v.add_child(val)
@@ -729,7 +748,7 @@ func _load_game() -> void:
 	var err := String(sim.load_game(_save_path()))
 	_status.text = "Loaded." if err == "" else "Load failed: %s" % err
 	if err == "":
-		_update_world(0.0)
+		_update_world(1.0)   # snap to the loaded positions, don't ease from the old ones
 		_refresh_topbar()
 
 
