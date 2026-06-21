@@ -14,6 +14,13 @@ const SCALE3D := 1.0 / 1_000_000.0
 const SPEEDS := [0.0, 1.0, 6.0, 24.0]          # pause · 1× · 6× · 24×
 const SPEED_LABELS := ["❚❚", "▶", "▶▶", "▶▶▶"]
 const TICKS_PER_SECOND := 4.0                   # real-time-with-pause base rate
+const BAR_H := 30                               # top-bar height (px)
+
+# Camera rig (orbit / pan / zoom around a focus point).
+const ZOOM_MIN := 0.6
+const ZOOM_MAX := 30.0
+const ROT_K := 0.008                            # rad per pixel dragged
+const PAN_K := 0.0016                           # world units per pixel, per zoom unit
 
 var sim: TorchSim
 var speed_idx := 1
@@ -24,12 +31,19 @@ var _cam: Camera3D
 var _orrery_root: Node3D
 var _body_nodes: Array[Node3D] = []
 var _ship_nodes: Array[Node3D] = []
+var _cam_focus := Vector3.ZERO
+var _cam_zoom := 3.8                             # start close on the inner system
+var _cam_yaw := 0.0
+var _cam_pitch := deg_to_rad(62.0)
+var _dragging := false
+var _was_drag := false
 
 # HUD
 var _layer: CanvasLayer
 var _topbar_labels := {}
 var _escape_menu: Control
 var _status: Label
+var _speed_buttons: Array[Button] = []
 
 
 func _ready() -> void:
@@ -62,10 +76,8 @@ func _build_world() -> void:
 	_cam = Camera3D.new()
 	_cam.current = true
 	_cam.far = 8000.0
-	# A gently-tilted near-top-down view framing the inner system (~±6 AU).
-	_cam.position = Vector3(0, 7.0, 2.6)
-	_cam.look_at(Vector3.ZERO, Vector3(0, 0, -1))
 	add_child(_cam)
+	_update_camera()   # framed close on the inner system; orbit/pan/zoom from input
 
 	_orrery_root = Node3D.new()
 	add_child(_orrery_root)
@@ -174,6 +186,15 @@ func _update_world() -> void:
 		sn.position = Vector3(sx, y, sz)
 
 
+## Position the camera from its spherical orbit (yaw/pitch/zoom) around the focus point.
+func _update_camera() -> void:
+	_cam_pitch = clampf(_cam_pitch, deg_to_rad(15.0), deg_to_rad(85.0))
+	var cp := cos(_cam_pitch)
+	var dir := Vector3(cp * sin(_cam_yaw), sin(_cam_pitch), cp * cos(_cam_yaw))
+	_cam.position = _cam_focus + dir * _cam_zoom
+	_cam.look_at(_cam_focus, Vector3.UP)
+
+
 # ---- top bar -------------------------------------------------------------------
 
 func _build_topbar() -> void:
@@ -181,23 +202,49 @@ func _build_topbar() -> void:
 	add_child(_layer)
 
 	var bar := PanelContainer.new()
-	bar.add_theme_stylebox_override("panel", UiKit.panel_box(UiKit.BG_BAR, UiKit.LINE, 0))
+	bar.add_theme_stylebox_override("panel", UiKit.bar_box(UiKit.BG_BAR, UiKit.BG))
 	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	bar.custom_minimum_size = Vector2(0, 44)
+	bar.custom_minimum_size = Vector2(0, BAR_H)
 	_layer.add_child(bar)
 
+	# A faint accent top-highlight + crisp bottom hairline + a very faint bloom below the bar.
+	var hi := ColorRect.new()
+	hi.color = Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.22)
+	hi.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	hi.offset_bottom = 1.0
+	hi.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(hi)
+	var hair := ColorRect.new()
+	hair.color = UiKit.LINE_HI
+	hair.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	hair.offset_top = float(BAR_H)
+	hair.offset_bottom = float(BAR_H) + 1.0
+	hair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(hair)
+	var glow := TextureRect.new()
+	glow.texture = UiKit.vgrad(
+		Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.10),
+		Color(UiKit.ACCENT.r, UiKit.ACCENT.g, UiKit.ACCENT.b, 0.0))
+	glow.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	glow.offset_top = float(BAR_H) + 1.0
+	glow.offset_bottom = float(BAR_H) + 13.0
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gm := CanvasItemMaterial.new()
+	gm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	glow.material = gm
+	_layer.add_child(glow)
+
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
+	row.add_theme_constant_override("separation", 12)
 	row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	bar.add_child(row)
 
-	# Left: company logo placeholder.
-	var logo := UiKit.label("◆ TORCH", 16, UiKit.ACCENT)
-	logo.custom_minimum_size = Vector2(120, 0)
-	row.add_child(logo)
+	# Left: hexagonal badge — placeholder frame for the player's logo.
+	row.add_child(UiKit.hex_badge(float(BAR_H) - 8.0))
 
-	# Center: resource + asset readouts for the human player + a live market price.
-	for key in ["DATE", "CREDITS", "HAULERS", "MINERS", "COMBAT", "COLONIES", "MINING", "ALLOYS E/C"]:
+	# Center: resource + asset readouts for the human player.
+	for key in ["DATE", "CREDITS", "HAULERS", "MINERS", "COMBAT", "COLONIES", "MINING"]:
 		var cell := _make_cell(key)
 		row.add_child(cell[0])
 		_topbar_labels[key] = cell[1]
@@ -206,18 +253,20 @@ func _build_topbar() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
 
-	# Right: speed controls + escape-menu button.
+	# Right: speed controls (current speed marked) + escape-menu button.
+	_speed_buttons.clear()
 	for i in SPEEDS.size():
 		var si := i
-		var b := Button.new()
-		b.text = SPEED_LABELS[i]
-		b.custom_minimum_size = Vector2(34, 30)
-		b.focus_mode = Control.FOCUS_NONE
-		b.pressed.connect(func() -> void: speed_idx = si)
+		var b := UiKit.speed_button(SPEED_LABELS[i])
+		b.custom_minimum_size = Vector2(26, 22)
+		b.pressed.connect(func() -> void:
+			speed_idx = si
+			_sync_speed_buttons())
 		row.add_child(b)
+		_speed_buttons.append(b)
 	var esc := Button.new()
 	esc.text = "☰"
-	esc.custom_minimum_size = Vector2(34, 30)
+	esc.custom_minimum_size = Vector2(26, 22)
 	esc.focus_mode = Control.FOCUS_NONE
 	esc.pressed.connect(_toggle_escape_menu)
 	row.add_child(esc)
@@ -234,7 +283,7 @@ func _make_cell(caption: String) -> Array:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
 	v.add_child(UiKit.kicker(caption))
-	var val := UiKit.label("—", 14, UiKit.TEXT_HI)
+	var val := UiKit.label("—", 11, UiKit.TEXT_HI)
 	v.add_child(val)
 	return [v, val]
 
@@ -247,11 +296,13 @@ func _refresh_topbar() -> void:
 	(_topbar_labels["COMBAT"] as Label).text = str(sim.count_combat())
 	(_topbar_labels["COLONIES"] as Label).text = str(sim.count_colonies())
 	(_topbar_labels["MINING"] as Label).text = str(sim.count_mining_stations())
-	# Live Alloys price at the Earth (consumer) and Ceres (producer) hubs — the spread the
-	# arbitrage haulers trade on, visibly moving as they work. Alloys is commodity index 3.
-	var earth_p: int = sim.market_price(0, 3)
-	var ceres_p: int = sim.market_price(2, 3)
-	(_topbar_labels["ALLOYS E/C"] as Label).text = "%d / %d" % [earth_p, ceres_p]
+	_sync_speed_buttons()
+
+
+## Mark the active speed button (keeps spacebar / escape-menu speed changes reflected).
+func _sync_speed_buttons() -> void:
+	for i in _speed_buttons.size():
+		_speed_buttons[i].button_pressed = (i == speed_idx)
 
 
 func _date_string() -> String:
@@ -357,3 +408,34 @@ func _unhandled_input(event: InputEvent) -> void:
 				_toggle_escape_menu()
 			KEY_SPACE:
 				speed_idx = 0 if speed_idx > 0 else 1
+		return
+	# Camera: wheel = zoom, left-drag = pan, shift+left-drag = orbit.
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+			_cam_zoom = clampf(_cam_zoom * 0.9, ZOOM_MIN, ZOOM_MAX)
+			_update_camera()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+			_cam_zoom = clampf(_cam_zoom * 1.1, ZOOM_MIN, ZOOM_MAX)
+			_update_camera()
+		elif event.button_index == MOUSE_BUTTON_LEFT:
+			_dragging = event.pressed
+			if event.pressed:
+				_was_drag = false
+	elif event is InputEventMouseMotion and _dragging:
+		var rel: Vector2 = event.relative
+		if rel.length() > 2.0:
+			_was_drag = true
+		if event.shift_pressed:
+			_cam_yaw -= rel.x * ROT_K
+			_cam_pitch += rel.y * ROT_K
+		else:
+			# Pan along the camera's flattened right/forward axes so the world tracks the cursor.
+			var right := _cam.global_transform.basis.x
+			var fwd := _cam.global_transform.basis.z
+			right.y = 0.0
+			fwd.y = 0.0
+			right = right.normalized()
+			fwd = fwd.normalized()
+			var k := _cam_zoom * PAN_K
+			_cam_focus += (-right * rel.x + fwd * rel.y) * k
+		_update_camera()

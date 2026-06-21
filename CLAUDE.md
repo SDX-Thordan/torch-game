@@ -372,6 +372,20 @@ Status: [x] done, [~] in progress, [ ] todo.
   coloured nebulosity to the **Milky-Way `bandmask`** (so it's galactic dust, not floating balls),
   darken the base (`~0.005`), and tighten the band (`smoothstep(0.55,1.0,…)^2.2`, intensity ~0.6).
   Let the multi-scale star layers carry the look.
+- **Top-bar chrome recipes (CanvasLayer 2D):** a **gradient** fill = `StyleBoxTexture` whose
+  `texture` is a vertical `GradientTexture2D` (StyleBoxTexture *can't* draw a border, so add the
+  bottom hairline as a separate `ColorRect`). A **very faint bloom** = a thin `TextureRect` just
+  below the bar with an accent→transparent `GradientTexture2D` and a `CanvasItemMaterial`
+  (`blend_mode = BLEND_MODE_ADD`) — keep top alpha ~0.10. A **hex logo placeholder** = a `Control`
+  holding a `Polygon2D` (6 verts at `i·PI/3`, flat-top) + a closed `Line2D` outline (node-only, **no
+  `class_name`** to dodge the import-hang trap). **Mark the active speed** with a `toggle_mode`
+  Button styled like `nav_button` (transparent `normal`, `ACCENT_SOFT`+border `pressed`/`hover_pressed`)
+  and set `button_pressed = (i==speed_idx)` each refresh so spacebar/escape changes stay reflected.
+- **Camera orbit/pan/zoom rig** (no picking): keep `_cam_focus`/`_cam_zoom`/`_cam_yaw`/`_cam_pitch`,
+  position from spherical coords (`dir=(cos p·sin y, sin p, cos p·cos y)`, `pos=focus+dir·zoom`) then
+  `look_at(focus, UP)` with pitch clamped ~[15°,85°]. In `_unhandled_input`: wheel = `zoom*=0.9|1.1`,
+  left-drag = pan (`focus += (−right·rel.x + fwd·rel.y)·zoom·k` along the camera's *flattened* axes),
+  shift+left-drag = orbit. Render-verify by stepping `zoom`/`focus` programmatically + capturing.
 
 ### 7.5 Render-verify workflow
 
@@ -446,6 +460,16 @@ Status: [x] done, [~] in progress, [ ] todo.
   refuel buys Fusion Fuel** (×~110/unit ⇒ bankrupts everyone). Raise `FUEL_PER_DISTANCE` (→300k) so
   the per-trip burn (~7–13) is a small fraction of trade margin; paid refuel then becomes a healthy
   terminal sink that *tightens* the supply (19×→15×) instead of collapsing it.
+- **The player's seeded haulers were load-bearing for the ambient economy.** Starting the player
+  **empty** (blank-slate: no ships/stations, just the 50k treasury) isn't free — the human's 2 Psyche
+  haulers were quietly part of the food-logistics network; removing them tipped Food security from
+  ⚠ 3/13 (23%) to ✗ 4/12 (33%, the QA `pct>=30 ⇒ Fail` wall). Fix: keep the **player** empty but
+  **reassign the reclaimed trade capacity to NPCs** — the Psyche station + 2 haulers go to the
+  Private Sector (the trade backbone), plus **one extra Earth-docked food hauler** to replace the
+  player's lost participation (food → 2/13, *better* than baseline; verdict back to LIVABLE).
+  Reassigning to a *richer* owner alone (PS/OPA) didn't fix it — their haulers chase high-margin
+  electronics over cheap food, so the food network needs the explicit source-side hauler. **Verify
+  via the economy QA, not byte-identity** — pulling the player out legitimately moves the world.
 
 ### 7.8 Combat tuning
 

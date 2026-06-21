@@ -329,11 +329,18 @@ impl Sim {
             }
         };
 
-        // Human (0): a station at Psyche + two haulers (one keeps the station fed, one earns under
-        // the slower Hohmann travel) + a Miner (cosmetic).
-        chain(self, 0, "Psyche", ceres, 2);
+        // Human (0): a **blank-slate start** — no ships or stations, only the opening credit
+        // treasury (see `player.rs`). An acquisition path is a deliberate follow-up. The ambient
+        // assets it used to carry (a Psyche station + two haulers + a Miner) are reassigned to the
+        // Private Sector (6, the trade backbone) so the food/logistics network is unchanged.
+        chain(self, 6, "Psyche", ceres, 2);
         self.ships
-            .push(Ship::new(0, ShipClass::Miner, "Prospector", ceres));
+            .push(Ship::new(6, ShipClass::Miner, "Prospector", ceres));
+        // The reclaimed capacity nets out the same 30-hauler trade fleet the world was balanced
+        // against; one extra Earth-docked hauler keeps food flowing from its Hydroponics source to
+        // the belt settlements (the human's isolated fleet used to self-balance into that role).
+        self.ships
+            .push(Ship::new(1, ShipClass::Hauler, "Hauler", earth));
 
         // The nations: homeworld colonies + a facility + a belt station + haulers.
         self.colonies.push(Colony::new(1, earth, 8_000));
@@ -1387,12 +1394,16 @@ mod tests {
     }
 
     #[test]
-    fn the_human_is_player_zero_with_starting_assets() {
+    fn the_human_is_player_zero_and_starts_empty() {
+        // Blank-slate start: player 0 is the human with the opening credit treasury but **no**
+        // ships, stations, or colonies (acquisition is a deliberate follow-up).
         let sim = Sim::new(1);
         assert_eq!(sim.players()[0].kind, PlayerKind::Human);
-        assert!(sim.human_ship_count(ShipClass::Hauler) >= 1);
-        assert!(sim.human_ship_count(ShipClass::Miner) >= 1);
-        assert!(sim.human_mining_station_count() >= 1);
+        assert!(sim.human_credits() > 0, "the human starts with a treasury");
+        assert_eq!(sim.human_ship_count(ShipClass::Hauler), 0);
+        assert_eq!(sim.human_ship_count(ShipClass::Miner), 0);
+        assert_eq!(sim.human_mining_station_count(), 0);
+        assert_eq!(sim.human_colony_count(), 0);
     }
 
     #[test]
@@ -1662,9 +1673,17 @@ mod tests {
 
     #[test]
     fn the_human_earns_by_hauling_raw_to_a_demand_center() {
-        // The human (1 station + 1 hauler, no facility): the station mines raw, the hauler carries
-        // it to the best sink, and credits rise — the simplest object-driven chain.
+        // The human starts blank, so grant it the simplest object-driven chain in-test: a belt
+        // station (mines raw) + two haulers (one keeps the station fed, one earns under the slower
+        // Hohmann travel). Credits should then rise.
         let mut sim = Sim::new(0);
+        let psyche = sim.bodies.iter().position(|b| b.name == "Psyche").unwrap();
+        let ceres = sim.markets()[2].body();
+        sim.mining_stations.push(MiningStation::new(0, psyche));
+        for _ in 0..2 {
+            sim.ships
+                .push(Ship::new(0, ShipClass::Hauler, "Hauler", ceres));
+        }
         let c0 = sim.players[0].credits;
         for _ in 0..4_000 {
             sim.step();
@@ -1731,8 +1750,11 @@ mod tests {
     #[test]
     fn a_launched_ship_rides_a_hohmann_transfer_to_the_moving_target() {
         let mut sim = Sim::new(0);
-        // The human's Miner isn't auto-dispatched, so it stays under our manual control. Launch it
-        // to Earth (3).
+        // Grant the (blank-slate) human a Miner. A Miner isn't auto-dispatched, so it stays under
+        // our manual control. Launch it to Earth (3).
+        let ceres = sim.markets()[2].body();
+        sim.ships
+            .push(Ship::new(0, ShipClass::Miner, "Prospector", ceres));
         let i = sim
             .ships
             .iter()
@@ -1783,7 +1805,7 @@ mod tests {
     fn mining_stations_extract_their_bodys_raw_into_a_local_store() {
         let raw = super::super::commodity::raw_count();
         let mut sim = Sim::new(0);
-        // The human's belt mining station accrues *raw* over time (food larder excluded).
+        // The first belt mining station accrues *raw* over time (food larder excluded).
         let raw0: i64 = (0..raw).map(|c| sim.mining_stations[0].get(c)).sum();
         assert_eq!(raw0, 0, "no raw mined yet");
         for _ in 0..50 {

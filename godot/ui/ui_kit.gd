@@ -41,6 +41,86 @@ static func make_panel(fill: Color = BG_PANEL, border: Color = LINE, radius: int
 	return p
 
 
+## A vertical two-stop gradient texture (top → bottom). Shared by the bar fill + its glow.
+static func vgrad(top: Color, bottom: Color) -> GradientTexture2D:
+	var g := Gradient.new()
+	g.set_color(0, top)
+	g.set_color(1, bottom)
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_LINEAR
+	tex.fill_from = Vector2(0.0, 0.0)
+	tex.fill_to = Vector2(0.0, 1.0)
+	tex.width = 8
+	tex.height = 64
+	return tex
+
+
+## The top-bar fill: a subtle vertical gradient (lighter navy top → darker bottom) rather than a
+## flat slab. The crisp bottom hairline + faint glow are drawn by the caller (StyleBoxTexture can't).
+static func bar_box(top: Color, bottom: Color) -> StyleBoxTexture:
+	var sb := StyleBoxTexture.new()
+	sb.texture = vgrad(top, bottom)
+	sb.set_content_margin_all(0)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 10
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	return sb
+
+
+## A hexagonal badge — placeholder frame for the player's logo (flat-top hexagon, fill + outline).
+static func hex_badge(size: float, fill: Color = BG_INSET, border: Color = ACCENT) -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(size, size)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var c := size * 0.5
+	var r := size * 0.46
+	var pts := PackedVector2Array()
+	for i in 6:
+		var a := float(i) * PI / 3.0          # flat-top hexagon (vertices at 0°,60°,…)
+		pts.append(Vector2(c + r * cos(a), c + r * sin(a)))
+	var poly := Polygon2D.new()
+	poly.polygon = pts
+	poly.color = fill
+	holder.add_child(poly)
+	var outline := Line2D.new()
+	var lpts := pts.duplicate()
+	lpts.append(pts[0])
+	outline.points = lpts
+	outline.width = maxf(1.0, size * 0.07)
+	outline.default_color = border
+	outline.joint_mode = Line2D.LINE_JOINT_ROUND
+	holder.add_child(outline)
+	return holder
+
+
+## A speed-control toggle button: transparent until active, then an accent-washed pill (so the
+## current speed reads at a glance). Caller sets `button_pressed` to mark the active one.
+static func speed_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.toggle_mode = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 12)
+	b.add_theme_color_override("font_color", TEXT_DIM)
+	b.add_theme_color_override("font_pressed_color", ACCENT)
+	b.add_theme_color_override("font_hover_color", TEXT_HI)
+	var flat := StyleBoxFlat.new()
+	flat.bg_color = Color(0, 0, 0, 0)
+	flat.set_corner_radius_all(4)
+	var on := StyleBoxFlat.new()
+	on.bg_color = ACCENT_SOFT
+	on.set_corner_radius_all(4)
+	on.set_border_width_all(1)
+	on.border_color = ACCENT
+	b.add_theme_stylebox_override("normal", flat)
+	b.add_theme_stylebox_override("hover", flat)
+	b.add_theme_stylebox_override("pressed", on)
+	b.add_theme_stylebox_override("hover_pressed", on)
+	return b
+
+
 # ---- text -------------------------------------------------------------------
 
 static func label(text: String, size: int = 13, color: Color = TEXT) -> Label:
