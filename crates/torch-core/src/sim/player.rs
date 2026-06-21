@@ -102,7 +102,10 @@ pub fn default_players() -> Vec<Player> {
         mk("Outer Planets Alliance", Opa, Expansion, 200_000),
         mk("Pallas Combine", Company, Trade, 120_000),
         mk("Tycho Industries", Company, Industrial, 120_000),
-        mk("Private Sector", PrivateSector, Trade, 80_000),
+        // The Private Sector is the **bottomless free-market abstraction** (non-aligned trading +
+        // the broader unmodelled Sol economy) — the liquidity that lets demand always have money to
+        // buy. It carries a large working float so it "always has some money" and never stalls trade.
+        mk("Private Sector", PrivateSector, Trade, 1_000_000),
         mk("The Free Navy", Pirates, Predation, 40_000),
     ]
 }

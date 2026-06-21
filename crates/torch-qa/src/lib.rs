@@ -92,6 +92,7 @@ impl Report {
 struct RunMetrics {
     seed: u64,
     player_names: Vec<String>,
+    player_is_nation: Vec<bool>,
     credits_start_total: i64,
     credits_end_total: i64,
     // per-player minimum credits seen (solvency).
@@ -125,12 +126,14 @@ fn run_one(seed: u64, ticks: u64, sample_every: u64) -> RunMetrics {
     let goods = commodity::commodity_count();
     let mut sim = Sim::new(seed);
     let player_names: Vec<String> = sim.players().iter().map(|p| p.name.clone()).collect();
+    let player_is_nation: Vec<bool> = sim.players().iter().map(|p| p.kind.is_nation()).collect();
     let credits_start_total: i64 = sim.players().iter().map(|p| p.credits).sum();
     let mut player_min_credits: Vec<i64> = sim.players().iter().map(|p| p.credits).collect();
 
     let mut m = RunMetrics {
         seed,
         player_names,
+        player_is_nation,
         credits_start_total,
         credits_end_total: 0,
         player_min_credits: player_min_credits.clone(),
@@ -300,6 +303,41 @@ pub fn assess(seeds: &[u64], ticks: u64) -> Report {
                         "A power ran a deficit funding its infrastructure — bounded, not bankrupt.",
                     Severity::Fail =>
                         "A power collapsed into runaway debt — the economy can't sustain it.",
+                }
+            ),
+        });
+    }
+
+    // 2b. National self-funding — the nations (Earth/Mars/OPA) mint population income to fund their
+    //     fleets/refuelling/construction, so each should end a long run solvent (not bled dry).
+    {
+        let mut worst_end = i64::MAX;
+        let mut worst_who = String::new();
+        let mut worst_seed = 0;
+        for r in &runs {
+            for i in 0..r.player_end_credits.len() {
+                if r.player_is_nation[i] && r.player_end_credits[i] < worst_end {
+                    worst_end = r.player_end_credits[i];
+                    worst_who = r.player_names[i].clone();
+                    worst_seed = r.seed;
+                }
+            }
+        }
+        let sev = if worst_end < 0 {
+            Severity::Warn
+        } else {
+            Severity::Good
+        };
+        findings.push(Finding {
+            severity: sev,
+            title: "National self-funding".into(),
+            detail: format!(
+                "Lowest a nation's end credits fell across seeds: {worst_end} ({worst_who}, seed \
+                 {worst_seed}). {}",
+                if sev == Severity::Good {
+                    "Population income keeps the nations self-funding (fleets + refuelling + builds)."
+                } else {
+                    "A nation ends a run in deficit — raise the per-capita income or trim its costs."
                 }
             ),
         });

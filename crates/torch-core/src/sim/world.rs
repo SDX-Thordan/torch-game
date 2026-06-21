@@ -25,6 +25,11 @@ const BROKER_FEE_BP: i64 = 200;
 /// Cross-owner purchase tax (basis points) paid to the market-owning government — a conserving
 /// transfer that tightens trade and funds the nations.
 const TAX_BP: i64 = 200;
+/// Per-capita national income (basis points of population per tick) minted to a nation from its
+/// **capital colony** — the GDP/tax base not modelled in the goods sim. This is the nations'
+/// (Earth/Mars/OPA) real money source to fund their fleets, refuelling, and construction; private
+/// actors get none (their money is the bottomless free-market / Private-Sector abstraction).
+const INCOME_PER_CAPITA_BP: i64 = 400;
 /// Flat utility for keeping a starved facility/colony fed — high so supply beats small arbitrage
 /// (it only fires when a consumer is actually below its low-water mark).
 const SUPPLY_BONUS: i64 = 80_000;
@@ -34,7 +39,7 @@ const EST_FUEL_CREDIT: i64 = 60;
 /// collecting — bounds the world even when logistics stalls).
 const STATION_STORE_CAP: i64 = 1_000;
 /// Distance units burned per unit of Fusion Fuel on a flight (lump-sum at departure).
-const FUEL_PER_DISTANCE: i64 = 50_000;
+const FUEL_PER_DISTANCE: i64 = 300_000;
 
 /// A held market reservation: `(market index, commodity, quantity)`.
 type MarketResv = Option<(usize, usize, i64)>;
@@ -415,6 +420,9 @@ impl Sim {
         self.run_production();
         // 3b. Food consumption: settlements (colonies + station crews) eat from their local store.
         self.run_food_consumption();
+        // 3b2. National income: nations mint GDP/tax from their capital populations (their money
+        //      source to fund fleets, refuelling, construction). The sole nation-side money tap.
+        self.run_population_income();
         // 3c. Shipyards consume Alloys + Electronics (the terminal demand sink for those goods).
         self.run_shipyards();
         // 4. Advance in-flight ships; dock those that have arrived.
@@ -490,6 +498,21 @@ impl Sim {
         for z in &mut self.zero_g_stations {
             let d = z.food_demand();
             z.add(commodity::FOOD, -d);
+        }
+    }
+
+    /// National income: each **nation** (Earth/Mars/OPA) mints `population × INCOME_PER_CAPITA_BP/BP`
+    /// from every colony it owns (its capital) — the domestic GDP/tax base not modelled in the goods
+    /// sim, and the nations' real money source to fund fleets, refuelling, and construction. Private
+    /// actors own no colonies (only stations) so they get none — their liquidity is the bottomless
+    /// free-market abstraction instead. Integer, no RNG.
+    fn run_population_income(&mut self) {
+        for ci in 0..self.colonies.len() {
+            let owner = self.colonies[ci].owner;
+            if self.players[owner as usize].kind.is_nation() {
+                let income = self.colonies[ci].population * INCOME_PER_CAPITA_BP / BP;
+                self.credit(owner, income);
+            }
         }
     }
 
@@ -1047,14 +1070,40 @@ impl Sim {
             })
     }
 
-    /// Refuel docked ships at port — fuel (Fusion Fuel, ultimately from Ice) is available where a
-    /// ship docks, so a hauler never strands mid-network. (A locational fuel economy — buying
-    /// Fusion Fuel at the dock's market — is a future refinement; flights still cost fuel.)
+    /// Refuel docked ships **by buying Fusion Fuel** from the market network (no longer free) — the
+    /// terminal consumer Fusion Fuel lacked, and the fuel expense nations cover from their population
+    /// income. A docked ship tops its tank from the best fuel market (cost + broker fee, + the
+    /// cross-owner tax to the market owner), removing that stock. If no market has fuel within reach
+    /// it tops up free — a fallback so a ship can never be permanently stranded. No RNG.
     fn run_ship_upkeep(&mut self) {
-        for sh in &mut self.ships {
-            if !sh.in_flight() {
-                sh.fuel = super::ship::ship_stats(sh).fuel_capacity;
+        use super::commodity::FUSION_FUEL;
+        for i in 0..self.ships.len() {
+            if self.ships[i].in_flight() {
+                continue;
             }
+            let cap = super::ship::ship_stats(&self.ships[i]).fuel_capacity;
+            let deficit = cap - self.ships[i].fuel;
+            if deficit <= 0 {
+                continue;
+            }
+            let owner = self.ships[i].owner;
+            let body = self.ships[i].body;
+            if let Some(m) = self.best_buy_market(FUSION_FUEL, body) {
+                let q = deficit.min(self.markets[m].available_to_buy(FUSION_FUEL));
+                if q > 0 {
+                    let mkt_owner = self.markets[m].owner();
+                    let cost = self.markets[m].execute_buy(FUSION_FUEL, q);
+                    let fee = cost * BROKER_FEE_BP / BP;
+                    self.debit(owner, cost + fee);
+                    if mkt_owner != owner {
+                        self.pay(owner, mkt_owner, cost * TAX_BP / BP);
+                    }
+                    self.ships[i].fuel += q;
+                    continue;
+                }
+            }
+            // No reachable fuel market with stock — top up free (no permanent strand).
+            self.ships[i].fuel = cap;
         }
     }
 
@@ -1271,6 +1320,70 @@ mod tests {
             assert_eq!(pa.credits, pb.credits);
             assert_eq!(pa.stockpiles, pb.stockpiles);
         }
+    }
+
+    #[test]
+    fn a_docked_ship_buys_its_fuel_from_the_market_not_free() {
+        use super::super::commodity::FUSION_FUEL;
+        let mut sim = Sim::new(0);
+        // A human hauler docks at Ceres (markets[2]), a Fusion Fuel producer. Empty its tank, then
+        // run the refuel phase: it should *buy* fuel — paying credits and drawing the market's
+        // Fusion-Fuel stock down — rather than topping up for free.
+        let ceres_body = sim.markets()[2].body();
+        let i = sim
+            .ships
+            .iter()
+            .position(|s| s.class == ShipClass::Hauler && s.body == ceres_body)
+            .expect("a hauler docked at Ceres");
+        let owner = sim.ships[i].owner;
+        sim.ships[i].fuel = 0;
+        let cred0 = sim.players[owner as usize].credits;
+        let stock0 = sim.markets[2].stock(FUSION_FUEL);
+        sim.run_ship_upkeep();
+        assert!(sim.ships[i].fuel > 0, "the ship refuelled");
+        assert!(
+            sim.players[owner as usize].credits < cred0,
+            "fuel cost the owner credits (not free)"
+        );
+        assert!(
+            sim.markets[2].stock(FUSION_FUEL) < stock0,
+            "refuelling drew Fusion Fuel from the market (a terminal consumer)"
+        );
+    }
+
+    #[test]
+    fn nations_earn_population_income_but_private_actors_dont() {
+        let mut sim = Sim::new(0);
+        // Sum the expected per-tick income directly from the nation-owned colonies.
+        let expected: i64 = sim
+            .colonies()
+            .iter()
+            .filter(|c| sim.players()[c.owner as usize].kind.is_nation())
+            .map(|c| c.population * INCOME_PER_CAPITA_BP / BP)
+            .sum();
+        assert!(expected > 0, "nations have capital populations");
+        // A private player owns no colony, so the income phase pays it nothing. Capture credits of
+        // a nation and a private actor, run ONLY the income phase, and compare the deltas.
+        let earth = 1usize; // United Nations (Earth) — a nation
+        let priv6 = 6usize; // Private Sector — not a nation, owns no colony
+        let earth_pop: i64 = sim
+            .colonies()
+            .iter()
+            .filter(|c| c.owner as usize == earth)
+            .map(|c| c.population)
+            .sum();
+        let (e0, p0) = (sim.players()[earth].credits, sim.players()[priv6].credits);
+        sim.run_population_income();
+        assert_eq!(
+            sim.players()[earth].credits - e0,
+            earth_pop * INCOME_PER_CAPITA_BP / BP,
+            "Earth earned exactly its population income"
+        );
+        assert_eq!(
+            sim.players()[priv6].credits - p0,
+            0,
+            "the Private Sector earns no population income"
+        );
     }
 
     #[test]

@@ -431,6 +431,21 @@ Status: [x] done, [~] in progress, [ ] todo.
   outer hauls need `MAX_HAULERS=16` + `CRUISE_SPEED=60k`. The fattest-spread router skews NPC
   *destinations* (fine for the player-facing economy; a distance-aware dispatcher is the fix if
   it ever matters).
+- **(rework) The money model: two deliberate taps, NOT strict conservation.** A "conserving" rewire
+  (every trade a transfer *through* the market-owning government) is mechanically clean but makes
+  nations bleed an **unbounded** deficit — the §7c stabilizers re-create the inter-market spread
+  *for free* every tick and arbitrageurs extract it; no tax/upkeep/margin combo bounds it (high tax
+  just bankrupts traders on price-drift over the long Hohmann transit). Instead: **(1)** the
+  **Private Sector is the bottomless market-maker** — keep simple mint-on-sale / burn-on-buy markets
+  (that *is* the free-market abstraction) + give player 6 a large working float so it "always has
+  money" and never stalls demand; **(2)** **nations mint population income** (`run_population_income`:
+  `population × INCOME_PER_CAPITA_BP/BP` per nation-owned colony) — their real money source to fund
+  fleets/refuel/build. Bounded by price walls + finite terminal demand, not conservation (~10–17×).
+- **Fuel cost scales with `AU=1_000_000`:** belt↔hub distance is ~2–4M units, so `fuel_cost =
+  dist/FUEL_PER_DISTANCE` was ~40–80/trip — fine when refuel was *free*, but **catastrophic once
+  refuel buys Fusion Fuel** (×~110/unit ⇒ bankrupts everyone). Raise `FUEL_PER_DISTANCE` (→300k) so
+  the per-trip burn (~7–13) is a small fraction of trade margin; paid refuel then becomes a healthy
+  terminal sink that *tightens* the supply (19×→15×) instead of collapsing it.
 
 ### 7.8 Combat tuning
 
