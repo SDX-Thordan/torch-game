@@ -470,6 +470,26 @@ Status: [x] done, [~] in progress, [ ] todo.
   Reassigning to a *richer* owner alone (PS/OPA) didn't fix it — their haulers chase high-margin
   electronics over cheap food, so the food network needs the explicit source-side hauler. **Verify
   via the economy QA, not byte-identity** — pulling the player out legitimately moves the world.
+- **The big-economy expansion (14 goods · 4 tiers · multi-input · realistic population).** Lessons
+  from making it a *living* economy without tripping the four gates (no-death-spiral 64×2000,
+  living-market 16×1500, 6000t solvency >−150k, QA no-Fail): **(1) the price ladder must be
+  value-additive** — each manufactured good's `base_price` must clear the cost of its recipe inputs
+  (×ratio) or production *loses money* and the owner bleeds (Ship Components ← 2 Machine Parts + 1
+  Electronics ⇒ base must exceed ~3180). **(2) Cheap goods don't sell into a market**, so a producer's
+  output piles up (hits the cap, production stalls) while consumers starve — let consumers pull a good
+  **directly from a same-owner facility's output** (the internal-haul path), not only via the market.
+  **(3) Split the dispatch bonus:** essential **food** (`CONSUMER_BONUS`, sized above the fattest
+  arbitrage leg) must beat speculative arbitrage, but **facility-input** supply (`SUPPLY_BONUS`) stays
+  moderate so haulers don't overpay for dear feedstock and bankrupt the owner. **(4) Realistic
+  population is *scaled*, not raw:** store Earth ~8e9 but divide income by `POP_SCALE` and food demand
+  by `POP_PER_FOOD` so per-tick magnitudes stay in-band (income must out-earn the population's food
+  bill — check the per-capita inequality). **(5) Remote mining-outpost crews run closed-loop food**
+  (net-zero self-production) so a belt station never starves on a long convoy — the food economy is the
+  *population centres*. **(6) ~90 haulers saturate trade:** margins compress and marginal (company)
+  haulers lose to price-drift over the long transit → cheapen per-trip fuel (`FUEL_PER_DISTANCE↑`) and
+  give the income-less commercial actors (companies/pirates) a **small flat stipend** (nations mint
+  population income; PS is the bottomless float). Tune against `cargo run -p torch-qa -- TICKS SEEDS`
+  (note arg order: **ticks first**) until LIVABLE.
 
 ### 7.8 Combat tuning
 

@@ -97,16 +97,23 @@ pub fn default_players() -> Vec<Player> {
     };
     vec![
         mk("Independent Operator", Human, Idle, 50_000),
-        mk("United Nations (Earth)", Earth, Industrial, 500_000),
-        mk("Martian Congressional Republic", Mars, Industrial, 500_000),
-        mk("Outer Planets Alliance", Opa, Expansion, 200_000),
-        mk("Pallas Combine", Company, Trade, 120_000),
-        mk("Tycho Industries", Company, Industrial, 120_000),
+        // Nations carry large treasuries — they fund bigger fleets + shipyards through the long
+        // Hohmann warm-up and lean on population income (Earth dominant, Mars/OPA smaller).
+        mk("United Nations (Earth)", Earth, Industrial, 3_000_000),
+        mk(
+            "Martian Congressional Republic",
+            Mars,
+            Industrial,
+            2_000_000,
+        ),
+        mk("Outer Planets Alliance", Opa, Expansion, 1_500_000),
+        mk("Pallas Combine", Company, Trade, 1_000_000),
+        mk("Tycho Industries", Company, Industrial, 1_000_000),
         // The Private Sector is the **bottomless free-market abstraction** (non-aligned trading +
         // the broader unmodelled Sol economy) — the liquidity that lets demand always have money to
-        // buy. It carries a large working float so it "always has some money" and never stalls trade.
-        mk("Private Sector", PrivateSector, Trade, 1_000_000),
-        mk("The Free Navy", Pirates, Predation, 40_000),
+        // buy. It carries a large working float (now a 40-hauler fleet) so trade never stalls.
+        mk("Private Sector", PrivateSector, Trade, 5_000_000),
+        mk("The Free Navy", Pirates, Predation, 60_000),
     ]
 }
 

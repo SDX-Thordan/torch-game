@@ -4,34 +4,51 @@
 //! and produces an output good per its [`Recipe`]. Not wired to the UI this iteration — it
 //! lives in the data model and is exercised by `step()` + tests.
 
-use super::commodity::{Recipe, ALLOYS, ELECTRONICS, FOOD, FUSION_FUEL};
+use super::commodity::{
+    Recipe, ALLOYS, BULLION, ELECTRONICS, FOOD, FUSION_FUEL, MACHINE_PARTS, SHIP_COMPONENTS, WAFERS,
+};
 use super::player::PlayerId;
 use serde::{Deserialize, Serialize};
 
-/// One facility kind per industrial/consumer good.
+/// One facility kind per industrial/advanced/consumer good.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FacilityKind {
-    AlloyPlant,
+    // Industrial (refine raw)
     FusionRefinery,
+    AlloyPlant,
+    WaferFab,
+    Refinery,
+    // Advanced (manufacture)
     ElectronicsFab,
+    MachineShop,
+    Shipworks,
+    // Consumer
     Hydroponics,
 }
 
 impl FacilityKind {
     pub fn name(self) -> &'static str {
         match self {
-            FacilityKind::AlloyPlant => "Alloy Plant",
             FacilityKind::FusionRefinery => "Fusion Refinery",
+            FacilityKind::AlloyPlant => "Alloy Plant",
+            FacilityKind::WaferFab => "Wafer Fab",
+            FacilityKind::Refinery => "Precious Refinery",
             FacilityKind::ElectronicsFab => "Electronics Fab",
+            FacilityKind::MachineShop => "Machine Shop",
+            FacilityKind::Shipworks => "Shipworks",
             FacilityKind::Hydroponics => "Hydroponics",
         }
     }
     /// The good this facility produces (its catalog index).
     pub fn output(self) -> usize {
         match self {
-            FacilityKind::AlloyPlant => ALLOYS,
             FacilityKind::FusionRefinery => FUSION_FUEL,
+            FacilityKind::AlloyPlant => ALLOYS,
+            FacilityKind::WaferFab => WAFERS,
+            FacilityKind::Refinery => BULLION,
             FacilityKind::ElectronicsFab => ELECTRONICS,
+            FacilityKind::MachineShop => MACHINE_PARTS,
+            FacilityKind::Shipworks => SHIP_COMPONENTS,
             FacilityKind::Hydroponics => FOOD,
         }
     }
@@ -106,8 +123,10 @@ mod tests {
 
     #[test]
     fn recipes_resolve() {
-        assert_eq!(FacilityKind::AlloyPlant.recipe().input, ORE);
-        assert_eq!(FacilityKind::FusionRefinery.recipe().input, ICE);
-        assert_eq!(FacilityKind::Hydroponics.recipe().input, ICE);
+        assert_eq!(FacilityKind::AlloyPlant.recipe().inputs, vec![(ORE, 2)]);
+        assert_eq!(FacilityKind::FusionRefinery.recipe().inputs, vec![(ICE, 2)]);
+        assert_eq!(FacilityKind::Hydroponics.recipe().inputs, vec![(ICE, 1)]);
+        // The advanced tier blends several feedstocks.
+        assert_eq!(FacilityKind::Shipworks.recipe().inputs.len(), 2);
     }
 }

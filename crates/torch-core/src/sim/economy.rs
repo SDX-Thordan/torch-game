@@ -38,14 +38,28 @@ pub fn price_defs() -> Vec<PriceDef> {
         max_stock,
         demand_jitter,
     };
+    // The ladder is **value-additive**: each manufactured good's base price clears the cost of its
+    // recipe inputs (so production earns a margin and never bleeds its owner). Advanced + precious
+    // goods carry tighter, low-jitter (administered) bands so their spreads don't dwarf the rest.
     vec![
-        row("Ice", 40, 20, 120, 800, 2_000, 4),
-        row("Ore", 50, 25, 150, 800, 2_000, 4),
-        row("Rare Materials", 120, 60, 360, 500, 1_500, 3),
-        row("Alloys", 150, 80, 400, 600, 1_600, 4),
-        row("Fusion Fuel", 110, 60, 300, 600, 1_600, 3),
-        row("Electronics", 300, 160, 800, 400, 1_200, 2),
-        row("Food", 70, 35, 200, 700, 1_800, 3),
+        // Raw (mined).
+        row("Ice", 40, 22, 90, 800, 2_000, 4),
+        row("Ore", 50, 28, 110, 800, 2_000, 4),
+        row("Silicon", 70, 40, 150, 700, 1_800, 4),
+        row("Gold", 220, 150, 360, 300, 900, 2),
+        row("Silver", 140, 95, 230, 350, 1_000, 2),
+        row("Platinum", 300, 200, 480, 260, 800, 2),
+        // Industrial (refined) — base > input cost.
+        row("Fusion Fuel", 120, 70, 240, 600, 1_600, 3), // > 2·Ice(80)
+        row("Alloys", 160, 95, 320, 600, 1_600, 3),      // > 2·Ore(100)
+        row("Silicon Wafers", 230, 150, 420, 500, 1_400, 3), // > 2·Silicon(140)
+        row("Bullion", 950, 720, 1_500, 220, 700, 1),    // > Gold+Silver+Platinum(660)
+        // Advanced (manufactured) — administered.
+        row("Electronics", 1_700, 1_300, 2_600, 380, 1_100, 1), // > 2·Wafer+Bullion(1410)
+        row("Machine Parts", 740, 520, 1_200, 380, 1_100, 1),   // > 2·Alloys+Wafer(550)
+        row("Ship Components", 4_000, 3_100, 6_000, 280, 820, 1), // > 2·Parts+Electronics(3180)
+        // Consumer (end-use).
+        row("Food", 70, 38, 150, 700, 1_800, 3),
     ]
 }
 
@@ -277,20 +291,47 @@ pub fn default_markets() -> Vec<Market> {
     use Role::*;
     let defs = price_defs();
     // Build a setpoint vector from a per-good role table (index == commodity index).
-    let setpoints = |roles: [Role; 7]| -> Vec<i64> {
+    let setpoints = |roles: [Role; 14]| -> Vec<i64> {
         defs.iter()
             .enumerate()
             .map(|(c, d)| setpoint_for(d, roles[c]))
             .collect()
     };
-    // [Ice, Ore, Rare, Alloys, FusionFuel, Electronics, Food]
-    let _ = (ICE, ORE, RARE, ALLOYS, FUSION_FUEL, ELECTRONICS, FOOD);
-    // Earth is the population + agriculture centre: a cheap Food producer (so settlements can
-    // afford to feed their crews) and a consumer of industrial goods.
-    let earth = setpoints([Mid, Consumer, Mid, Consumer, Mid, Consumer, Producer]);
-    let mars = setpoints([Mid, Mid, Consumer, Producer, Mid, Mid, Mid]);
+    // Guard: the role tables below are indexed by commodity, in catalog order.
+    let _ = (
+        ICE,
+        ORE,
+        SILICON,
+        GOLD,
+        SILVER,
+        PLATINUM,
+        FUSION_FUEL,
+        ALLOYS,
+        WAFERS,
+        BULLION,
+        ELECTRONICS,
+        MACHINE_PARTS,
+        SHIP_COMPONENTS,
+        FOOD,
+    );
+    // Order: Ice Ore Silicon Gold Silver Platinum | FusionFuel Alloys Wafers Bullion |
+    //        Electronics MachineParts ShipComponents | Food
+    // Earth — population + tech + agriculture centre: makes Wafers/Electronics/Food,
+    // imports raw + the heavy industrial goods.
+    let earth = setpoints([
+        Mid, Consumer, Mid, Consumer, Consumer, Consumer, Mid, Consumer, Producer, Consumer,
+        Producer, Consumer, Consumer, Producer,
+    ]);
+    // Mars — heavy industry: makes Alloys/Machine Parts/Ship Components, imports feedstock + food.
+    let mars = setpoints([
+        Mid, Consumer, Mid, Mid, Mid, Mid, Consumer, Producer, Consumer, Mid, Consumer, Producer,
+        Producer, Consumer,
+    ]);
+    // Ceres (OPA belt) — raw + refining producer: cheap raw, Fusion Fuel + Bullion; buys the
+    // advanced goods.
     let ceres = setpoints([
-        Producer, Producer, Producer, Producer, Producer, Consumer, Mid,
+        Producer, Producer, Producer, Producer, Producer, Producer, Producer, Mid, Mid, Producer,
+        Consumer, Consumer, Consumer, Mid,
     ]);
     vec![
         Market::with_setpoints("Earth Hub", 3, 1, defs.clone(), earth),

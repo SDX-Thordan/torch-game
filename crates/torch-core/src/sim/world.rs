@@ -30,16 +30,37 @@ const TAX_BP: i64 = 200;
 /// (Earth/Mars/OPA) real money source to fund their fleets, refuelling, and construction; private
 /// actors get none (their money is the bottomless free-market / Private-Sector abstraction).
 const INCOME_PER_CAPITA_BP: i64 = 400;
-/// Flat utility for keeping a starved facility/colony fed — high so supply beats small arbitrage
-/// (it only fires when a consumer is actually below its low-water mark).
-const SUPPLY_BONUS: i64 = 80_000;
+/// A small flat per-tick revenue for the light commercial actors — companies' minor off-screen
+/// industry and the Free Navy's raiding. Keeps them solvent against fuel + the price-drift losses
+/// a ~90-hauler market inflicts on marginal traders (nations use population income; the Private
+/// Sector is the bottomless float).
+const ENTERPRISE_INCOME: i64 = 340;
+const RAIDING_INCOME: i64 = 220;
+/// Population is stored at **realistic scale** (Earth ~8e9). The per-tick economic effects
+/// (income + food demand) are divided down by these so the per-tick magnitudes stay in the band
+/// the markets/fleets are balanced against — a bigger population still means proportionally more
+/// income and more food to haul, just bounded.
+const POP_SCALE: i64 = 150_000;
+/// People fed per one unit of Food demand per tick (so Earth's billions ⇒ tens of Food/tick).
+const POP_PER_FOOD: i64 = 400_000_000;
+/// Flat utility for routing raw/inputs to a starved **facility** (fires only below its low-water
+/// mark). High enough that feeding the chain beats arbitrage — safe now that the price ladder is
+/// value-additive (production earns a margin, so buying inputs is recouped on the sale). The
+/// `- cost` term still naturally deprioritises overpaying for an already-dear feedstock.
+const SUPPLY_BONUS: i64 = 220_000;
+/// Utility for feeding a **settlement** (population/crew Food) — sized above the fattest arbitrage
+/// leg so essential food delivery always beats speculative trade. Food is cheap, so this never
+/// bankrupts the buyer (and nations' population income covers their food bill).
+const CONSUMER_BONUS: i64 = 400_000;
 /// Credit-equivalent of one fuel unit, used only to *score* (deter) long hauls — not charged.
 const EST_FUEL_CREDIT: i64 = 60;
 /// A mining station / colony local raw store cap (so it stops digging when a hauler isn't
 /// collecting — bounds the world even when logistics stalls).
 const STATION_STORE_CAP: i64 = 1_000;
-/// Distance units burned per unit of Fusion Fuel on a flight (lump-sum at departure).
-const FUEL_PER_DISTANCE: i64 = 300_000;
+/// Distance units burned per unit of Fusion Fuel on a flight (lump-sum at departure). Tuned so a
+/// belt round-trip's fuel is a small fraction of the trade margin — with ~90 haulers competing,
+/// margins compress, so a too-heavy fuel bill would bleed the marginal (company) haulers.
+const FUEL_PER_DISTANCE: i64 = 1_500_000;
 
 /// A held market reservation: `(market index, commodity, quantity)`.
 type MarketResv = Option<(usize, usize, i64)>;
@@ -54,7 +75,7 @@ const SHIPYARD_INTERVAL: u64 = 12;
 const SHIPYARD_BATCH: i64 = 2;
 /// A shipyard's owner won't buy materials below this treasury (so a build never bankrupts a
 /// government — the sink is bounded by affordability).
-const SHIPYARD_MIN_TREASURY: i64 = 300_000;
+const SHIPYARD_MIN_TREASURY: i64 = 700_000;
 /// Materials value a shipyard accumulates before a (notional) ship completes.
 const SHIP_BUILD_COST: i64 = 90;
 /// Ship procurement is **disabled** — a completed build sinks its materials but spawns no `Ship`.
@@ -97,13 +118,13 @@ impl SettlementTier {
             SettlementTier::Capital => 4,
         }
     }
-    /// The tier a colony of `population` falls into.
+    /// The tier a colony of `population` falls into (realistic scale: Earth ~8e9 = Capital).
     pub fn for_population(population: i64) -> Self {
         match population {
-            p if p >= 8_000 => SettlementTier::Capital,
-            p if p >= 5_000 => SettlementTier::Hub,
-            p if p >= 1_000 => SettlementTier::Colony,
-            p if p >= 200 => SettlementTier::Station,
+            p if p >= 1_000_000_000 => SettlementTier::Capital,
+            p if p >= 100_000_000 => SettlementTier::Hub,
+            p if p >= 10_000_000 => SettlementTier::Colony,
+            p if p >= 1_000_000 => SettlementTier::Station,
             _ => SettlementTier::Outpost,
         }
     }
@@ -155,9 +176,10 @@ impl Colony {
     pub fn tier(&self) -> SettlementTier {
         SettlementTier::for_population(self.population)
     }
-    /// Food consumed per tick by the colony's population.
+    /// Food consumed per tick — **population-proportional** (a floor of 1 so any settled body
+    /// still demands), so Earth's billions drive tens of Food/tick and a real logistics load.
     pub fn food_demand(&self) -> i64 {
-        self.tier().food_per_tick()
+        (self.population / POP_PER_FOOD).max(1)
     }
 }
 
@@ -318,55 +340,94 @@ impl Sim {
         let belt = |s: &Self, name: &str| s.bodies.iter().position(|b| b.name == name);
         let (earth, mars, ceres) = (3usize, 4usize, 5usize);
 
-        // Helper: a station on belt body `name` + `haulers` haulers docked there, for `owner`.
-        let chain = |s: &mut Self, owner: u16, station_body: &str, dock: usize, haulers: usize| {
-            if let Some(b) = belt(s, station_body) {
-                s.mining_stations.push(MiningStation::new(owner, b));
-            }
-            for _ in 0..haulers {
-                s.ships
-                    .push(Ship::new(owner, ShipClass::Hauler, "Hauler", dock));
+        // Helpers (each takes `&mut Self`, so they don't alias `belt`'s shared borrow).
+        let colony = |s: &mut Self, owner: u16, name: &str, pop: i64| {
+            if let Some(b) = belt(s, name) {
+                s.colonies.push(Colony::new(owner, b, pop));
             }
         };
+        let plant = |s: &mut Self, owner: u16, name: &str, kind: FacilityKind, rate: i64| {
+            if let Some(b) = belt(s, name) {
+                let mut f = Facility::new(owner, b, kind);
+                f.rate = rate;
+                s.facilities.push(f);
+            }
+        };
+        let mine = |s: &mut Self, owner: u16, name: &str| {
+            if let Some(b) = belt(s, name) {
+                s.mining_stations.push(MiningStation::new(owner, b));
+            }
+        };
+        let fleet = |s: &mut Self, owner: u16, label: &str, count: usize, docks: &[usize]| {
+            for n in 0..count {
+                s.ships.push(Ship::new(
+                    owner,
+                    ShipClass::Hauler,
+                    label,
+                    docks[n % docks.len()],
+                ));
+            }
+        };
+        let tycho = belt(self, "Tycho").unwrap_or(ceres);
 
         // Human (0): a **blank-slate start** — no ships or stations, only the opening credit
-        // treasury (see `player.rs`). An acquisition path is a deliberate follow-up. The ambient
-        // assets it used to carry (a Psyche station + two haulers + a Miner) are reassigned to the
-        // Private Sector (6, the trade backbone) so the food/logistics network is unchanged.
-        chain(self, 6, "Psyche", ceres, 2);
+        // treasury (see `player.rs`). An acquisition path is a deliberate follow-up.
+
+        // ---- Populations (realistic scale; income + food demand scale off these). Capitals plus
+        //      OPA belt colonies + an inner Earth colony spread demand across several centres.
+        colony(self, 1, "Earth", 8_000_000_000); // UN capital
+        colony(self, 1, "Mercury", 250_000_000); // UN inner colony
+        colony(self, 2, "Mars", 3_000_000_000); // MCR capital
+        colony(self, 3, "Ceres", 400_000_000); // OPA belt metropolis
+        colony(self, 3, "Vesta", 60_000_000); // OPA
+        colony(self, 3, "Tycho", 45_000_000); // OPA
+        colony(self, 3, "Pluto", 25_000_000); // OPA frontier
+
+        // ---- Production chain: a facility per produced good, distributed so every good has a
+        //      source. Food-side rates are high (population food demand is large now).
+        plant(self, 1, "Earth", FacilityKind::WaferFab, 8); // Earth: tech + agriculture
+        plant(self, 1, "Earth", FacilityKind::ElectronicsFab, 6);
+        plant(self, 1, "Earth", FacilityKind::Refinery, 4);
+        plant(self, 1, "Earth", FacilityKind::Hydroponics, 30);
+        plant(self, 2, "Mars", FacilityKind::AlloyPlant, 10); // Mars: heavy industry
+        plant(self, 2, "Mars", FacilityKind::MachineShop, 8);
+        plant(self, 2, "Mars", FacilityKind::Shipworks, 5);
+        plant(self, 2, "Mars", FacilityKind::Hydroponics, 15);
+        plant(self, 3, "Ceres", FacilityKind::FusionRefinery, 12); // OPA: refining + food
+        plant(self, 3, "Ceres", FacilityKind::AlloyPlant, 8);
+        plant(self, 3, "Ceres", FacilityKind::Refinery, 4);
+        plant(self, 3, "Ceres", FacilityKind::WaferFab, 6);
+        plant(self, 3, "Ceres", FacilityKind::Hydroponics, 20);
+        plant(self, 6, "Tycho", FacilityKind::ElectronicsFab, 5); // Private Sector node
+        plant(self, 6, "Tycho", FacilityKind::MachineShop, 5);
+        plant(self, 6, "Tycho", FacilityKind::Shipworks, 4);
+        plant(self, 6, "Tycho", FacilityKind::Hydroponics, 10); // feeds the PS deep-space habitats
+
+        // ---- Belt mining stations (raw supply). More independents (Private Sector + companies).
+        mine(self, 1, "Hygiea"); // Earth
+        mine(self, 2, "Juno"); // Mars
+        for name in ["Vesta", "Pallas", "Eros"] {
+            mine(self, 3, name); // OPA heartland
+        }
+        mine(self, 4, "Eunomia"); // Pallas Combine
+        mine(self, 5, "Davida"); // Tycho Industries
+        for name in ["Psyche", "Interamnia", "Hektor", "Tycho"] {
+            mine(self, 6, name); // Private Sector — the independent miners
+        }
+        mine(self, 7, "Sylvia"); // Free Navy
+
+        // ---- Fleets. Private Sector is the trade backbone; the nations + companies run their own.
+        let hubs = [earth, mars, ceres, tycho];
+        fleet(self, 6, "Trader", 40, &hubs); // Private Sector — 40
+        fleet(self, 3, "Hauler", 20, &[ceres, mars]); // OPA — 20
+        fleet(self, 2, "Hauler", 10, &[mars]); // Mars — 10
+        fleet(self, 1, "Hauler", 10, &[earth]); // Earth — 10
+        fleet(self, 4, "Hauler", 3, &[earth]); // Pallas Combine
+        fleet(self, 5, "Hauler", 3, &[mars]); // Tycho Industries
+        fleet(self, 7, "Hauler", 2, &[ceres]); // Free Navy
         self.ships
             .push(Ship::new(6, ShipClass::Miner, "Prospector", ceres));
-        // The reclaimed capacity nets out the same 30-hauler trade fleet the world was balanced
-        // against; one extra Earth-docked hauler keeps food flowing from its Hydroponics source to
-        // the belt settlements (the human's isolated fleet used to self-balance into that role).
-        self.ships
-            .push(Ship::new(1, ShipClass::Hauler, "Hauler", earth));
 
-        // The nations: homeworld colonies + a facility + a belt station + haulers.
-        self.colonies.push(Colony::new(1, earth, 8_000));
-        self.colonies.push(Colony::new(2, mars, 5_000));
-        self.colonies.push(Colony::new(3, ceres, 2_000));
-        self.facilities
-            .push(Facility::new(1, earth, FacilityKind::ElectronicsFab));
-        self.facilities
-            .push(Facility::new(2, mars, FacilityKind::AlloyPlant));
-        self.facilities
-            .push(Facility::new(3, ceres, FacilityKind::FusionRefinery));
-        // Earth also runs a Hydroponics plant so Food has a producer and trades.
-        self.facilities
-            .push(Facility::new(1, earth, FacilityKind::Hydroponics));
-        chain(self, 1, "Hygiea", earth, 3); // Earth
-        chain(self, 2, "Juno", mars, 3); // Mars
-                                         // OPA holds the belt heartland: three stations + a colony need a real fleet to feed + sell.
-        for name in ["Vesta", "Pallas", "Eros"] {
-            if let Some(b) = belt(self, name) {
-                self.mining_stations.push(MiningStation::new(3, b));
-            }
-        }
-        for _ in 0..6 {
-            self.ships
-                .push(Ship::new(3, ShipClass::Hauler, "Hauler", ceres)); // OPA
-        }
         // Combat vessels (no economic role yet).
         self.ships
             .push(Ship::new(1, ShipClass::Combat, "UNN Cerberus", earth));
@@ -374,22 +435,6 @@ impl Sim {
             .push(Ship::new(2, ShipClass::Combat, "MCRN Donnager", mars));
         self.ships
             .push(Ship::new(7, ShipClass::Combat, "Free Navy Pella", ceres));
-
-        // Companies / pirates: a station + two haulers each (margin for food + income under the
-        // slower Hohmann travel), so every player earns.
-        chain(self, 4, "Eunomia", earth, 2);
-        chain(self, 5, "Davida", mars, 2);
-        chain(self, 7, "Sylvia", ceres, 2);
-        // The Private Sector (player 6) is the **trade backbone**: a station + 10 haulers,
-        // docked across the three hubs for spatial spread. They mostly arbitrage the markets.
-        if let Some(b) = belt(self, "Interamnia") {
-            self.mining_stations.push(MiningStation::new(6, b));
-        }
-        let hubs = [earth, mars, ceres];
-        for n in 0..10 {
-            self.ships
-                .push(Ship::new(6, ShipClass::Hauler, "Trader", hubs[n % 3]));
-        }
 
         // Zero-G stations (player-unobtainable; fixed set). One shipyard per power orbiting its
         // capital, plus the independent private sector's yard + a couple of deep-space habitats.
@@ -463,6 +508,11 @@ impl Sim {
                     st.add(r, amt);
                 }
             }
+            // Remote outpost crews run **closed-loop life support** — they grow their own food
+            // (net-zero against the crew's draw in `run_food_consumption`), so a belt mining
+            // station never starves waiting on a long-haul food convoy. The real food economy is
+            // the population centres (colonies + habitats), which trade for it.
+            st.add(commodity::FOOD, st.food_demand());
         }
         // Colonies on an abundant body dig at a lighter rate (they're not dedicated miners).
         for col in &mut self.colonies {
@@ -482,9 +532,12 @@ impl Sim {
         use super::facility::FACILITY_OUTPUT_CAP;
         for f in &mut self.facilities {
             let r = f.kind.recipe();
-            let need = f.rate * r.ratio;
-            if f.input_of(r.input) >= need && f.output_of(r.out) < FACILITY_OUTPUT_CAP {
-                f.add_input(r.input, -need);
+            // Produce only if *every* input is on hand (× the rate) and there's output headroom.
+            let fed = r.inputs.iter().all(|(g, n)| f.input_of(*g) >= f.rate * n);
+            if fed && f.output_of(r.out) < FACILITY_OUTPUT_CAP {
+                for (g, n) in &r.inputs {
+                    f.add_input(*g, -(f.rate * n));
+                }
                 f.add_output(r.out, f.rate);
             }
         }
@@ -517,8 +570,20 @@ impl Sim {
         for ci in 0..self.colonies.len() {
             let owner = self.colonies[ci].owner;
             if self.players[owner as usize].kind.is_nation() {
-                let income = self.colonies[ci].population * INCOME_PER_CAPITA_BP / BP;
+                let income = self.colonies[ci].population * INCOME_PER_CAPITA_BP / BP / POP_SCALE;
                 self.credit(owner, income);
+            }
+        }
+        // The light commercial actors (companies + pirates) have a small off-screen revenue so they
+        // stay solvent — the nations earn from population, the Private Sector is bottomless.
+        for p in 0..self.players.len() {
+            let income = match self.players[p].kind {
+                super::player::PlayerKind::Company => ENTERPRISE_INCOME,
+                super::player::PlayerKind::Pirates => RAIDING_INCOME,
+                _ => 0,
+            };
+            if income > 0 {
+                self.credit(p as u16, income);
             }
         }
     }
@@ -530,7 +595,7 @@ impl Sim {
     /// completion the materials are sunk (a `Ship` is spawned only when `SHIP_PROCUREMENT_ENABLED` —
     /// off — so the world is byte-identical to no-procurement bar the consumption). No RNG.
     fn run_shipyards(&mut self) {
-        use super::commodity::{ALLOYS, ELECTRONICS};
+        use super::commodity::{MACHINE_PARTS, SHIP_COMPONENTS};
         if !self.tick.is_multiple_of(SHIPYARD_INTERVAL) {
             return;
         }
@@ -543,7 +608,8 @@ impl Sim {
                 continue; // can't afford to build right now
             }
             let at = self.zero_g_stations[zi].body;
-            for good in [ALLOYS, ELECTRONICS] {
+            // The terminal demand sink — pulls the whole new chain (raw → … → Ship Components).
+            for good in [SHIP_COMPONENTS, MACHINE_PARTS] {
                 if let Some(m) = self.best_buy_market(good, at) {
                     let q = SHIPYARD_BATCH.min(self.markets[m].available_to_buy(good));
                     if q <= 0 {
@@ -908,60 +974,63 @@ impl Sim {
             if f.owner != owner {
                 continue;
             }
-            let input = f.kind.recipe().input;
-            if f.input_of(input) >= FACILITY_LOW_WATER {
-                continue;
-            }
-            // Own-raw source first (free internal feed).
-            let mut own_src = None;
-            for (k, st) in self.mining_stations.iter().enumerate() {
-                if st.owner == owner && st.get(input) >= LOAD_MIN {
-                    own_src = Some((SiteRef::Station(k), st.body, st.get(input)));
-                    break;
+            // A multi-input facility can be starved on any one feedstock — route each below its
+            // low-water mark independently.
+            for (input, _ratio) in f.kind.recipe().inputs {
+                if f.input_of(input) >= FACILITY_LOW_WATER {
+                    continue;
                 }
-            }
-            if let Some((src, src_body, avail)) = own_src {
-                let qty = cap.min(avail).min(FACILITY_INPUT_CAP - f.input_of(input));
-                if qty >= LOAD_MIN {
-                    let d = dist2(src_body, f.body);
+                // Own-raw source first (free internal feed).
+                let mut own_src = None;
+                for (k, st) in self.mining_stations.iter().enumerate() {
+                    if st.owner == owner && st.get(input) >= LOAD_MIN {
+                        own_src = Some((SiteRef::Station(k), st.body, st.get(input)));
+                        break;
+                    }
+                }
+                if let Some((src, src_body, avail)) = own_src {
+                    let qty = cap.min(avail).min(FACILITY_INPUT_CAP - f.input_of(input));
+                    if qty >= LOAD_MIN {
+                        let d = dist2(src_body, f.body);
+                        cands.push((
+                            SUPPLY_BONUS - fuel_est(d),
+                            d,
+                            Job {
+                                good: input,
+                                from: src,
+                                to: SiteRef::Facility(j),
+                                phase: JobPhase::ToPickup,
+                                qty,
+                            },
+                        ));
+                        continue;
+                    }
+                }
+                if let Some(m) = self.best_buy_market(input, f.body) {
+                    let qty = cap
+                        .min(self.markets[m].available_to_buy(input))
+                        .min(FACILITY_INPUT_CAP - f.input_of(input));
+                    if qty < LOAD_MIN {
+                        continue;
+                    }
+                    let cost = self.markets[m].price(input) * qty;
+                    let d = dist2(self.markets[m].body(), f.body);
+                    let value = SUPPLY_BONUS - cost - fuel_est(d);
                     cands.push((
-                        SUPPLY_BONUS - fuel_est(d),
+                        value,
                         d,
                         Job {
                             good: input,
-                            from: src,
+                            from: SiteRef::Market {
+                                market: m,
+                                commodity: input,
+                            },
                             to: SiteRef::Facility(j),
                             phase: JobPhase::ToPickup,
                             qty,
                         },
                     ));
-                    continue;
                 }
-            }
-            if let Some(m) = self.best_buy_market(input, f.body) {
-                let qty = cap
-                    .min(self.markets[m].available_to_buy(input))
-                    .min(FACILITY_INPUT_CAP - f.input_of(input));
-                if qty < LOAD_MIN {
-                    continue;
-                }
-                let cost = self.markets[m].price(input) * qty;
-                let d = dist2(self.markets[m].body(), f.body);
-                let value = SUPPLY_BONUS - cost - fuel_est(d);
-                cands.push((
-                    value,
-                    d,
-                    Job {
-                        good: input,
-                        from: SiteRef::Market {
-                            market: m,
-                            commodity: input,
-                        },
-                        to: SiteRef::Facility(j),
-                        phase: JobPhase::ToPickup,
-                        qty,
-                    },
-                ));
             }
         }
 
@@ -974,6 +1043,29 @@ impl Sim {
                 if want <= 0 || have >= want {
                     return;
                 }
+                // Prefer a same-owner facility that **produces** this good (a direct internal haul,
+                // e.g. Hydroponics → settlement). Cheap consumer goods never sell well into a market,
+                // so without this the output piles up (production stalls) while settlements starve.
+                for (j, f) in s.facilities.iter().enumerate() {
+                    if f.owner == owner && f.output_of(good) >= LOAD_MIN {
+                        let qty = cap.min(f.output_of(good)).min(want - have);
+                        if qty >= LOAD_MIN {
+                            let d = dist2(f.body, dest_body);
+                            cands.push((
+                                CONSUMER_BONUS - fuel_est(d),
+                                d,
+                                Job {
+                                    good,
+                                    from: SiteRef::Facility(j),
+                                    to: dest,
+                                    phase: JobPhase::ToPickup,
+                                    qty,
+                                },
+                            ));
+                            return;
+                        }
+                    }
+                }
                 if let Some(m) = s.best_buy_market(good, dest_body) {
                     let qty = cap
                         .min(s.markets[m].available_to_buy(good))
@@ -983,7 +1075,7 @@ impl Sim {
                     }
                     let cost = s.markets[m].price(good) * qty;
                     let d = dist2(s.markets[m].body(), dest_body);
-                    let value = SUPPLY_BONUS - cost - fuel_est(d);
+                    let value = CONSUMER_BONUS - cost - fuel_est(d);
                     cands.push((
                         value,
                         d,
@@ -1058,7 +1150,7 @@ impl Sim {
     fn owner_consumes(&self, owner: PlayerId, good: usize) -> bool {
         self.facilities
             .iter()
-            .any(|f| f.owner == owner && f.kind.recipe().input == good)
+            .any(|f| f.owner == owner && f.kind.recipe().inputs.iter().any(|(g, _)| *g == good))
     }
 
     /// The best market index to **sell** `good` into from `at_body`: highest price → nearest →
@@ -1366,24 +1458,26 @@ mod tests {
             .colonies()
             .iter()
             .filter(|c| sim.players()[c.owner as usize].kind.is_nation())
-            .map(|c| c.population * INCOME_PER_CAPITA_BP / BP)
+            .map(|c| c.population * INCOME_PER_CAPITA_BP / BP / POP_SCALE)
             .sum();
         assert!(expected > 0, "nations have capital populations");
         // A private player owns no colony, so the income phase pays it nothing. Capture credits of
         // a nation and a private actor, run ONLY the income phase, and compare the deltas.
         let earth = 1usize; // United Nations (Earth) — a nation
         let priv6 = 6usize; // Private Sector — not a nation, owns no colony
-        let earth_pop: i64 = sim
+                            // Income is minted **per colony** (floored), so sum the per-colony incomes — not the
+                            // summed population (which would round differently).
+        let earth_income: i64 = sim
             .colonies()
             .iter()
             .filter(|c| c.owner as usize == earth)
-            .map(|c| c.population)
+            .map(|c| c.population * INCOME_PER_CAPITA_BP / BP / POP_SCALE)
             .sum();
         let (e0, p0) = (sim.players()[earth].credits, sim.players()[priv6].credits);
         sim.run_population_income();
         assert_eq!(
             sim.players()[earth].credits - e0,
-            earth_pop * INCOME_PER_CAPITA_BP / BP,
+            earth_income,
             "Earth earned exactly its population income"
         );
         assert_eq!(
@@ -1477,7 +1571,7 @@ mod tests {
 
     #[test]
     fn shipyards_buy_materials_as_a_demand_sink_but_procure_no_ships() {
-        use super::super::commodity::{ALLOYS, ELECTRONICS};
+        use super::super::commodity::{MACHINE_PARTS, SHIP_COMPONENTS};
         let mut sim = Sim::new(0);
         let zi = sim
             .zero_g_stations
@@ -1485,20 +1579,20 @@ mod tests {
             .position(|z| z.is_shipyard())
             .unwrap();
         let owner = sim.zero_g_stations[zi].owner;
-        // The shipyard buys Alloys + Electronics from the market (terminal demand → it pays + the
-        // market stock drops), and advances its build progress. Procurement disabled ⇒ no ship.
+        // The shipyard buys Ship Components + Machine Parts from the market (the terminal demand →
+        // it pays + market stock drops), and advances its build progress. Procurement disabled.
         let ships0 = sim.ships.len();
         let cred0 = sim.players[owner as usize].credits;
         let stock0: i64 = (0..sim.markets.len())
-            .map(|m| sim.markets[m].stock(ALLOYS) + sim.markets[m].stock(ELECTRONICS))
+            .map(|m| sim.markets[m].stock(SHIP_COMPONENTS) + sim.markets[m].stock(MACHINE_PARTS))
             .sum();
         sim.run_shipyards();
         let stock1: i64 = (0..sim.markets.len())
-            .map(|m| sim.markets[m].stock(ALLOYS) + sim.markets[m].stock(ELECTRONICS))
+            .map(|m| sim.markets[m].stock(SHIP_COMPONENTS) + sim.markets[m].stock(MACHINE_PARTS))
             .sum();
         assert!(
             stock1 < stock0,
-            "shipyards drew Alloys/Electronics from the markets (a demand sink)"
+            "shipyards drew Ship Components/Machine Parts from the markets (a demand sink)"
         );
         assert!(
             sim.players[owner as usize].credits < cred0,
@@ -1595,7 +1689,7 @@ mod tests {
         assert_eq!(
             sim0.colonies()[0].tier(),
             SettlementTier::Capital,
-            "Earth pop 8000 = Capital"
+            "Earth pop 8e9 = Capital"
         );
         assert!(sim0.colonies()[0].food_demand() > sim0.mining_stations()[0].food_demand());
         let mut sim = Sim::new(0);
@@ -1826,8 +1920,10 @@ mod tests {
         let mut f = Facility::new(2, 4, FacilityKind::AlloyPlant);
         // Starved: run_production would produce nothing (input is 0).
         assert_eq!(f.output_of(ALLOYS), 0);
-        // Simulate one production tick by hand (mirrors run_production).
-        let need = f.rate * f.kind.recipe().ratio;
+        // Simulate one production tick by hand (mirrors run_production: AlloyPlant ← Ore).
+        let (ore_in, ratio) = f.kind.recipe().inputs[0];
+        assert_eq!(ore_in, ORE);
+        let need = f.rate * ratio;
         assert!(f.input_of(ORE) < need, "no on-site input → starved");
         f.add_input(ORE, 400);
         assert!(f.input_of(ORE) >= need, "fed on-site input → can produce");

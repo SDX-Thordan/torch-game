@@ -219,7 +219,7 @@ fn run_one(seed: u64, ticks: u64, sample_every: u64) -> RunMetrics {
             .iter()
             .filter(|f| {
                 let r = f.kind.recipe();
-                f.input_of(r.input) >= f.rate * r.ratio
+                r.inputs.iter().all(|(g, n)| f.input_of(*g) >= f.rate * n)
             })
             .count() as i64;
         m.fed_facilities_sum += fed;
